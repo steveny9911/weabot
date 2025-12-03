@@ -59,11 +59,7 @@ async function postPoll(channelId: string) {
       question: { text: "Mood" },
       answers: [
         { poll_media: { text: "umazing" } },
-        { poll_media: { text: "great" } },
-        { poll_media: { text: "good" } },
-        { poll_media: { text: "normal" } },
-        { poll_media: { text: "bad" } },
-        { poll_media: { text: "awful" } },
+        { poll_media: { text: "ok" } },
         { poll_media: { text: "glue" } },
       ],
       duration: 24, // Duration in hours
@@ -110,6 +106,8 @@ Deno.cron("Daily Retro Poll", "0 5 * * *", async () => {
     console.error(`Channel '${channelName}' not found in guild '${GUILD_ID}'.`);
   }
 });
+
+// todo create and delete nightly channel
 
 // Keep the process alive for Deno Deploy (though cron usually handles this, serving a basic response is good practice)
 Deno.serve((_req) => new Response("Discord Poll Bot is active."));
