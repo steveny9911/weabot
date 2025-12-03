@@ -90,10 +90,9 @@ async function postPoll(channelId: string) {
   }
 }
 
-// Cron Schedule: 04:00 UTC (which is 20:00 PST / 21:00 PDT)
+// Cron Schedule: 05:00 UTC (which is 21:00 PST / 22:00 PDT)
 // Deno Deploy cron format: minute hour day month day-of-week
-// Deno.cron("Daily Retro Poll", "0 4 * * *", async () => {
-Deno.cron("Daily Retro Poll", "* * * * *", async () => {
+Deno.cron("Daily Retro Poll", "0 5 * * *", async () => {
   if (!DISCORD_TOKEN || !GUILD_ID) {
     console.error("Skipping job due to missing env vars.");
     return;
