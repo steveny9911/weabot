@@ -1,9 +1,11 @@
 // Environment variables
 const DISCORD_TOKEN = Deno.env.get("DISCORD_TOKEN");
-const GUILD_ID = Deno.env.get("GUILD_ID");
+const CHANNEL_ID = Deno.env.get("CHANNEL_ID");
 
-if (!DISCORD_TOKEN || !GUILD_ID) {
-  console.error("Error: Missing DISCORD_TOKEN or GUILD_ID environment variables.");
+if (!DISCORD_TOKEN || !CHANNEL_ID) {
+  console.error(
+    "Error: Missing DISCORD_TOKEN or CHANNEL_ID environment variables.",
+  );
 }
 
 // Discord API Base URL
@@ -15,40 +17,11 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 
-// Interface for partial Channel object
-interface DiscordChannel {
-  id: string;
-  name: string;
-  type: number; // 0 is GUILD_TEXT
-}
-
-/**
- * Fetches all channels for the configured guild and finds the one named "sprint-retro".
- */
-async function getChannelIdByName(channelName: string): Promise<string | null> {
-  try {
-    const res = await fetch(`${API_BASE}/guilds/${GUILD_ID}/channels`, {
-      headers: HEADERS,
-    });
-
-    if (!res.ok) {
-      console.error(`Failed to fetch channels: ${res.status} ${res.statusText}`);
-      const body = await res.text();
-      console.error(body);
-      return null;
-    }
-
-    const channels: DiscordChannel[] = await res.json();
-    const target = channels.find(
-      (c) => c.name === channelName && c.type === 0 // Ensure it's a text channel
-    );
-
-    return target ? target.id : null;
-  } catch (error) {
-    console.error("Error fetching channels:", error);
-    return null;
-  }
-}
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
 
 /**
  * Posts the poll to the specified channel.
@@ -56,7 +29,7 @@ async function getChannelIdByName(channelName: string): Promise<string | null> {
 async function postPoll(channelId: string) {
   const pollPayload = {
     poll: {
-      question: { text: "Mood" },
+      question: { text: `Mood (${dateFormatter.format(new Date())})` },
       answers: [
         { poll_media: { text: "umazing" } },
         { poll_media: { text: "ok" } },
@@ -68,17 +41,17 @@ async function postPoll(channelId: string) {
   };
 
   try {
-    const res = await fetch(`${API_BASE}/channels/${channelId}/messages`, {
+    const response = await fetch(`${API_BASE}/channels/${channelId}/messages`, {
       method: "POST",
       headers: HEADERS,
       body: JSON.stringify(pollPayload),
     });
 
-    if (res.ok) {
+    if (response.ok) {
       console.log("Poll posted successfully!");
     } else {
-      console.error(`Failed to post poll: ${res.status} ${res.statusText}`);
-      const body = await res.text();
+      console.error(`Failed to post poll: ${response.status} ${response.statusText}`);
+      const body = await response.text();
       console.error(body);
     }
   } catch (error) {
@@ -89,22 +62,15 @@ async function postPoll(channelId: string) {
 // Cron Schedule: 05:00 UTC (which is 21:00 PST / 22:00 PDT)
 // Deno Deploy cron format: minute hour day month day-of-week
 Deno.cron("Daily Retro Poll", "0 5 * * *", async () => {
-  if (!DISCORD_TOKEN || !GUILD_ID) {
+  if (!DISCORD_TOKEN || !CHANNEL_ID) {
     console.error("Skipping job due to missing env vars.");
     return;
   }
 
   console.log("Starting scheduled poll job...");
+  await postPoll(CHANNEL_ID);
 
-  const channelName = "sprint-retro";
-  const channelId = await getChannelIdByName(channelName);
-
-  if (channelId) {
-    console.log(`Found channel '${channelName}' with ID: ${channelId}`);
-    await postPoll(channelId);
-  } else {
-    console.error(`Channel '${channelName}' not found in guild '${GUILD_ID}'.`);
-  }
+  return;
 });
 
 // todo create and delete nightly channel
