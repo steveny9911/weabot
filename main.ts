@@ -1,6 +1,9 @@
 // Environment variables
 const DISCORD_TOKEN = Deno.env.get("DISCORD_TOKEN");
 const CHANNEL_ID = Deno.env.get("CHANNEL_ID");
+// Optional: set TIME_ZONE in your environment (e.g. "America/Los_Angeles")
+// If not set, defaults to America/Los_Angeles
+const TIME_ZONE = Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles";
 
 if (!DISCORD_TOKEN || !CHANNEL_ID) {
   console.error(
@@ -17,10 +20,12 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 
+// Use explicit timezone so date isn't shown in UTC
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   month: "long",
   day: "numeric",
+  timeZone: TIME_ZONE,
 });
 
 /**
