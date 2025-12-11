@@ -11,6 +11,8 @@ export interface AppConfig {
   discordToken: string;
   channelId: string;
   timeZone: string;
+  /** Number of consecutive "glue" days to trigger alert (default: 7) */
+  glueAlertThreshold: number;
 }
 
 /**
@@ -37,5 +39,6 @@ export function loadConfig(): AppConfig {
     discordToken: getEnvOrThrow("DISCORD_TOKEN"),
     channelId: getEnvOrThrow("CHANNEL_ID"),
     timeZone: Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles",
+    glueAlertThreshold: parseInt(Deno.env.get("GLUE_ALERT_THRESHOLD") ?? "7", 10),
   };
 }

@@ -7,23 +7,33 @@
  */
 
 import type { CreatePollMessagePayload } from "../types/discord.ts";
+import type { EmbedMessagePayload } from "../features/stats/mod.ts";
 
 const API_BASE = "https://discord.com/api/v10";
+
+/** Generic message payload (polls, embeds, text, etc.) */
+export type MessagePayload =
+  | CreatePollMessagePayload
+  | EmbedMessagePayload
+  | { content: string };
 
 /** Discord API client interface for dependency injection */
 export interface DiscordClient {
   /**
-   * Posts a message with a poll to a channel
+   * Posts a message to a channel (poll, embed, or text)
    * @param channelId - The Discord channel ID
-   * @param payload - The message payload containing the poll
+   * @param payload - The message payload
    * @returns The raw fetch Response for error handling
    */
-  postMessage(channelId: string, payload: CreatePollMessagePayload): Promise<Response>;
+  postMessage(channelId: string, payload: MessagePayload): Promise<Response>;
 
-  // Future methods can be added here:
-  // getChannel(channelId: string): Promise<Channel>;
-  // createSlashCommand(...): Promise<...>;
-  // sendInteractionResponse(...): Promise<...>;
+  /**
+   * Sends a direct message to a user
+   * @param userId - The Discord user ID
+   * @param payload - The message payload
+   * @returns The raw fetch Response for error handling
+   */
+  sendDM(userId: string, payload: MessagePayload): Promise<Response>;
 }
 
 /**
@@ -45,6 +55,29 @@ export function createDiscordClient(token: string): DiscordClient {
         body: JSON.stringify(payload),
       });
       return response;
+    },
+
+    async sendDM(userId, payload) {
+      // First, create a DM channel with the user
+      const dmChannelResponse = await fetch(`${API_BASE}/users/@me/channels`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ recipient_id: userId }),
+      });
+
+      if (!dmChannelResponse.ok) {
+        return dmChannelResponse;
+      }
+
+      const dmChannel = await dmChannelResponse.json();
+      const channelId = dmChannel.id;
+
+      // Then send the message to that channel
+      return await fetch(`${API_BASE}/channels/${channelId}/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
     },
   };
 }

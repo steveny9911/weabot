@@ -1,9 +1,9 @@
 {
   "tasks": {
-    "start": "deno run --unstable-cron --env --allow-net --allow-env main.ts",
-    "dev": "deno run --unstable-cron --env --watch --allow-net --allow-env main.ts",
+    "start": "deno run --unstable-cron --unstable-kv --env --allow-net --allow-env main.ts",
+    "dev": "deno run --unstable-cron --unstable-kv --env --watch --allow-net --allow-env main.ts",
     "check": "deno check main.ts src/**/*.ts",
-    "test": "deno test --allow-env",
+    "test": "deno test --unstable-kv --allow-env",
     "lint": "deno lint",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check"
