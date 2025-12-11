@@ -17,10 +17,18 @@ in a row.
 
 ## Features
 
-- **Daily Polls**: Automatically posts a mood poll at a scheduled time.
-- **Stats Dashboard**: View aggregated mood statistics as a Discord embed.
-- **Wellness Alerts**: Get notified when a user reports "glue" for 7 consecutive days.
+- **Daily Polls**: Automatically posts a mood poll at 9 PM PST.
+- **Wellness Alerts**: Daily check (10 PM PST) for users feeling "glue" for 7+ consecutive days.
+- **Weekly Stats**: Posts a mood summary every Sunday at 10 PM PST.
 - **Test Endpoints**: HTTP endpoints for testing without waiting for scheduled jobs.
+
+### Scheduled Jobs
+
+| Job                  | Schedule              | Description                            |
+| -------------------- | --------------------- | -------------------------------------- |
+| Daily Retro Poll     | 05:00 UTC (9 PM PST)  | Posts the daily mood poll              |
+| Daily Wellness Check | 06:00 UTC (10 PM PST) | Sends alerts for consecutive glue days |
+| Weekly Stats Summary | Sundays 06:00 UTC     | Posts weekly mood trends               |
 
 ---
 
@@ -111,14 +119,28 @@ Weabot provides HTTP endpoints for testing without waiting for scheduled jobs.
 
 ### Available Endpoints
 
-| Endpoint                      | Description                     |
-| ----------------------------- | ------------------------------- |
-| `GET /health`                 | Health check (returns "OK")     |
-| `GET /trigger`                | Manually post a poll to Discord |
-| `GET /vote?user=ID&mood=MOOD` | Record a test vote              |
-| `GET /stats?days=7&post=true` | View or post stats embed        |
-| `GET /check-alerts?send=true` | Check/send wellness alerts      |
-| `GET /user-history?user=ID`   | View a user's vote history      |
+**Trigger Endpoints** (post to Discord):
+
+| Endpoint                       | Description           |
+| ------------------------------ | --------------------- |
+| `GET /trigger_poll`            | Post a mood poll      |
+| `GET /trigger_stats?days=7`    | Post stats embed      |
+| `GET /trigger_alert?name=Test` | Post a wellness alert |
+
+**Data Endpoints** (view/modify data):
+
+| Endpoint                      | Description                |
+| ----------------------------- | -------------------------- |
+| `GET /vote?user=ID&mood=MOOD` | Record a test vote         |
+| `GET /stats?days=7`           | View stats as JSON         |
+| `GET /check-alerts`           | Check who's at risk        |
+| `GET /user-history?user=ID`   | View a user's vote history |
+
+**Other**:
+
+| Endpoint      | Description         |
+| ------------- | ------------------- |
+| `GET /health` | Health check ("OK") |
 
 ### Test Workflow
 
@@ -127,40 +149,35 @@ Weabot provides HTTP endpoints for testing without waiting for scheduled jobs.
    deno task dev
    ```
 
-2. **Trigger a poll manually**:
+2. **Test the poll**:
    ```bash
-   curl http://localhost:8000/trigger
+   curl http://localhost:8000/trigger_poll
    ```
    Check your Discord channel – a poll should appear!
 
-3. **Simulate votes** (for testing alerts):
+3. **Test the stats embed**:
    ```bash
-   # Simulate 7 days of "glue" votes for user "test123"
+   curl http://localhost:8000/trigger_stats
+   ```
+
+4. **Test the wellness alert**:
+   ```bash
+   # Post a sample alert (customize name and days)
+   curl "http://localhost:8000/trigger_alert?name=TestUser&days=7"
+   ```
+
+5. **Simulate votes** (for testing real alerts):
+   ```bash
+   # Record some votes to populate data
    curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-05"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-06"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-07"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-08"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-09"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-10"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-11"
-   ```
+   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=umazing&date=2025-12-06"
+   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=ok&date=2025-12-07"
 
-4. **Check for alerts**:
-   ```bash
-   # Preview who's at risk
-   curl http://localhost:8000/check-alerts
-
-   # Actually send alerts to Discord
-   curl "http://localhost:8000/check-alerts?send=true"
-   ```
-
-5. **View stats**:
-   ```bash
-   # Get stats as JSON
+   # View stats as JSON
    curl http://localhost:8000/stats?days=7
 
-   # Post stats embed to Discord
-   curl "http://localhost:8000/stats?days=7&post=true"
+   # Check who's at risk
+   curl http://localhost:8000/check-alerts
    ```
 
 ---

@@ -35,7 +35,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 });
 
 // --- Register Services ---
-registerCronJobs(config, discord, dateFormatter);
+registerCronJobs(config, discord, storage, dateFormatter);
 createServer(config, discord, storage, dateFormatter);
 
 console.log("🐴 Weabot is running!");
