@@ -1,23 +1,35 @@
+import { loadConfig } from "./src/config.ts";
+import { createDiscordClient } from "./src/services/discord.ts";
+import { createStorageService } from "./src/services/storage.ts";
+import { createServer } from "./src/server.ts";
+import { registerCronJobs } from "./src/scheduler.ts";
 import { startGateway } from "./discord_gateway.ts";
-import { postPoll } from "./bot_actions.ts";
 
-// Start gateway in background
-startGateway();
+// --- Initialization ---
+// Throws immediately if required env vars are missing (Fail Fast pattern)
+const config = loadConfig();
 
-// Re-add daily poll cron: 05:00 UTC
-Deno.cron("Daily Retro Poll", "0 5 * * *", async () => {
-	const channel = Deno.env.get("CHANNEL_ID");
-	if (!channel) {
-		console.error("Skipping daily poll: CHANNEL_ID not set");
-		return;
-	}
-	try {
-		console.log("Running scheduled poll job for channel", channel);
-		await postPoll(channel);
-	} catch (err) {
-		console.error("Error running scheduled poll:", err);
-	}
+// Initialize Deno KV for data persistence
+const kv = await Deno.openKv();
+const storage = createStorageService(kv);
+
+// Create the Discord API client
+const discord = createDiscordClient(config.discordToken);
+
+// Set up the date formatter with configured timezone
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: config.timeZone,
 });
 
-// Keep a simple HTTP health endpoint available for platforms that expect it
-Deno.serve((_req) => new Response("Discord Poll Bot is active."));
+// --- Register Services ---
+startGateway();
+registerCronJobs(config, discord, storage, dateFormatter);
+createServer(config, discord, storage, dateFormatter);
+
+console.log("🐴 Weabot is running!");
+console.log(`   Channel: ${config.channelId}`);
+console.log(`   Timezone: ${config.timeZone}`);
+console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
