@@ -1,19 +1,9 @@
-/**
- * Weabot - Discord Mental Health Reflection Bot
- *
- * Entry point that wires all modules together:
- * 1. Load and validate configuration
- * 2. Initialize storage (Deno KV)
- * 3. Create API clients
- * 4. Register scheduled jobs
- * 5. Start the HTTP server
- */
-
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/services/discord.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createServer } from "./src/server.ts";
 import { registerCronJobs } from "./src/scheduler.ts";
+import { startGateway } from "./discord_gateway.ts";
 
 // --- Initialization ---
 // Throws immediately if required env vars are missing (Fail Fast pattern)
@@ -35,6 +25,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 });
 
 // --- Register Services ---
+startGateway();
 registerCronJobs(config, discord, storage, dateFormatter);
 createServer(config, discord, storage, dateFormatter);
 
