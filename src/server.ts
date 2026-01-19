@@ -267,7 +267,7 @@ export function createServer(
     // Default: Show help
     // =========================================================================
     return new Response(
-      `🐴 Weabot is running!
+      `🐴 Haru is running!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TRIGGER ENDPOINTS (post to Discord)

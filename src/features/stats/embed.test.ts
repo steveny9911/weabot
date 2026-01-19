@@ -128,7 +128,7 @@ Deno.test("buildStatsEmbed includes footer", () => {
   const stats: DailyStats[] = [];
   const result = buildStatsEmbed(stats);
 
-  assertEquals(result.embeds[0].footer?.text, "Weabot • Mood Tracker");
+  assertEquals(result.embeds[0].footer?.text, "Haru • Mood Tracker");
 });
 
 Deno.test("buildStatsEmbed includes timestamp", () => {

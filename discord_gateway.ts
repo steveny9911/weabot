@@ -57,22 +57,38 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
           }, interval) as unknown as number;
 
           // Send identify payload
+          // Intents breakdown:
+          // - GUILDS (1 << 0 = 1) - Required to receive GUILD_CREATE events
+          // - GUILD_MESSAGES (1 << 9 = 512) - Receive messages in guilds
+          // - DIRECT_MESSAGES (1 << 12 = 4096) - Receive DMs
+          // - MESSAGE_CONTENT (1 << 15 = 32768) - Read message content (privileged)
+          const intents = 1 + 512 + 4096 + 32768; // = 37377
           const identify = {
             op: 2,
             d: {
               token: config.discordToken,
-              // Intents: GUILD_MESSAGES (1 << 9) + MESSAGE_CONTENT (1 << 15) + DIRECT_MESSAGES (1 << 12)
-              intents: 33280,
+              intents,
               properties: {
-                $os: "deno",
-                $browser: "deno",
-                $device: "deno",
+                os: "deno",
+                browser: "deno",
+                device: "deno",
               },
             },
           };
           ws?.send(JSON.stringify(identify));
-        } // Op 0: Dispatch event
-        else if (op === 0 && t === "MESSAGE_CREATE" && d) {
+        } // Op 0: Dispatch events
+        else if (op === 0 && t === "READY" && d) {
+          // Log bot info and guilds on ready
+          const user = d["user"] as Record<string, unknown> | undefined;
+          const guilds = d["guilds"] as Array<Record<string, unknown>> | undefined;
+          console.log(`[GATEWAY] Bot ready as: ${user?.username}#${user?.discriminator} (${user?.id})`);
+          console.log(`[GATEWAY] Connected to ${guilds?.length ?? 0} guild(s)`);
+        } else if (op === 0 && t === "GUILD_CREATE" && d) {
+          // Log when we receive guild info
+          const guild_name = d["name"] as string | undefined;
+          const guild_id = d["id"] as string | undefined;
+          console.log(`[GATEWAY] Guild available: "${guild_name}" (${guild_id})`);
+        } else if (op === 0 && t === "MESSAGE_CREATE" && d) {
           await handleMessage(d as Record<string, unknown>, deps);
         } // Op 9: Invalid session
         else if (op === 9) {

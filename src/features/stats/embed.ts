@@ -112,7 +112,7 @@ export function buildStatsEmbed(
         color,
         fields,
         footer: {
-          text: "Weabot • Mood Tracker",
+          text: "Haru • Mood Tracker",
         },
         timestamp: new Date().toISOString(),
       },
@@ -146,7 +146,7 @@ export function buildAlertEmbed(
           },
         ],
         footer: {
-          text: "This is an automated wellness check • Weabot",
+          text: "This is an automated wellness check • Haru",
         },
       },
     ],

@@ -44,7 +44,7 @@ registerCronJobs(config, discord, storage, date_formatter);
 createServer(config, discord, storage, date_formatter, rate_limit);
 
 // --- Startup Logging ---
-console.log("🐴 Weabot is running!");
+console.log("🐴 Haru is running!");
 console.log(`   Channel: ${config.channelId}`);
 console.log(`   Timezone: ${config.timeZone}`);
 console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
