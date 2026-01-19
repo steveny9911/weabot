@@ -324,8 +324,7 @@ export async function saveContext(
 
     const simplified = msgs.map((m) => ({
       id: m.id,
-      author:
-        (m.author as Record<string, unknown>)?.username ??
+      author: (m.author as Record<string, unknown>)?.username ??
         (m.author as Record<string, unknown>)?.id,
       content: m.content,
       timestamp: m.timestamp ?? m.created_at ?? null,

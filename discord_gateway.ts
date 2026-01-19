@@ -5,7 +5,7 @@
  * to receive real-time events like MESSAGE_CREATE.
  */
 
-import { handleMessage, type BotDependencies } from "./bot_actions.ts";
+import { type BotDependencies, handleMessage } from "./bot_actions.ts";
 import type { AppConfig } from "./src/config.ts";
 
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";

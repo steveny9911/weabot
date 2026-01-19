@@ -5,7 +5,7 @@
  * These are pure functions, so no mocking needed.
  */
 
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { buildAlertEmbed, buildStatsEmbed } from "./embed.ts";
 import type { DailyStats } from "../../types/storage.ts";
 
