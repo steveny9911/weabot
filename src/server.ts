@@ -8,6 +8,7 @@
 import type { AppConfig } from "./config.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { StorageService } from "./services/storage.ts";
+import type { RateLimitService } from "./services/rate_limit.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
 import { DEFAULT_MOOD_CONFIG, type Mood } from "./types/bot.ts";
@@ -19,6 +20,7 @@ import { DEFAULT_MOOD_CONFIG, type Mood } from "./types/bot.ts";
  * @param discord - Discord API client
  * @param storage - Storage service for vote persistence
  * @param dateFormatter - Date formatter for poll questions
+ * @param rateLimit - Rate limit service for AI usage tracking (optional)
  * @returns The Deno server instance
  */
 export function createServer(
@@ -26,6 +28,7 @@ export function createServer(
   discord: DiscordClient,
   storage: StorageService,
   dateFormatter: Intl.DateTimeFormat,
+  rateLimit?: RateLimitService,
 ) {
   return Deno.serve(async (req) => {
     const url = new URL(req.url);
@@ -222,6 +225,40 @@ export function createServer(
         );
       } catch (error) {
         console.error("[SERVER] Error getting user history:", error);
+        return new Response(`❌ Error: ${error}`, { status: 500 });
+      }
+    }
+
+    // =========================================================================
+    // AI USAGE MONITORING
+    // =========================================================================
+
+    // Get AI usage statistics
+    if (url.pathname === "/ai-usage") {
+      if (!rateLimit) {
+        return new Response(
+          JSON.stringify({ error: "Rate limit service not configured" }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      try {
+        const stats = await rateLimit.getUsageStats();
+        const budget_percentage = (stats.dailyTokensUsed / stats.dailyTokenBudget) * 100;
+
+        return new Response(
+          JSON.stringify({
+            daily_tokens_used: stats.dailyTokensUsed,
+            daily_token_budget: stats.dailyTokenBudget,
+            budget_percentage: Math.round(budget_percentage * 100) / 100,
+            requests_today: stats.requestsToday,
+            ai_enabled: config.aiEnabled,
+            rate_limit_per_user: config.aiRateLimitPerUser,
+          }, null, 2),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      } catch (error) {
+        console.error("[SERVER] Error getting AI usage:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
       }
     }

@@ -13,6 +13,20 @@ export interface AppConfig {
   timeZone: string;
   /** Number of consecutive "glue" days to trigger alert (default: 7) */
   glueAlertThreshold: number;
+
+  // AI Safety Controls
+  /** Master kill switch for AI functionality (default: true) */
+  aiEnabled: boolean;
+  /** OpenAI API key for AI chat responses */
+  openaiApiKey: string | undefined;
+  /** Max AI requests per user per hour (default: 5) */
+  aiRateLimitPerUser: number;
+  /** Max tokens to use per day across all users (default: 100000) */
+  aiDailyTokenBudget: number;
+  /** Max characters per input message before truncation (default: 500) */
+  aiMaxInputChars: number;
+  /** Enable UwU-style text transformations (default: true) */
+  aiEnableUwu: boolean;
 }
 
 /**
@@ -40,5 +54,13 @@ export function loadConfig(): AppConfig {
     channelId: getEnvOrThrow("CHANNEL_ID"),
     timeZone: Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles",
     glueAlertThreshold: parseInt(Deno.env.get("GLUE_ALERT_THRESHOLD") ?? "7", 10),
+
+    // AI Safety Controls
+    aiEnabled: (Deno.env.get("AI_ENABLED") ?? "true").toLowerCase() !== "false",
+    openaiApiKey: Deno.env.get("OPENAI_API_KEY"),
+    aiRateLimitPerUser: parseInt(Deno.env.get("AI_RATE_LIMIT_PER_USER") ?? "5", 10),
+    aiDailyTokenBudget: parseInt(Deno.env.get("AI_DAILY_TOKEN_BUDGET") ?? "100000", 10),
+    aiMaxInputChars: parseInt(Deno.env.get("AI_MAX_INPUT_CHARS") ?? "500", 10),
+    aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
   };
 }
