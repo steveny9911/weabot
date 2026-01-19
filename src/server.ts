@@ -179,7 +179,9 @@ export function createServer(
         }
 
         return new Response(
-          `✅ Collected ${totalVotes} votes from ${expiredPolls.length} poll(s)\n\n${results.join("\n")}`,
+          `✅ Collected ${totalVotes} votes from ${expiredPolls.length} poll(s)\n\n${
+            results.join("\n")
+          }`,
         );
       } catch (error) {
         console.error("[SERVER] Error collecting polls:", error);
@@ -311,14 +313,18 @@ export function createServer(
         const budgetPercentage = (stats.dailyTokensUsed / stats.dailyTokenBudget) * 100;
 
         return new Response(
-          JSON.stringify({
-            daily_tokens_used: stats.dailyTokensUsed,
-            daily_token_budget: stats.dailyTokenBudget,
-            budget_percentage: Math.round(budgetPercentage * 100) / 100,
-            requests_today: stats.requestsToday,
-            ai_enabled: config.aiEnabled,
-            rate_limit_per_user: config.aiRateLimitPerUser,
-          }, null, 2),
+          JSON.stringify(
+            {
+              daily_tokens_used: stats.dailyTokensUsed,
+              daily_token_budget: stats.dailyTokenBudget,
+              budget_percentage: Math.round(budgetPercentage * 100) / 100,
+              requests_today: stats.requestsToday,
+              ai_enabled: config.aiEnabled,
+              rate_limit_per_user: config.aiRateLimitPerUser,
+            },
+            null,
+            2,
+          ),
           { headers: { "Content-Type": "application/json" } },
         );
       } catch (error) {
@@ -334,12 +340,16 @@ export function createServer(
         const allPending = await storage.getAllPendingPolls();
 
         return new Response(
-          JSON.stringify({
-            expired_ready_to_collect: expiredPolls.length,
-            expired_polls: expiredPolls,
-            all_pending: allPending.length,
-            pending_polls: allPending,
-          }, null, 2),
+          JSON.stringify(
+            {
+              expired_ready_to_collect: expiredPolls.length,
+              expired_polls: expiredPolls,
+              all_pending: allPending.length,
+              pending_polls: allPending,
+            },
+            null,
+            2,
+          ),
           { headers: { "Content-Type": "application/json" } },
         );
       } catch (error) {

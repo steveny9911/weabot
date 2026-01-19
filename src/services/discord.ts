@@ -4,10 +4,13 @@
  * Abstracts all Discord REST API calls behind an injectable interface.
  * This keeps HTTP details out of the business logic and enables
  * dependency injection for testing (pass a mock client instead).
+ *
+ * Includes automatic retry with exponential backoff for reliability.
  */
 
 import type { CreatePollMessagePayload } from "../types/discord.ts";
 import type { EmbedMessagePayload } from "../features/stats/mod.ts";
+import { fetchWithRetry } from "../utils/retry.ts";
 
 const API_BASE = "https://discord.com/api/v10";
 
@@ -70,17 +73,20 @@ export function createDiscordClient(token: string): DiscordClient {
 
   return {
     async postMessage(channelId, payload) {
-      const response = await fetch(`${API_BASE}/channels/${channelId}/messages`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
+      const response = await fetchWithRetry(
+        `${API_BASE}/channels/${channelId}/messages`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        },
+      );
       return response;
     },
 
     async sendDM(userId, payload) {
       // First, create a DM channel with the user
-      const dmChannelResponse = await fetch(`${API_BASE}/users/@me/channels`, {
+      const dmChannelResponse = await fetchWithRetry(`${API_BASE}/users/@me/channels`, {
         method: "POST",
         headers,
         body: JSON.stringify({ recipient_id: userId }),
@@ -94,7 +100,7 @@ export function createDiscordClient(token: string): DiscordClient {
       const channelId = dmChannel.id;
 
       // Then send the message to that channel
-      return await fetch(`${API_BASE}/channels/${channelId}/messages`, {
+      return await fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -103,9 +109,10 @@ export function createDiscordClient(token: string): DiscordClient {
 
     async getPollVoters(channelId, messageId) {
       // First, get the message to find poll answers
-      const msgResponse = await fetch(`${API_BASE}/channels/${channelId}/messages/${messageId}`, {
-        headers,
-      });
+      const msgResponse = await fetchWithRetry(
+        `${API_BASE}/channels/${channelId}/messages/${messageId}`,
+        { headers },
+      );
 
       if (!msgResponse.ok) {
         console.error(`[DISCORD] Failed to get poll message: ${msgResponse.status}`);
@@ -128,13 +135,15 @@ export function createDiscordClient(token: string): DiscordClient {
         const answerText = answer.poll_media?.text ?? `Answer ${answerId}`;
 
         // Discord API: GET /channels/{channel.id}/polls/{message.id}/answers/{answer.id}
-        const votersResponse = await fetch(
+        const votersResponse = await fetchWithRetry(
           `${API_BASE}/channels/${channelId}/polls/${messageId}/answers/${answerId}`,
           { headers },
         );
 
         if (!votersResponse.ok) {
-          console.error(`[DISCORD] Failed to get voters for answer ${answerId}: ${votersResponse.status}`);
+          console.error(
+            `[DISCORD] Failed to get voters for answer ${answerId}: ${votersResponse.status}`,
+          );
           continue;
         }
 

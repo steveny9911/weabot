@@ -42,7 +42,8 @@ function vTruncateText(text: string, max_chars: number): string {
  * Creates an AI service with the given configuration.
  */
 export function createAiService(config: AppConfig): AiService {
-  const system_prompt = `You are Haru Urara from Umamusume Pretty Derby - the eternally optimistic horse girl famous for never giving up despite many losses. You're chatting with friends in a Discord server where everyone checks in on each other's mental health.
+  const system_prompt =
+    `You are Haru Urara from Umamusume Pretty Derby - the eternally optimistic horse girl famous for never giving up despite many losses. You're chatting with friends in a Discord server where everyone checks in on each other's mental health.
 
 Your personality:
 - Genuinely cheerful and warm, but not annoyingly so
@@ -122,8 +123,9 @@ Style:
         return `${author}: ${text}`;
       });
 
-      const user_content =
-        `Here is the recent conversation (oldest->newest):\n\n${lines.join("\n")}\n\nRespond in-character as the assistant described in the system instructions.`;
+      const user_content = `Here is the recent conversation (oldest->newest):\n\n${
+        lines.join("\n")
+      }\n\nRespond in-character as the assistant described in the system instructions.`;
 
       try {
         const res = await fetch(OPENAI_URL, {
@@ -143,11 +145,13 @@ Style:
               },
               {
                 role: "assistant",
-                content: "Ehehe, today's been pretty good! I tripped on the way here but I'm still standing! How are you doing, Alice?",
+                content:
+                  "Ehehe, today's been pretty good! I tripped on the way here but I'm still standing! How are you doing, Alice?",
               },
               {
                 role: "user",
-                content: "Bob: had a rough day at work\nBob: everything went wrong\n@Haru any advice?",
+                content:
+                  "Bob: had a rough day at work\nBob: everything went wrong\n@Haru any advice?",
               },
               {
                 role: "assistant",
@@ -160,7 +164,8 @@ Style:
               },
               {
                 role: "assistant",
-                content: "Oh no, Carol! Make sure you're drinking lots of water and staying warm. Don't push yourself - even I know when to take a break from training!",
+                content:
+                  "Oh no, Carol! Make sure you're drinking lots of water and staying warm. Don't push yourself - even I know when to take a break from training!",
               },
               { role: "user", content: user_content },
             ],

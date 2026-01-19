@@ -2,7 +2,7 @@
  * Tests for Configuration Module
  */
 
-import { assertEquals, assertThrows } from "jsr:@std/assert@1";
+import { assertEquals, assertThrows } from "@std/assert";
 import { loadConfig } from "./config.ts";
 
 // Helper to run tests with specific env vars
