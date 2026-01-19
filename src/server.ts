@@ -12,6 +12,7 @@ import type { RateLimitService } from "./services/rate_limit.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
 import { DEFAULT_MOOD_CONFIG, type Mood } from "./types/bot.ts";
+import type { PollRecord } from "./types/storage.ts";
 
 /**
  * Creates and starts the HTTP server.
@@ -49,13 +50,28 @@ export function createServer(
       console.log("[SERVER] Triggering poll...");
 
       try {
-        const dateString = dateFormatter.format(new Date());
+        const now = new Date();
+        const dateString = dateFormatter.format(now);
         const payload = buildMoodPollPayload(dateString, DEFAULT_MOOD_CONFIG);
         const response = await discord.postMessage(config.channelId, payload);
 
         if (response.ok) {
-          console.log("[SERVER] Poll posted successfully!");
-          return new Response("✅ Poll posted to Discord!");
+          // Parse response to get message ID and save for collection
+          const messageData = await response.json();
+          const messageId = messageData.id;
+
+          const pollRecord: PollRecord = {
+            messageId,
+            channelId: config.channelId,
+            date: now.toISOString().split("T")[0],
+            createdAt: Date.now(),
+            expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
+            collected: false,
+          };
+
+          await storage.savePendingPoll(pollRecord);
+          console.log(`[SERVER] Poll posted successfully! Message ID: ${messageId}`);
+          return new Response(`✅ Poll posted to Discord!\nMessage ID: ${messageId}`);
         } else {
           const body = await response.text();
           console.error(`[SERVER] Failed to post poll: ${response.status}`);
@@ -119,6 +135,54 @@ export function createServer(
         }
       } catch (error) {
         console.error("[SERVER] Error posting alert:", error);
+        return new Response(`❌ Error: ${error}`, { status: 500 });
+      }
+    }
+
+    // Trigger: Collect expired poll results
+    if (url.pathname === "/trigger_collect") {
+      console.log("[SERVER] Triggering poll result collection...");
+
+      try {
+        const expiredPolls = await storage.getExpiredPolls();
+
+        if (expiredPolls.length === 0) {
+          return new Response("ℹ️ No expired polls to collect");
+        }
+
+        const moodMap: Record<string, Mood> = {
+          umazing: "umazing",
+          ok: "ok",
+          glue: "glue",
+        };
+
+        let totalVotes = 0;
+        const results: string[] = [];
+
+        for (const poll of expiredPolls) {
+          const answers = await discord.getPollVoters(poll.channelId, poll.messageId);
+          let pollVotes = 0;
+
+          for (const answer of answers) {
+            const mood = moodMap[answer.answerText.toLowerCase()];
+            if (!mood) continue;
+
+            for (const voter of answer.voters) {
+              await storage.recordVote(voter.odUserId, voter.odUserName, mood, poll.date);
+              pollVotes++;
+            }
+          }
+
+          await storage.markPollCollected(poll.messageId);
+          results.push(`Poll ${poll.date}: ${pollVotes} votes`);
+          totalVotes += pollVotes;
+        }
+
+        return new Response(
+          `✅ Collected ${totalVotes} votes from ${expiredPolls.length} poll(s)\n\n${results.join("\n")}`,
+        );
+      } catch (error) {
+        console.error("[SERVER] Error collecting polls:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
       }
     }
@@ -244,13 +308,13 @@ export function createServer(
 
       try {
         const stats = await rateLimit.getUsageStats();
-        const budget_percentage = (stats.dailyTokensUsed / stats.dailyTokenBudget) * 100;
+        const budgetPercentage = (stats.dailyTokensUsed / stats.dailyTokenBudget) * 100;
 
         return new Response(
           JSON.stringify({
             daily_tokens_used: stats.dailyTokensUsed,
             daily_token_budget: stats.dailyTokenBudget,
-            budget_percentage: Math.round(budget_percentage * 100) / 100,
+            budget_percentage: Math.round(budgetPercentage * 100) / 100,
             requests_today: stats.requestsToday,
             ai_enabled: config.aiEnabled,
             rate_limit_per_user: config.aiRateLimitPerUser,
@@ -259,6 +323,63 @@ export function createServer(
         );
       } catch (error) {
         console.error("[SERVER] Error getting AI usage:", error);
+        return new Response(`❌ Error: ${error}`, { status: 500 });
+      }
+    }
+
+    // Get pending polls awaiting collection
+    if (url.pathname === "/pending-polls") {
+      try {
+        const expiredPolls = await storage.getExpiredPolls();
+        const allPending = await storage.getAllPendingPolls();
+
+        return new Response(
+          JSON.stringify({
+            expired_ready_to_collect: expiredPolls.length,
+            expired_polls: expiredPolls,
+            all_pending: allPending.length,
+            pending_polls: allPending,
+          }, null, 2),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      } catch (error) {
+        console.error("[SERVER] Error getting pending polls:", error);
+        return new Response(`❌ Error: ${error}`, { status: 500 });
+      }
+    }
+
+    // Add a poll to pending (for testing)
+    if (url.pathname === "/add-pending-poll") {
+      const messageId = url.searchParams.get("messageId");
+      const channelId = url.searchParams.get("channelId") ?? config.channelId;
+      const date = url.searchParams.get("date") ?? new Date().toISOString().split("T")[0];
+      const expiresInMs = parseInt(url.searchParams.get("expiresIn") ?? "0", 10);
+
+      if (!messageId) {
+        return new Response(
+          "Missing required param: messageId\n" +
+            "Example: /add-pending-poll?messageId=123456789&expiresIn=0",
+          { status: 400 },
+        );
+      }
+
+      try {
+        const pollRecord: PollRecord = {
+          messageId,
+          channelId,
+          date,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + expiresInMs,
+          collected: false,
+        };
+
+        await storage.savePendingPoll(pollRecord);
+
+        return new Response(
+          `✅ Added pending poll:\n${JSON.stringify(pollRecord, null, 2)}`,
+        );
+      } catch (error) {
+        console.error("[SERVER] Error adding pending poll:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
       }
     }
@@ -275,6 +396,7 @@ TRIGGER ENDPOINTS (post to Discord)
   /trigger_poll             Post a mood poll
   /trigger_stats?days=7     Post stats embed
   /trigger_alert?name=Test  Post wellness alert
+  /trigger_collect          Collect expired poll results
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DATA ENDPOINTS (view/modify data)
@@ -283,10 +405,13 @@ DATA ENDPOINTS (view/modify data)
   /stats?days=7             View stats as JSON
   /check-alerts             Check who's at risk
   /user-history?user=ID     View user history
+  /pending-polls            View polls awaiting collection
+  /add-pending-poll?...     Add a poll for testing
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OTHER
+AI & MONITORING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  /ai-usage                 View AI token usage
   /health                   Health check
 `,
       { status: 200 },

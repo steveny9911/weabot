@@ -10,6 +10,8 @@
 import type { AppConfig } from "./config.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { StorageService } from "./services/storage.ts";
+import type { PollRecord } from "./types/storage.ts";
+import type { Mood } from "./types/bot.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
 import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
@@ -36,12 +38,28 @@ export function registerCronJobs(
     console.log("[CRON] Starting scheduled poll job...");
 
     try {
-      const dateString = dateFormatter.format(new Date());
+      const now = new Date();
+      const dateString = dateFormatter.format(now);
       const payload = buildMoodPollPayload(dateString, DEFAULT_MOOD_CONFIG);
       const response = await discord.postMessage(config.channelId, payload);
 
       if (response.ok) {
-        console.log("[CRON] Poll posted successfully!");
+        // Parse response to get message ID
+        const messageData = await response.json();
+        const messageId = messageData.id;
+
+        // Save pending poll for later collection
+        const pollRecord: PollRecord = {
+          messageId,
+          channelId: config.channelId,
+          date: now.toISOString().split("T")[0],
+          createdAt: Date.now(),
+          expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
+          collected: false,
+        };
+
+        await storage.savePendingPoll(pollRecord);
+        console.log(`[CRON] Poll posted successfully! Message ID: ${messageId}`);
       } else {
         const body = await response.text();
         console.error(`[CRON] Failed to post poll: ${response.status}`);
@@ -120,8 +138,68 @@ export function registerCronJobs(
     }
   });
 
+  // =========================================================================
+  // Poll Result Collection
+  // Schedule: Every hour at :30 minutes
+  // Checks for expired polls and collects their results
+  // =========================================================================
+  Deno.cron("Poll Result Collection", "30 * * * *", async () => {
+    console.log("[CRON] Checking for expired polls to collect...");
+
+    try {
+      const expiredPolls = await storage.getExpiredPolls();
+
+      if (expiredPolls.length === 0) {
+        console.log("[CRON] No expired polls to collect");
+        return;
+      }
+
+      console.log(`[CRON] Found ${expiredPolls.length} expired poll(s) to collect`);
+
+      for (const poll of expiredPolls) {
+        try {
+          console.log(`[CRON] Collecting results for poll ${poll.messageId} (${poll.date})`);
+
+          // Fetch voters for each answer
+          const answers = await discord.getPollVoters(poll.channelId, poll.messageId);
+
+          // Map answer text to mood
+          const moodMap: Record<string, Mood> = {
+            umazing: "umazing",
+            ok: "ok",
+            glue: "glue",
+          };
+
+          let totalVotes = 0;
+
+          for (const answer of answers) {
+            const mood = moodMap[answer.answerText.toLowerCase()];
+            if (!mood) {
+              console.log(`[CRON] Unknown answer text: ${answer.answerText}`);
+              continue;
+            }
+
+            for (const voter of answer.voters) {
+              await storage.recordVote(voter.odUserId, voter.odUserName, mood, poll.date);
+              totalVotes++;
+            }
+          }
+
+          // Mark poll as collected
+          await storage.markPollCollected(poll.messageId);
+          console.log(`[CRON] Collected ${totalVotes} vote(s) from poll ${poll.messageId}`);
+        } catch (pollError) {
+          console.error(`[CRON] Error collecting poll ${poll.messageId}:`, pollError);
+        }
+      }
+    } catch (error) {
+      console.error("[CRON] Error in poll collection:", error);
+    }
+  });
+
   console.log("[CRON] Registered jobs:");
   console.log("  - Daily Retro Poll (05:00 UTC)");
   console.log("  - Daily Wellness Check (06:00 UTC)");
   console.log("  - Weekly Stats Summary (Sundays 06:00 UTC)");
+  console.log("  - Poll Result Collection (every hour at :30)");
 }

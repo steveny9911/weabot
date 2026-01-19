@@ -34,3 +34,13 @@ export interface AlertConfig {
 export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   consecutiveGlueThreshold: 7,
 };
+
+/** A pending poll waiting for results collection */
+export interface PollRecord {
+  messageId: string;
+  channelId: string;
+  date: string; // The date this poll is for (YYYY-MM-DD)
+  createdAt: number; // Timestamp when poll was created
+  expiresAt: number; // Timestamp when poll expires (createdAt + 24h)
+  collected: boolean; // Whether results have been collected
+}

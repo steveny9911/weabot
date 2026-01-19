@@ -6,7 +6,7 @@
  */
 
 import type { Mood } from "../types/bot.ts";
-import type { DailyStats, VoteRecord } from "../types/storage.ts";
+import type { DailyStats, PollRecord, VoteRecord } from "../types/storage.ts";
 
 /** Storage service interface for dependency injection */
 export interface StorageService {
@@ -32,6 +32,18 @@ export interface StorageService {
 
   /** Get all users who have hit the glue threshold */
   getUsersAtRisk(threshold: number): Promise<VoteRecord[][]>;
+
+  /** Save a pending poll for later result collection */
+  savePendingPoll(poll: PollRecord): Promise<void>;
+
+  /** Get all polls that have expired but not yet collected */
+  getExpiredPolls(): Promise<PollRecord[]>;
+
+  /** Get all pending polls (not yet collected) */
+  getAllPendingPolls(): Promise<PollRecord[]>;
+
+  /** Mark a poll as collected */
+  markPollCollected(messageId: string): Promise<void>;
 }
 
 /**
@@ -155,6 +167,49 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       }
 
       return atRisk;
+    },
+
+    async savePendingPoll(poll: PollRecord) {
+      await kv.set(["pending_polls", poll.messageId], poll);
+      console.log(`[STORAGE] Saved pending poll ${poll.messageId} for ${poll.date}`);
+    },
+
+    async getExpiredPolls() {
+      const now = Date.now();
+      const expired: PollRecord[] = [];
+      const iter = kv.list<PollRecord>({ prefix: ["pending_polls"] });
+
+      for await (const entry of iter) {
+        const poll = entry.value;
+        // Check if expired and not yet collected
+        if (poll.expiresAt <= now && !poll.collected) {
+          expired.push(poll);
+        }
+      }
+
+      return expired;
+    },
+
+    async getAllPendingPolls() {
+      const pending: PollRecord[] = [];
+      const iter = kv.list<PollRecord>({ prefix: ["pending_polls"] });
+
+      for await (const entry of iter) {
+        if (!entry.value.collected) {
+          pending.push(entry.value);
+        }
+      }
+
+      return pending;
+    },
+
+    async markPollCollected(messageId: string) {
+      const entry = await kv.get<PollRecord>(["pending_polls", messageId]);
+      if (entry.value) {
+        const updated: PollRecord = { ...entry.value, collected: true };
+        await kv.set(["pending_polls", messageId], updated);
+        console.log(`[STORAGE] Marked poll ${messageId} as collected`);
+      }
     },
   };
 }
