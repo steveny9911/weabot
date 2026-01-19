@@ -21,7 +21,7 @@ export interface AppConfig {
   openaiApiKey: string | undefined;
   /** Max AI requests per user per minute (default: 2) */
   aiRateLimitPerUser: number;
-  /** Max tokens to use per day across all users (default: 1000000 for ~$10/month with gpt-5-nano) */
+  /** Max tokens to use per day across all users (default: 500000 for ~$10/month with gpt-4o-mini) */
   aiDailyTokenBudget: number;
   /** Max characters per input message before truncation (default: 500) */
   aiMaxInputChars: number;
@@ -59,7 +59,7 @@ export function loadConfig(): AppConfig {
     aiEnabled: (Deno.env.get("AI_ENABLED") ?? "true").toLowerCase() !== "false",
     openaiApiKey: Deno.env.get("OPENAI_API_KEY"),
     aiRateLimitPerUser: parseInt(Deno.env.get("AI_RATE_LIMIT_PER_USER") ?? "2", 10),
-    aiDailyTokenBudget: parseInt(Deno.env.get("AI_DAILY_TOKEN_BUDGET") ?? "1000000", 10),
+    aiDailyTokenBudget: parseInt(Deno.env.get("AI_DAILY_TOKEN_BUDGET") ?? "500000", 10),
     aiMaxInputChars: parseInt(Deno.env.get("AI_MAX_INPUT_CHARS") ?? "500", 10),
     aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
   };

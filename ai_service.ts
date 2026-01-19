@@ -135,7 +135,7 @@ Style:
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "gpt-5-nano",
+            model: "gpt-4o-mini",
             messages: [
               { role: "system", content: system_prompt },
               // Few-shot examples in Haru Urara's voice
