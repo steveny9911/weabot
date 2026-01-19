@@ -1,50 +1,59 @@
-// Bot actions: posting messages and polls, and handling incoming messages
-import { generateReplyFromMessages } from "./ai_service.ts";
+/**
+ * Bot Actions
+ *
+ * Handles incoming Discord messages and AI-powered responses.
+ * Uses dependency injection for testability and rate limiting.
+ */
 
-// Environment variables
-const DISCORD_TOKEN = Deno.env.get("DISCORD_TOKEN");
-const CHANNEL_ID = Deno.env.get("CHANNEL_ID");
+import type { AppConfig } from "./src/config.ts";
+import type { AiService } from "./ai_service.ts";
+import type { RateLimitService } from "./src/services/rate_limit.ts";
 
 // Discord API Base URL
 const API_BASE = "https://discord.com/api/v10";
 
-const HEADERS: Record<string, string> = {
-  "Content-Type": "application/json",
-};
-if (DISCORD_TOKEN) HEADERS.Authorization = `Bot ${DISCORD_TOKEN}`;
-
 // In-memory cache of recent messages per channel
-const messagesCache = new Map<string, Array<Record<string, unknown>>>();
+const messages_cache = new Map<string, Array<Record<string, unknown>>>();
 
-let BOT_USER_ID: string | undefined;
+// Cached bot user ID
+let cached_bot_user_id: string | undefined;
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-});
+/**
+ * Dependencies required by bot action handlers.
+ */
+export interface BotDependencies {
+  config: AppConfig;
+  aiService: AiService;
+  rateLimitService: RateLimitService;
+}
 
-// Helper: fetch and cache the bot's user id from Discord API.
-export async function getBotUserId(): Promise<string | undefined> {
-  if (BOT_USER_ID) return BOT_USER_ID;
-  if (!DISCORD_TOKEN) {
+/**
+ * Fetch and cache the bot's user ID from Discord API.
+ */
+export async function getBotUserId(config: AppConfig): Promise<string | undefined> {
+  if (cached_bot_user_id) return cached_bot_user_id;
+
+  if (!config.discordToken) {
     console.error("Cannot fetch bot user id: DISCORD_TOKEN missing");
     return undefined;
   }
+
   try {
     const res = await fetch(`${API_BASE}/users/@me`, {
       headers: {
-        Authorization: `Bot ${DISCORD_TOKEN}`,
+        Authorization: `Bot ${config.discordToken}`,
         "Content-Type": "application/json",
       },
     });
+
     if (!res.ok) {
       console.error("Failed to fetch bot user info:", res.status, res.statusText);
       return undefined;
     }
+
     const data = await res.json();
-    BOT_USER_ID = data.id;
-    return BOT_USER_ID;
+    cached_bot_user_id = data.id;
+    return cached_bot_user_id;
   } catch (err) {
     console.error("Error fetching bot user id:", err);
     return undefined;
@@ -52,27 +61,36 @@ export async function getBotUserId(): Promise<string | undefined> {
 }
 
 /**
- * Posts the poll to the specified channel.
+ * Posts a poll to the specified channel.
  */
-export async function postPoll(channelId: string) {
-  const pollPayload = {
+export async function postPoll(config: AppConfig, channel_id: string): Promise<void> {
+  const date_formatter = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const poll_payload = {
     poll: {
-      question: { text: `Mood (${dateFormatter.format(new Date())})` },
+      question: { text: `Mood (${date_formatter.format(new Date())})` },
       answers: [
         { poll_media: { text: "umazing" } },
         { poll_media: { text: "ok" } },
         { poll_media: { text: "glue" } },
       ],
-      duration: 24, // Duration in hours
+      duration: 24,
       allow_multiselect: false,
     },
   };
 
   try {
-    const response = await fetch(`${API_BASE}/channels/${channelId}/messages`, {
+    const response = await fetch(`${API_BASE}/channels/${channel_id}/messages`, {
       method: "POST",
-      headers: HEADERS,
-      body: JSON.stringify(pollPayload),
+      headers: {
+        Authorization: `Bot ${config.discordToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(poll_payload),
     });
 
     if (response.ok) {
@@ -88,20 +106,23 @@ export async function postPoll(channelId: string) {
 }
 
 /**
- * Send a message to the specified channel. If we have cached context for the channel,
- * repeat back the recent messages as the message content; otherwise send a default test message.
+ * Send a message to a channel.
  */
-/**
- * Send an arbitrary message to the specified channel. Returns the sent text on success.
- */
-export async function sendMessage(channelId: string, content: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  if (!channelId) return { ok: false, error: "missing channelId" };
-  const messagePayload = { content };
+export async function sendMessage(
+  config: AppConfig,
+  channel_id: string,
+  content: string,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  if (!channel_id) return { ok: false, error: "missing channelId" };
+
   try {
-    const response = await fetch(`${API_BASE}/channels/${channelId}/messages`, {
+    const response = await fetch(`${API_BASE}/channels/${channel_id}/messages`, {
       method: "POST",
-      headers: HEADERS,
-      body: JSON.stringify(messagePayload),
+      headers: {
+        Authorization: `Bot ${config.discordToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content }),
     });
 
     if (response.ok) {
@@ -120,10 +141,12 @@ export async function sendMessage(channelId: string, content: string): Promise<{
 }
 
 /**
- * Returns true if the provided message object mentions this bot.
- * Accepts a Discord message payload shape (gateway/message create).
+ * Returns true if the message mentions the bot.
  */
-export function messageMentionsBot(message: Record<string, unknown>, botId: string): boolean {
+export function bMessageMentionsBot(
+  message: Record<string, unknown>,
+  bot_id: string,
+): boolean {
   if (!message) return false;
 
   const mentions = message.mentions as unknown;
@@ -131,109 +154,185 @@ export function messageMentionsBot(message: Record<string, unknown>, botId: stri
     for (const m of mentions) {
       if (m && typeof m === "object") {
         const mm = m as Record<string, unknown>;
-        if (typeof mm.id === "string" && mm.id === botId) return true;
-        if (typeof mm.username === "string" && mm.username === botId) return true;
+        if (typeof mm.id === "string" && mm.id === bot_id) return true;
+        if (typeof mm.username === "string" && mm.username === bot_id) return true;
       }
     }
   }
-  // fallback: check content for <@ID> or <@!ID>
+
+  // Fallback: check content for <@ID> or <@!ID>
   const content = message.content as unknown;
   if (typeof content === "string") {
-    if (content.includes(`<@${botId}>`) || content.includes(`<@!${botId}>`)) {
+    if (content.includes(`<@${bot_id}>`) || content.includes(`<@!${bot_id}>`)) {
       return true;
     }
   }
+
   return false;
 }
 
 /**
- * Handle an incoming message object; if it mentions the bot, send the test message to the same channel.
+ * Formats minutes into a human-readable string.
  */
-export async function handleMessage(message: Record<string, unknown>) {
-  const botId = await getBotUserId();
-  if (!botId) return;
+function szFormatMinutes(ms: number): string {
+  const minutes = Math.ceil(ms / 60000);
+  if (minutes === 1) return "1 minute";
+  return `${minutes} minutes`;
+}
+
+/**
+ * Handle an incoming message. If it mentions the bot, check rate limits
+ * and generate an AI response.
+ */
+export async function handleMessage(
+  message: Record<string, unknown>,
+  deps: BotDependencies,
+): Promise<void> {
+  const { config, aiService, rateLimitService } = deps;
+
+  // Get bot user ID
+  const bot_id = await getBotUserId(config);
+  if (!bot_id) return;
   if (!message) return;
-  // Ignore messages from the bot itself or other bots to avoid loops
+
+  // Ignore messages from bots (including self) to avoid loops
   const author = message["author"] as Record<string, unknown> | undefined;
   if (author) {
-    const authorId = author["id"] as string | undefined;
-    const authorIsBot = author["bot"] as boolean | undefined;
-    if (authorIsBot) return; // ignore any bot messages
-    if (authorId && authorId === botId) return; // ignore self
+    const author_id = author["id"] as string | undefined;
+    const author_is_bot = author["bot"] as boolean | undefined;
+    if (author_is_bot) return;
+    if (author_id && author_id === bot_id) return;
   }
-  const channelId = (message["channel_id"] ?? message["channelId"] ?? CHANNEL_ID) as string | undefined;
-  if (!channelId) {
+
+  const channel_id = (message["channel_id"] ?? message["channelId"] ?? config.channelId) as
+    | string
+    | undefined;
+  if (!channel_id) {
     console.error("No channel id available on incoming message");
     return;
   }
-  if (messageMentionsBot(message, botId)) {
-    console.log("Bot was mentioned in channel", channelId, "— saving context and generating reply");
-  // save recent messages as context for this channel, include the triggering message
-  await saveContext(channelId, 5, message);
-    // get cached context
-    const ctx = getContext(channelId) ?? [];
-    // generate reply from AI service
-    const aiRes = await generateReplyFromMessages(ctx);
-    if (!aiRes.ok) {
-      console.error("AI generation failed:", aiRes.error);
-      // fallback: send a simple acknowledgment
-      await sendMessage(channelId, "Sorry, I couldn't generate a reply right now.");
-      return;
-    }
-    // send the AI reply
-    const sendRes = await sendMessage(channelId, aiRes.text);
-    if (!sendRes.ok) {
-      console.error("Failed to send AI reply:", sendRes.error);
-    }
+
+  // Check if message mentions the bot
+  if (!bMessageMentionsBot(message, bot_id)) {
+    return;
+  }
+
+  const user_id = (author?.["id"] as string) ?? "unknown";
+  console.log(`Bot mentioned by user ${user_id} in channel ${channel_id}`);
+
+  // Check if AI is enabled
+  if (!config.aiEnabled) {
+    console.log("AI is disabled, ignoring mention");
+    return;
+  }
+
+  // Check per-user rate limit
+  const rate_limit_result = await rateLimitService.checkUserRateLimit(user_id);
+  if (!rate_limit_result.allowed) {
+    const reset_time = szFormatMinutes(rate_limit_result.resetInMs);
+    await sendMessage(
+      config,
+      channel_id,
+      `Whoa there, speedy!~ I need a little break. Try again in ${reset_time}~`,
+    );
+    console.log(`User ${user_id} rate limited, reset in ${reset_time}`);
+    return;
+  }
+
+  // Check daily token budget
+  const budget_result = await rateLimitService.checkDailyBudget();
+  if (!budget_result.allowed) {
+    await sendMessage(
+      config,
+      channel_id,
+      "I've used up all my brain power for today!~ Let's chat tomorrow~",
+    );
+    console.log("Daily token budget exhausted");
+    return;
+  }
+
+  // Record the request (do this before making the API call)
+  await rateLimitService.recordUserRequest(user_id);
+
+  // Save recent messages as context
+  await saveContext(config, channel_id, 5, message);
+  const ctx = getContext(channel_id) ?? [];
+
+  // Generate AI reply
+  const ai_result = await aiService.generateReply(ctx);
+
+  if (!ai_result.ok) {
+    console.error("AI generation failed:", ai_result.error);
+    await sendMessage(
+      config,
+      channel_id,
+      "Hmm, my brain's a bit fuzzy right now. Try again in a moment~",
+    );
+    return;
+  }
+
+  // Record token usage
+  await rateLimitService.recordTokenUsage(ai_result.tokensUsed);
+
+  // Send the AI reply
+  const send_result = await sendMessage(config, channel_id, ai_result.text);
+  if (!send_result.ok) {
+    console.error("Failed to send AI reply:", send_result.error);
   }
 }
 
 /**
- * Fetch the most recent N messages from a channel and cache them as context.
+ * Fetch the most recent N messages from a channel and cache them.
  */
 export async function saveContext(
-  channelId: string,
+  config: AppConfig,
+  channel_id: string,
   limit = 5,
-  triggerMessage?: Record<string, unknown>,
+  trigger_message?: Record<string, unknown>,
 ): Promise<void> {
-  if (!channelId) return;
+  if (!channel_id) return;
+
   try {
-    const res = await fetch(`${API_BASE}/channels/${channelId}/messages?limit=${limit}`, {
-      headers: HEADERS,
+    const res = await fetch(`${API_BASE}/channels/${channel_id}/messages?limit=${limit}`, {
+      headers: {
+        Authorization: `Bot ${config.discordToken}`,
+        "Content-Type": "application/json",
+      },
     });
+
     if (!res.ok) {
       console.error("Failed to fetch recent messages:", res.status, res.statusText);
       return;
     }
-    let msgs = await res.json() as Array<Record<string, unknown>>;
+
+    let msgs = (await res.json()) as Array<Record<string, unknown>>;
     msgs = msgs.reverse();
 
-    // Ensure the triggering message is included as the newest message in the context
-    if (triggerMessage) {
-      try {
-        const trigId = triggerMessage["id"] as string | undefined;
-        if (trigId) {
-          msgs = msgs.filter((m) => (m.id as string | undefined) !== trigId);
-          msgs.push(triggerMessage);
-        } else {
-          msgs.push(triggerMessage);
-        }
-      } catch (_e) {
-        msgs.push(triggerMessage);
+    // Ensure the triggering message is included
+    if (trigger_message) {
+      const trig_id = trigger_message["id"] as string | undefined;
+      if (trig_id) {
+        msgs = msgs.filter((m) => (m.id as string | undefined) !== trig_id);
       }
+      msgs.push(trigger_message);
     }
 
-    // Keep only the most recent `limit` messages (msgs is chronological oldest->newest)
-    if (msgs.length > limit) msgs = msgs.slice(msgs.length - limit);
+    // Keep only the most recent messages
+    if (msgs.length > limit) {
+      msgs = msgs.slice(msgs.length - limit);
+    }
 
     const simplified = msgs.map((m) => ({
       id: m.id,
-      author: (m.author as Record<string, unknown>)?.username ?? (m.author as Record<string, unknown>)?.id,
+      author:
+        (m.author as Record<string, unknown>)?.username ??
+        (m.author as Record<string, unknown>)?.id,
       content: m.content,
       timestamp: m.timestamp ?? m.created_at ?? null,
     }));
-    messagesCache.set(channelId, simplified as Array<Record<string, unknown>>);
-    console.log(`Saved ${simplified.length} messages to context for channel ${channelId}`);
+
+    messages_cache.set(channel_id, simplified as Array<Record<string, unknown>>);
+    console.log(`Saved ${simplified.length} messages to context for channel ${channel_id}`);
   } catch (err) {
     console.error("Error saving context:", err);
   }
@@ -242,6 +341,13 @@ export async function saveContext(
 /**
  * Retrieve cached context for a channel.
  */
-export function getContext(channelId: string): Array<Record<string, unknown>> | undefined {
-  return messagesCache.get(channelId);
+export function getContext(channel_id: string): Array<Record<string, unknown>> | undefined {
+  return messages_cache.get(channel_id);
 }
+
+// ============================================================================
+// Legacy exports for backwards compatibility during migration
+// ============================================================================
+
+// Keep these for any code that still imports from the old API
+export { bMessageMentionsBot as messageMentionsBot };
