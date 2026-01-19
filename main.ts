@@ -51,7 +51,7 @@ console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");
 console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
-console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/hour`);
+console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
 console.log(`   Max Input Chars: ${config.aiMaxInputChars}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);

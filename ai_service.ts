@@ -135,7 +135,7 @@ Style:
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "gpt-3.5-turbo",
+            model: "gpt-5-nano",
             messages: [
               { role: "system", content: system_prompt },
               // Few-shot examples in Haru Urara's voice
@@ -228,7 +228,7 @@ export async function generateReplyFromMessages(
     aiEnabled: true,
     openaiApiKey: Deno.env.get("OPENAI_API_KEY"),
     aiRateLimitPerUser: 5,
-    aiDailyTokenBudget: 100000,
+    aiDailyTokenBudget: 1000000,
     aiMaxInputChars: 500,
     aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
   };

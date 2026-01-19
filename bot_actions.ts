@@ -172,12 +172,15 @@ export function bMessageMentionsBot(
 }
 
 /**
- * Formats minutes into a human-readable string.
+ * Formats milliseconds into a human-readable string (seconds or minutes).
  */
-function szFormatMinutes(ms: number): string {
+function szFormatTime(ms: number): string {
+  const seconds = Math.ceil(ms / 1000);
+  if (seconds < 60) {
+    return seconds === 1 ? "1 second" : `${seconds} seconds`;
+  }
   const minutes = Math.ceil(ms / 60000);
-  if (minutes === 1) return "1 minute";
-  return `${minutes} minutes`;
+  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
 }
 
 /**
@@ -229,7 +232,7 @@ export async function handleMessage(
   // Check per-user rate limit
   const rate_limit_result = await rateLimitService.checkUserRateLimit(user_id);
   if (!rate_limit_result.allowed) {
-    const reset_time = szFormatMinutes(rate_limit_result.resetInMs);
+    const reset_time = szFormatTime(rate_limit_result.resetInMs);
     await sendMessage(
       config,
       channel_id,

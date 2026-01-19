@@ -53,12 +53,12 @@ export function createRateLimitService(
   config: AppConfig,
 ): RateLimitService {
   /**
-   * Get the current hour key for rate limiting.
-   * Format: "YYYY-MM-DDTHH" (e.g., "2026-01-18T14")
+   * Get the current minute key for rate limiting.
+   * Format: "YYYY-MM-DDTHH:MM" (e.g., "2026-01-18T14:30")
    */
-  function getCurrentHourKey(): string {
+  function getCurrentMinuteKey(): string {
     const now = new Date();
-    return now.toISOString().slice(0, 13); // "2026-01-18T14"
+    return now.toISOString().slice(0, 16); // "2026-01-18T14:30"
   }
 
   /**
@@ -71,26 +71,26 @@ export function createRateLimitService(
   }
 
   /**
-   * Calculate milliseconds until the next hour.
+   * Calculate milliseconds until the next minute.
    */
-  function msUntilNextHour(): number {
+  function msUntilNextMinute(): number {
     const now = new Date();
-    const next_hour = new Date(now);
-    next_hour.setHours(next_hour.getHours() + 1, 0, 0, 0);
-    return next_hour.getTime() - now.getTime();
+    const next_minute = new Date(now);
+    next_minute.setMinutes(next_minute.getMinutes() + 1, 0, 0);
+    return next_minute.getTime() - now.getTime();
   }
 
   return {
     async checkUserRateLimit(userId: string): Promise<RateLimitResult> {
-      const hour_key = getCurrentHourKey();
-      const kv_key = ["ai_usage", "user", userId, hour_key];
+      const minute_key = getCurrentMinuteKey();
+      const kv_key = ["ai_usage", "user", userId, minute_key];
 
       const entry = await kv.get<number>(kv_key);
       const current_count = entry.value ?? 0;
 
       const allowed = current_count < config.aiRateLimitPerUser;
       const remaining = Math.max(0, config.aiRateLimitPerUser - current_count);
-      const reset_in_ms = msUntilNextHour();
+      const reset_in_ms = msUntilNextMinute();
 
       return {
         allowed,
@@ -100,16 +100,16 @@ export function createRateLimitService(
     },
 
     async recordUserRequest(userId: string): Promise<void> {
-      const hour_key = getCurrentHourKey();
-      const kv_key = ["ai_usage", "user", userId, hour_key];
+      const minute_key = getCurrentMinuteKey();
+      const kv_key = ["ai_usage", "user", userId, minute_key];
 
       // Get current count and increment
       const entry = await kv.get<number>(kv_key);
       const current_count = entry.value ?? 0;
 
-      // Set with expiration (2 hours to be safe, since we key by hour)
+      // Set with expiration (2 minutes to be safe, since we key by minute)
       await kv.set(kv_key, current_count + 1, {
-        expireIn: 2 * 60 * 60 * 1000, // 2 hours in ms
+        expireIn: 2 * 60 * 1000, // 2 minutes in ms
       });
 
       // Also increment daily request counter

@@ -189,8 +189,8 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       const config = loadConfig();
       assertEquals(config.aiEnabled, true);
       assertEquals(config.openaiApiKey, undefined);
-      assertEquals(config.aiRateLimitPerUser, 5);
-      assertEquals(config.aiDailyTokenBudget, 100000);
+      assertEquals(config.aiRateLimitPerUser, 2); // 2 per minute
+      assertEquals(config.aiDailyTokenBudget, 1000000); // ~$10/month with gpt-5-nano
       assertEquals(config.aiMaxInputChars, 500);
       assertEquals(config.aiEnableUwu, true);
     },
