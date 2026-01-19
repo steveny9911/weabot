@@ -6,7 +6,7 @@
  * just call it with inputs and verify the outputs.
  */
 
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals } from "@std/assert";
 import { buildMoodPollPayload } from "./payload.ts";
 import { DEFAULT_MOOD_CONFIG } from "../../types/bot.ts";
 

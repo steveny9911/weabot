@@ -4,7 +4,7 @@
  * Tests the Deno KV storage operations using an in-memory database.
  */
 
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals } from "@std/assert";
 import { createStorageService, type StorageService } from "./storage.ts";
 
 // Helper to create a fresh storage service for each test

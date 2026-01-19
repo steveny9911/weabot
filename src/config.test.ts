@@ -2,7 +2,7 @@
  * Tests for Configuration Module
  */
 
-import { assertEquals, assertThrows } from "jsr:@std/assert@1";
+import { assertEquals, assertThrows } from "@std/assert";
 import { loadConfig } from "./config.ts";
 
 // Helper to run tests with specific env vars
@@ -18,6 +18,12 @@ function withEnv(
     "CHANNEL_ID",
     "TIME_ZONE",
     "GLUE_ALERT_THRESHOLD",
+    "AI_ENABLED",
+    "OPENAI_API_KEY",
+    "AI_RATE_LIMIT_PER_USER",
+    "AI_DAILY_TOKEN_BUDGET",
+    "AI_MAX_INPUT_CHARS",
+    "ENABLE_UWU",
   ]);
 
   for (const key of allKeys) {
@@ -148,6 +154,12 @@ Deno.test("loadConfig returns complete config with all values", () => {
       CHANNEL_ID: "123456789",
       TIME_ZONE: "Asia/Tokyo",
       GLUE_ALERT_THRESHOLD: "5",
+      AI_ENABLED: "true",
+      OPENAI_API_KEY: "sk-test-key",
+      AI_RATE_LIMIT_PER_USER: "10",
+      AI_DAILY_TOKEN_BUDGET: "50000",
+      AI_MAX_INPUT_CHARS: "300",
+      ENABLE_UWU: "false",
     },
     () => {
       const config = loadConfig();
@@ -156,7 +168,45 @@ Deno.test("loadConfig returns complete config with all values", () => {
         channelId: "123456789",
         timeZone: "Asia/Tokyo",
         glueAlertThreshold: 5,
+        aiEnabled: true,
+        openaiApiKey: "sk-test-key",
+        aiRateLimitPerUser: 10,
+        aiDailyTokenBudget: 50000,
+        aiMaxInputChars: 300,
+        aiEnableUwu: false,
       });
+    },
+  );
+});
+
+Deno.test("loadConfig uses AI defaults when not set", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.aiEnabled, true);
+      assertEquals(config.openaiApiKey, undefined);
+      assertEquals(config.aiRateLimitPerUser, 5);
+      assertEquals(config.aiDailyTokenBudget, 100000);
+      assertEquals(config.aiMaxInputChars, 500);
+      assertEquals(config.aiEnableUwu, true);
+    },
+  );
+});
+
+Deno.test("loadConfig handles AI_ENABLED=false", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      AI_ENABLED: "false",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.aiEnabled, false);
     },
   );
 });
