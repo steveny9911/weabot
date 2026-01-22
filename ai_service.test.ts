@@ -18,8 +18,8 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiEnabled: true,
     openaiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
-    aiDailyTokenBudget: 1000000,
-    aiMaxInputChars: 500,
+    aiDailyTokenBudget: 10000000,
+    aiMaxInputChars: 0,
     aiEnableUwu: false,
     ...overrides,
   };
@@ -33,15 +33,17 @@ function mockFetch(
   let lastRequest: { url: string; body: Record<string, unknown> } | null = null;
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const body = init?.body ? JSON.parse(init.body as string) : null;
     lastRequest = { url, body };
 
-    return new Response(JSON.stringify(responseBody), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Promise.resolve(
+      new Response(JSON.stringify(responseBody), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
   }) as typeof fetch;
 
   return {
@@ -81,10 +83,10 @@ Deno.test("generateReply returns error when API key is missing", async () => {
 });
 
 // =============================================================================
-// createAiService - API Request Structure (GPT-5 Nano compatibility)
+// createAiService - API Request Structure (GPT-5.2 reasoning model)
 // =============================================================================
 
-Deno.test("generateReply sends correct model name (gpt-4o-mini)", async () => {
+Deno.test("generateReply sends correct model name (gpt-5.2)", async () => {
   const mock = mockFetch({
     choices: [{ message: { content: "Test response" } }],
     usage: { total_tokens: 50 },
@@ -97,13 +99,13 @@ Deno.test("generateReply sends correct model name (gpt-4o-mini)", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.model, "gpt-4o-mini");
+    assertEquals(request?.body.model, "gpt-5.2");
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply uses max_tokens parameter", async () => {
+Deno.test("generateReply does not send max_tokens parameter", async () => {
   const mock = mockFetch({
     choices: [{ message: { content: "Test response" } }],
     usage: { total_tokens: 50 },
@@ -116,14 +118,13 @@ Deno.test("generateReply uses max_tokens parameter", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    // gpt-4o-mini uses standard max_tokens
-    assertEquals(request?.body.max_tokens, 150);
+    assertEquals(request?.body.max_tokens, undefined);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply sends temperature parameter", async () => {
+Deno.test("generateReply does not send temperature parameter", async () => {
   const mock = mockFetch({
     choices: [{ message: { content: "Test response" } }],
     usage: { total_tokens: 50 },
@@ -136,8 +137,7 @@ Deno.test("generateReply sends temperature parameter", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    // gpt-4o-mini supports temperature
-    assertEquals(request?.body.temperature, 0.7);
+    assertEquals(request?.body.temperature, undefined);
   } finally {
     mock.restore();
   }
@@ -147,26 +147,24 @@ Deno.test("generateReply sends temperature parameter", async () => {
 // createAiService - Input Processing
 // =============================================================================
 
-Deno.test("generateReply truncates long input messages", async () => {
+Deno.test("generateReply does not truncate input when limits are disabled", async () => {
   const mock = mockFetch({
     choices: [{ message: { content: "Test response" } }],
     usage: { total_tokens: 50 },
   });
 
   try {
-    const config = createMockConfig({ aiMaxInputChars: 20 });
+    const config = createMockConfig({ aiMaxInputChars: 0 });
     const service = createAiService(config);
 
-    const longMessage = "This is a very long message that should be truncated";
+    const longMessage = "This is a very long message that should not be truncated";
     await service.generateReply([{ author: "user", content: longMessage }]);
 
     const request = mock.getLastRequest();
     const messages = request?.body.messages as Array<{ content: string }>;
     const userMessage = messages?.[messages.length - 1];
-    // The truncated message should contain "..." (truncation happened)
-    assertStringIncludes(userMessage?.content ?? "", "...");
-    // And should NOT contain the full message
-    assertEquals(userMessage?.content?.includes("should be truncated"), false);
+    assertStringIncludes(userMessage?.content ?? "", longMessage);
+    assertEquals(userMessage?.content?.includes("..."), false);
   } finally {
     mock.restore();
   }

@@ -53,7 +53,10 @@ console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
 console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
-console.log(`   Max Input Chars: ${config.aiMaxInputChars}`);
+const max_input_label = config.aiMaxInputChars > 0
+  ? String(config.aiMaxInputChars)
+  : "unlimited";
+console.log(`   Max Input Chars: ${max_input_label}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
 if (!config.openaiApiKey) {
   console.log("   ⚠️  OPENAI_API_KEY not set - AI chat disabled");

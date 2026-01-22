@@ -172,6 +172,15 @@ export function bMessageMentionsBot(
 }
 
 /**
+ * Returns true if the message includes the reset context command.
+ * Expected format: "@Haru \\reset"
+ */
+function bIsResetCommand(content: string | undefined): boolean {
+  if (!content) return false;
+  return /(^|\s)\\reset(\s|$)/i.test(content);
+}
+
+/**
  * Formats milliseconds into a human-readable string (seconds or minutes).
  */
 function szFormatTime(ms: number): string {
@@ -221,6 +230,16 @@ export async function handleMessage(
   }
 
   const user_id = (author?.["id"] as string) ?? "unknown";
+  const content = message["content"] as string | undefined;
+
+  // Handle reset context command
+  if (bIsResetCommand(content)) {
+    messages_cache.delete(channel_id);
+    await sendMessage(config, channel_id, "Okay!~ I cleared our chat context.");
+    console.log(`Context reset by user ${user_id} in channel ${channel_id}`);
+    return;
+  }
+
   console.log(`Bot mentioned by user ${user_id} in channel ${channel_id}`);
 
   // Check if AI is enabled
