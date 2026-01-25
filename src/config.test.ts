@@ -24,6 +24,9 @@ function withEnv(
     "AI_DAILY_TOKEN_BUDGET",
     "AI_MAX_INPUT_CHARS",
     "ENABLE_UWU",
+    "WEB_SEARCH_ENABLED",
+    "BRAVE_SEARCH_API_KEY",
+    "WEB_SEARCH_MAX_RESULTS",
   ]);
 
   for (const key of allKeys) {
@@ -160,6 +163,9 @@ Deno.test("loadConfig returns complete config with all values", () => {
       AI_DAILY_TOKEN_BUDGET: "50000",
       AI_MAX_INPUT_CHARS: "300",
       ENABLE_UWU: "false",
+      WEB_SEARCH_ENABLED: "true",
+      BRAVE_SEARCH_API_KEY: "brave-key",
+      WEB_SEARCH_MAX_RESULTS: "5",
     },
     () => {
       const config = loadConfig();
@@ -174,6 +180,9 @@ Deno.test("loadConfig returns complete config with all values", () => {
         aiDailyTokenBudget: 50000,
         aiMaxInputChars: 300,
         aiEnableUwu: false,
+        webSearchEnabled: true,
+        webSearchApiKey: "brave-key",
+        webSearchMaxResults: 5,
       });
     },
   );
@@ -193,6 +202,9 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.aiDailyTokenBudget, 10000000); // 10M tokens, user has OpenAI spending limits
       assertEquals(config.aiMaxInputChars, 0); // disabled by default
       assertEquals(config.aiEnableUwu, true);
+      assertEquals(config.webSearchEnabled, false);
+      assertEquals(config.webSearchApiKey, undefined);
+      assertEquals(config.webSearchMaxResults, 3);
     },
   );
 });
@@ -207,6 +219,36 @@ Deno.test("loadConfig handles AI_ENABLED=false", () => {
     () => {
       const config = loadConfig();
       assertEquals(config.aiEnabled, false);
+    },
+  );
+});
+
+Deno.test("loadConfig enables web search when API key is set", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      BRAVE_SEARCH_API_KEY: "brave-key",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.webSearchEnabled, true);
+      assertEquals(config.webSearchApiKey, "brave-key");
+    },
+  );
+});
+
+Deno.test("loadConfig allows WEB_SEARCH_ENABLED=false to override key", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      BRAVE_SEARCH_API_KEY: "brave-key",
+      WEB_SEARCH_ENABLED: "false",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.webSearchEnabled, false);
     },
   );
 });

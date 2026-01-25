@@ -27,6 +27,14 @@ export interface AppConfig {
   aiMaxInputChars: number;
   /** Enable UwU-style text transformations (default: true) */
   aiEnableUwu: boolean;
+
+  // Web Search
+  /** Master switch for web search (default: false) */
+  webSearchEnabled: boolean;
+  /** Brave Search API key for internet lookup */
+  webSearchApiKey: string | undefined;
+  /** Max results returned per search (default: 3) */
+  webSearchMaxResults: number;
 }
 
 /**
@@ -49,6 +57,10 @@ function getEnvOrThrow(key: string): string {
  * If it throws, the app should not start.
  */
 export function loadConfig(): AppConfig {
+  const web_search_api_key = Deno.env.get("BRAVE_SEARCH_API_KEY");
+  const web_search_enabled = (Deno.env.get("WEB_SEARCH_ENABLED") ??
+    (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
+
   return {
     discordToken: getEnvOrThrow("DISCORD_TOKEN"),
     channelId: getEnvOrThrow("CHANNEL_ID"),
@@ -62,5 +74,10 @@ export function loadConfig(): AppConfig {
     aiDailyTokenBudget: parseInt(Deno.env.get("AI_DAILY_TOKEN_BUDGET") ?? "10000000", 10),
     aiMaxInputChars: parseInt(Deno.env.get("AI_MAX_INPUT_CHARS") ?? "0", 10),
     aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
+
+    // Web Search
+    webSearchEnabled: web_search_enabled,
+    webSearchApiKey: web_search_api_key,
+    webSearchMaxResults: parseInt(Deno.env.get("WEB_SEARCH_MAX_RESULTS") ?? "3", 10),
   };
 }

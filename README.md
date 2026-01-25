@@ -83,6 +83,7 @@ CHANNEL_ID=your_channel_id_here
 # Optional
 TIME_ZONE=America/Los_Angeles
 GLUE_ALERT_THRESHOLD=7
+
 ```
 
 | Variable               | Required | Description                                                   |
@@ -112,6 +113,13 @@ You should see:
 ```
 
 ---
+
+## Using Haru in Discord
+
+Mention Haru to chat, or use a command:
+
+- `@Haru hello there`
+- `@Haru \reset` (clear chat context)
 
 ## Testing the Bot
 

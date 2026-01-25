@@ -8,6 +8,11 @@
 import type { AppConfig } from "./src/config.ts";
 import type { AiService } from "./ai_service.ts";
 import type { RateLimitService } from "./src/services/rate_limit.ts";
+import {
+  formatSearchResultsForContext,
+  szExtractAutoSearchQuery,
+  type WebSearchService,
+} from "./src/services/web_search.ts";
 
 // Discord API Base URL
 const API_BASE = "https://discord.com/api/v10";
@@ -25,6 +30,7 @@ export interface BotDependencies {
   config: AppConfig;
   aiService: AiService;
   rateLimitService: RateLimitService;
+  webSearchService?: WebSearchService;
 }
 
 /**
@@ -200,7 +206,7 @@ export async function handleMessage(
   message: Record<string, unknown>,
   deps: BotDependencies,
 ): Promise<void> {
-  const { config, aiService, rateLimitService } = deps;
+  const { config, aiService, rateLimitService, webSearchService } = deps;
 
   // Get bot user ID
   const bot_id = await getBotUserId(config);
@@ -280,8 +286,27 @@ export async function handleMessage(
   await saveContext(config, channel_id, 5, message);
   const ctx = getContext(channel_id) ?? [];
 
+  const ctx_for_ai = [...ctx];
+  const auto_query = webSearchService && config.webSearchEnabled
+    ? szExtractAutoSearchQuery(content)
+    : null;
+
+  if (auto_query) {
+    const search_result = await webSearchService?.search(auto_query);
+    if (search_result && search_result.ok) {
+      const web_context = formatSearchResultsForContext(
+        auto_query,
+        search_result.results,
+      );
+      ctx_for_ai.push({ author: "web", content: web_context });
+      console.log(`[SEARCH] Auto search used for: ${auto_query}`);
+    } else if (search_result) {
+      console.error("Auto web search failed:", search_result.error);
+    }
+  }
+
   // Generate AI reply
-  const ai_result = await aiService.generateReply(ctx);
+  const ai_result = await aiService.generateReply(ctx_for_ai);
 
   if (!ai_result.ok) {
     console.error("AI generation failed:", ai_result.error);
