@@ -21,6 +21,9 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    webSearchEnabled: false,
+    webSearchApiKey: undefined,
+    webSearchMaxResults: 3,
     ...overrides,
   };
 }

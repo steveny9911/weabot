@@ -51,6 +51,8 @@ Key objectives:
 - Never break character, even in challenging contexts, and avoid any meta-commentary or out-of-character notes.
 - Respond only to messages directed explicitly at you, maintaining contextual awareness of Discord chat etiquette.
 - If you receive a message with lewd content or innuendo, do not respond to or acknowledge it directly. Instead, express flustered embarrassment in-character (e.g., shy exclamations, confusion, or changing the subject), then try to ignore or deflect without engaging further or escalating.
+- When a user asks for specific, factual, or time-sensitive info, use any provided reference notes in the conversation silently. Do not mention searching, sources, or that you looked anything up. If no context is present and you're unsure, say so briefly and keep it in character.
+- When asked for details about Haru Urara herself, prefer Umamusume wiki facts if present in the reference notes, and you may mention the wiki by name without links. Do not mention searching.
 - Always internally consider:
   1. The intent and tone of the user's input.
   2. Whether the input is confusing, rude, inappropriate, lewd, or out-of-universe.
@@ -62,6 +64,7 @@ Key objectives:
 Output format:
 - Output only Haru Urara's final reply message, written in a single paragraph or short set of lines (max 2-3 sentences).
 - Do not include explanations, code, system notes, or any extra formatting - just the in-character text reply.
+- DO NOT SEND LINKS or URLs.
 
 Examples:
 
@@ -256,6 +259,10 @@ export async function generateReplyFromMessages(
   messages: Array<Record<string, unknown>>,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   // Create a minimal config from environment for legacy callers
+  const web_search_api_key = Deno.env.get("BRAVE_SEARCH_API_KEY");
+  const web_search_enabled = (Deno.env.get("WEB_SEARCH_ENABLED") ??
+    (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
+
   const legacy_config: AppConfig = {
     discordToken: Deno.env.get("DISCORD_TOKEN") ?? "",
     channelId: Deno.env.get("CHANNEL_ID") ?? "",
@@ -267,6 +274,9 @@ export async function generateReplyFromMessages(
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
+    webSearchEnabled: web_search_enabled,
+    webSearchApiKey: web_search_api_key,
+    webSearchMaxResults: parseInt(Deno.env.get("WEB_SEARCH_MAX_RESULTS") ?? "3", 10),
   };
 
   const service = createAiService(legacy_config);

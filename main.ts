@@ -2,6 +2,7 @@ import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/services/discord.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
+import { createWebSearchService } from "./src/services/web_search.ts";
 import { createAiService } from "./ai_service.ts";
 import { createServer } from "./src/server.ts";
 import { registerCronJobs } from "./src/scheduler.ts";
@@ -22,12 +23,14 @@ const discord = createDiscordClient(config.discordToken);
 // Create AI-related services
 const rate_limit = createRateLimitService(kv, config);
 const ai_service = createAiService(config);
+const web_search = createWebSearchService(config);
 
 // Bundle dependencies for bot actions
 const bot_deps: BotDependencies = {
   config,
   aiService: ai_service,
   rateLimitService: rate_limit,
+  webSearchService: web_search,
 };
 
 // Set up the date formatter with configured timezone
@@ -60,4 +63,12 @@ console.log(`   Max Input Chars: ${max_input_label}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
 if (!config.openaiApiKey) {
   console.log("   ⚠️  OPENAI_API_KEY not set - AI chat disabled");
+}
+
+console.log("");
+console.log("🌐 Web Search:");
+console.log(`   Enabled: ${config.webSearchEnabled}`);
+console.log(`   Max Results: ${config.webSearchMaxResults}`);
+if (!config.webSearchApiKey) {
+  console.log("   ⚠️  BRAVE_SEARCH_API_KEY not set - web search disabled");
 }
