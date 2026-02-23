@@ -14,6 +14,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     discordToken: "test-token",
     channelId: "test-channel",
+    channelIds: ["test-channel"],
     timeZone: "UTC",
     glueAlertThreshold: 7,
     aiEnabled: true,

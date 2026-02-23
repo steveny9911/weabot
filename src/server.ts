@@ -53,30 +53,41 @@ export function createServer(
         const now = new Date();
         const dateString = dateFormatter.format(now);
         const payload = buildMoodPollPayload(dateString, DEFAULT_MOOD_CONFIG);
-        const response = await discord.postMessage(config.channelId, payload);
+        const results: string[] = [];
+        let successCount = 0;
 
-        if (response.ok) {
-          // Parse response to get message ID and save for collection
-          const messageData = await response.json();
-          const messageId = messageData.id;
+        for (const channelId of config.channelIds) {
+          const response = await discord.postMessage(channelId, payload);
 
-          const pollRecord: PollRecord = {
-            messageId,
-            channelId: config.channelId,
-            date: now.toISOString().split("T")[0],
-            createdAt: Date.now(),
-            expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
-            collected: false,
-          };
+          if (response.ok) {
+            // Parse response to get message ID and save for collection
+            const messageData = await response.json();
+            const messageId = messageData.id;
 
-          await storage.savePendingPoll(pollRecord);
-          console.log(`[SERVER] Poll posted successfully! Message ID: ${messageId}`);
-          return new Response(`✅ Poll posted to Discord!\nMessage ID: ${messageId}`);
-        } else {
-          const body = await response.text();
-          console.error(`[SERVER] Failed to post poll: ${response.status}`);
-          return new Response(`❌ Failed: ${body}`, { status: 500 });
+            const pollRecord: PollRecord = {
+              messageId,
+              channelId,
+              date: now.toISOString().split("T")[0],
+              createdAt: Date.now(),
+              expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
+              collected: false,
+            };
+
+            await storage.savePendingPoll(pollRecord);
+            console.log(`[SERVER] Poll posted in ${channelId}! Message ID: ${messageId}`);
+            results.push(`✅ ${channelId}: ${messageId}`);
+            successCount++;
+          } else {
+            const body = await response.text();
+            console.error(`[SERVER] Failed to post poll in ${channelId}: ${response.status}`);
+            results.push(`❌ ${channelId}: ${body}`);
+          }
         }
+
+        if (successCount > 0) {
+          return new Response(`Poll posted:\n${results.join("\n")}`);
+        }
+        return new Response(`❌ Failed:\n${results.join("\n")}`, { status: 500 });
       } catch (error) {
         console.error("[SERVER] Error posting poll:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
@@ -99,16 +110,27 @@ export function createServer(
         );
 
         const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
-        const response = await discord.postMessage(config.channelId, embed);
+        const results: string[] = [];
+        let successCount = 0;
 
-        if (response.ok) {
-          console.log("[SERVER] Stats posted successfully!");
-          return new Response("✅ Stats embed posted to Discord!");
-        } else {
-          const body = await response.text();
-          console.error(`[SERVER] Failed to post stats: ${response.status}`);
-          return new Response(`❌ Failed: ${body}`, { status: 500 });
+        for (const channelId of config.channelIds) {
+          const response = await discord.postMessage(channelId, embed);
+
+          if (response.ok) {
+            console.log(`[SERVER] Stats posted in ${channelId}!`);
+            results.push(`✅ ${channelId}`);
+            successCount++;
+          } else {
+            const body = await response.text();
+            console.error(`[SERVER] Failed to post stats in ${channelId}: ${response.status}`);
+            results.push(`❌ ${channelId}: ${body}`);
+          }
         }
+
+        if (successCount > 0) {
+          return new Response(`✅ Stats embed posted:\n${results.join("\n")}`);
+        }
+        return new Response(`❌ Failed:\n${results.join("\n")}`, { status: 500 });
       } catch (error) {
         console.error("[SERVER] Error posting stats:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
@@ -123,16 +145,27 @@ export function createServer(
 
       try {
         const alertEmbed = buildAlertEmbed(userName, days);
-        const response = await discord.postMessage(config.channelId, alertEmbed);
+        const results: string[] = [];
+        let successCount = 0;
 
-        if (response.ok) {
-          console.log("[SERVER] Alert posted successfully!");
-          return new Response("✅ Alert embed posted to Discord!");
-        } else {
-          const body = await response.text();
-          console.error(`[SERVER] Failed to post alert: ${response.status}`);
-          return new Response(`❌ Failed: ${body}`, { status: 500 });
+        for (const channelId of config.channelIds) {
+          const response = await discord.postMessage(channelId, alertEmbed);
+
+          if (response.ok) {
+            console.log(`[SERVER] Alert posted in ${channelId}!`);
+            results.push(`✅ ${channelId}`);
+            successCount++;
+          } else {
+            const body = await response.text();
+            console.error(`[SERVER] Failed to post alert in ${channelId}: ${response.status}`);
+            results.push(`❌ ${channelId}: ${body}`);
+          }
         }
+
+        if (successCount > 0) {
+          return new Response(`✅ Alert embed posted:\n${results.join("\n")}`);
+        }
+        return new Response(`❌ Failed:\n${results.join("\n")}`, { status: 500 });
       } catch (error) {
         console.error("[SERVER] Error posting alert:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });

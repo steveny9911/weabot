@@ -10,6 +10,7 @@
 export interface AppConfig {
   discordToken: string;
   channelId: string;
+  channelIds: string[];
   timeZone: string;
   /** Number of consecutive "glue" days to trigger alert (default: 7) */
   glueAlertThreshold: number;
@@ -60,10 +61,30 @@ export function loadConfig(): AppConfig {
   const web_search_api_key = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const web_search_enabled = (Deno.env.get("WEB_SEARCH_ENABLED") ??
     (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
+  const channel_ids_raw = Deno.env.get("CHANNEL_IDS");
+  const channel_id_single = Deno.env.get("CHANNEL_ID");
+
+  let channel_ids: string[] = [];
+  if (channel_ids_raw) {
+    channel_ids = channel_ids_raw.split(",").map((id) => id.trim()).filter(Boolean);
+  }
+
+  if (channel_id_single && !channel_ids.includes(channel_id_single)) {
+    channel_ids = channel_ids.length > 0 ? [...channel_ids, channel_id_single] : [
+      channel_id_single,
+    ];
+  }
+
+  if (channel_ids.length === 0) {
+    throw new Error("FATAL: Missing required environment variable: CHANNEL_ID or CHANNEL_IDS");
+  }
+
+  const channel_ids_unique = [...new Set(channel_ids)];
 
   return {
     discordToken: getEnvOrThrow("DISCORD_TOKEN"),
-    channelId: getEnvOrThrow("CHANNEL_ID"),
+    channelId: channel_ids_unique[0],
+    channelIds: channel_ids_unique,
     timeZone: Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles",
     glueAlertThreshold: parseInt(Deno.env.get("GLUE_ALERT_THRESHOLD") ?? "7", 10),
 

@@ -13,6 +13,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     discordToken: "test-token",
     channelId: "test-channel",
+    channelIds: ["test-channel"],
     timeZone: "America/Los_Angeles",
     glueAlertThreshold: 7,
     aiEnabled: true,
@@ -86,12 +87,12 @@ Deno.test("generateReply returns error when API key is missing", async () => {
 });
 
 // =============================================================================
-// createAiService - API Request Structure (GPT-5.2 reasoning model)
+// createAiService - API Request Structure (GPT-5.2 chat builder prompt)
 // =============================================================================
 
-Deno.test("generateReply sends correct model name (gpt-5.2)", async () => {
+Deno.test("generateReply sends correct model name (gpt-5.2-chat-latest)", async () => {
   const mock = mockFetch({
-    choices: [{ message: { content: "Test response" } }],
+    output_text: "Test response",
     usage: { total_tokens: 50 },
   });
 
@@ -102,7 +103,49 @@ Deno.test("generateReply sends correct model name (gpt-5.2)", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.model, "gpt-5.2");
+    assertEquals(request?.body.model, "gpt-5.2-chat-latest");
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply sends chat builder prompt id/version", async () => {
+  const mock = mockFetch({
+    output_text: "Test response",
+    usage: { total_tokens: 50 },
+  });
+
+  try {
+    const config = createMockConfig();
+    const service = createAiService(config);
+
+    await service.generateReply([{ author: "user", content: "hello" }]);
+
+    const request = mock.getLastRequest();
+    assertEquals(request?.body.prompt, {
+      id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
+      version: "2",
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply sends text format and store settings", async () => {
+  const mock = mockFetch({
+    output_text: "Test response",
+    usage: { total_tokens: 50 },
+  });
+
+  try {
+    const config = createMockConfig();
+    const service = createAiService(config);
+
+    await service.generateReply([{ author: "user", content: "hello" }]);
+
+    const request = mock.getLastRequest();
+    assertEquals(request?.body.text, { format: { type: "text" } });
+    assertEquals(request?.body.store, true);
   } finally {
     mock.restore();
   }
@@ -110,7 +153,7 @@ Deno.test("generateReply sends correct model name (gpt-5.2)", async () => {
 
 Deno.test("generateReply does not send max_tokens parameter", async () => {
   const mock = mockFetch({
-    choices: [{ message: { content: "Test response" } }],
+    output_text: "Test response",
     usage: { total_tokens: 50 },
   });
 
@@ -129,7 +172,7 @@ Deno.test("generateReply does not send max_tokens parameter", async () => {
 
 Deno.test("generateReply does not send temperature parameter", async () => {
   const mock = mockFetch({
-    choices: [{ message: { content: "Test response" } }],
+    output_text: "Test response",
     usage: { total_tokens: 50 },
   });
 
@@ -152,7 +195,7 @@ Deno.test("generateReply does not send temperature parameter", async () => {
 
 Deno.test("generateReply does not truncate input when limits are disabled", async () => {
   const mock = mockFetch({
-    choices: [{ message: { content: "Test response" } }],
+    output_text: "Test response",
     usage: { total_tokens: 50 },
   });
 
@@ -164,10 +207,10 @@ Deno.test("generateReply does not truncate input when limits are disabled", asyn
     await service.generateReply([{ author: "user", content: longMessage }]);
 
     const request = mock.getLastRequest();
-    const messages = request?.body.messages as Array<{ content: string }>;
-    const userMessage = messages?.[messages.length - 1];
-    assertStringIncludes(userMessage?.content ?? "", longMessage);
-    assertEquals(userMessage?.content?.includes("..."), false);
+    const input = request?.body.input as Array<{ content: string }>;
+    const userInput = input?.[input.length - 1];
+    assertStringIncludes(userInput?.content ?? "", longMessage);
+    assertEquals(userInput?.content?.includes("..."), false);
   } finally {
     mock.restore();
   }
@@ -180,7 +223,7 @@ Deno.test("generateReply does not truncate input when limits are disabled", asyn
 Deno.test("generateReply returns success with text and token count", async () => {
   const mock = mockFetch({
     // Use text that won't be stripped by the greeting sanitizer
-    choices: [{ message: { content: "That sounds like a great idea!" } }],
+    output_text: "That sounds like a great idea!",
     usage: { total_tokens: 75 },
   });
 
@@ -194,6 +237,87 @@ Deno.test("generateReply returns success with text and token count", async () =>
     if (result.ok) {
       assertStringIncludes(result.text, "That sounds like a great idea!");
       assertEquals(result.tokensUsed, 75);
+    }
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply extracts text from structured output content", async () => {
+  const mock = mockFetch({
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        content: [
+          { type: "output_text", text: "Structured response text" },
+        ],
+      },
+    ],
+    usage: { total_tokens: 61 },
+  });
+
+  try {
+    const config = createMockConfig();
+    const service = createAiService(config);
+
+    const result = await service.generateReply([{ author: "user", content: "hi" }]);
+
+    assertEquals(result.ok, true);
+    if (result.ok) {
+      assertStringIncludes(result.text, "Structured response text");
+      assertEquals(result.tokensUsed, 61);
+    }
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply extracts text when content text uses value shape", async () => {
+  const mock = mockFetch({
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        content: [
+          { type: "output_text", text: { value: "Value-shaped text" } },
+        ],
+      },
+    ],
+    usage: { total_tokens: 62 },
+  });
+
+  try {
+    const config = createMockConfig();
+    const service = createAiService(config);
+
+    const result = await service.generateReply([{ author: "user", content: "hi" }]);
+
+    assertEquals(result.ok, true);
+    if (result.ok) {
+      assertStringIncludes(result.text, "Value-shaped text");
+      assertEquals(result.tokensUsed, 62);
+    }
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply returns explicit error when response has no extractable text", async () => {
+  const mock = mockFetch({
+    output: [{ type: "message", role: "assistant", content: [{ type: "refusal" }] }],
+    usage: { total_tokens: 30 },
+  });
+
+  try {
+    const config = createMockConfig();
+    const service = createAiService(config);
+
+    const result = await service.generateReply([{ author: "user", content: "hi" }]);
+
+    assertEquals(result.ok, false);
+    if (!result.ok) {
+      assertEquals(result.error, "No text in OpenAI response");
     }
   } finally {
     mock.restore();
@@ -224,7 +348,7 @@ Deno.test("generateReply handles API error response", async () => {
 Deno.test("generateReply applies UwU transformation when enabled", async () => {
   const mock = mockFetch({
     // Use text that won't be stripped by the greeting sanitizer
-    choices: [{ message: { content: "That sounds fun!" } }],
+    output_text: "That sounds fun!",
     usage: { total_tokens: 50 },
   });
 
