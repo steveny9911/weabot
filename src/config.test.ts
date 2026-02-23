@@ -16,6 +16,7 @@ function withEnv(
     ...Object.keys(envVars),
     "DISCORD_TOKEN",
     "CHANNEL_ID",
+    "CHANNEL_IDS",
     "TIME_ZONE",
     "GLUE_ALERT_THRESHOLD",
     "AI_ENABLED",
@@ -68,12 +69,12 @@ Deno.test("loadConfig throws when DISCORD_TOKEN is missing", () => {
   });
 });
 
-Deno.test("loadConfig throws when CHANNEL_ID is missing", () => {
+Deno.test("loadConfig throws when CHANNEL_ID and CHANNEL_IDS are missing", () => {
   withEnv({ DISCORD_TOKEN: "token123" }, () => {
     assertThrows(
       () => loadConfig(),
       Error,
-      "Missing required environment variable: CHANNEL_ID",
+      "Missing required environment variable: CHANNEL_ID or CHANNEL_IDS",
     );
   });
 });
@@ -88,6 +89,21 @@ Deno.test("loadConfig returns config when required vars are present", () => {
       const config = loadConfig();
       assertEquals(config.discordToken, "my-token");
       assertEquals(config.channelId, "my-channel");
+      assertEquals(config.channelIds, ["my-channel"]);
+    },
+  );
+});
+
+Deno.test("loadConfig accepts CHANNEL_IDS without CHANNEL_ID", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "my-token",
+      CHANNEL_IDS: "chan-1, chan-2",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.channelId, "chan-1");
+      assertEquals(config.channelIds, ["chan-1", "chan-2"]);
     },
   );
 });
@@ -172,6 +188,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
       assertEquals(config, {
         discordToken: "secret-token",
         channelId: "123456789",
+        channelIds: ["123456789"],
         timeZone: "Asia/Tokyo",
         glueAlertThreshold: 5,
         aiEnabled: true,
@@ -202,6 +219,7 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.aiDailyTokenBudget, 10000000); // 10M tokens, user has OpenAI spending limits
       assertEquals(config.aiMaxInputChars, 0); // disabled by default
       assertEquals(config.aiEnableUwu, true);
+      assertEquals(config.channelIds, ["channel"]);
       assertEquals(config.webSearchEnabled, false);
       assertEquals(config.webSearchApiKey, undefined);
       assertEquals(config.webSearchMaxResults, 3);

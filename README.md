@@ -70,6 +70,7 @@ cd weabot
 1. In Discord, go to **User Settings → Advanced** and enable **Developer Mode**.
 2. Right-click the channel where you want the bot to post.
 3. Click **Copy Channel ID**.
+4. Repeat for each server/channel if using `CHANNEL_IDS`.
 
 ### 5. Configure Environment Variables
 
@@ -84,14 +85,20 @@ CHANNEL_ID=your_channel_id_here
 TIME_ZONE=America/Los_Angeles
 GLUE_ALERT_THRESHOLD=7
 
+# Multi-server (optional)
+# CHANNEL_IDS=channel_id_1,channel_id_2
+
 ```
 
 | Variable               | Required | Description                                                   |
 | ---------------------- | -------- | ------------------------------------------------------------- |
 | `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                        |
-| `CHANNEL_ID`           | Yes      | The channel ID where polls are posted                         |
+| `CHANNEL_ID`           | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)             |
+| `CHANNEL_IDS`          | Yes*     | Comma-separated channel IDs for multi-server posting           |
 | `TIME_ZONE`            | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
 | `GLUE_ALERT_THRESHOLD` | No       | Days of consecutive "glue" before alert (default: `7`)        |
+
+*Set either `CHANNEL_ID` or `CHANNEL_IDS`.*
 
 ### 6. Run the Bot
 
@@ -107,7 +114,7 @@ You should see:
 
 ```
 🐴 Weabot is running!
-   Channel: 123456789012345678
+   Channels: 123456789012345678
    Timezone: America/Los_Angeles
    Glue Alert Threshold: 7 days
 ```

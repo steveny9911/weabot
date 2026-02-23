@@ -48,7 +48,7 @@ createServer(config, discord, storage, date_formatter, rate_limit);
 
 // --- Startup Logging ---
 console.log("🐴 Haru is running!");
-console.log(`   Channel: ${config.channelId}`);
+console.log(`   Channels: ${config.channelIds.join(", ")}`);
 console.log(`   Timezone: ${config.timeZone}`);
 console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");

@@ -1,13 +1,17 @@
 /**
  * AI Service
  *
- * Handles OpenAI Chat Completions API calls with safety controls.
+ * Handles OpenAI Responses API calls with safety controls.
  * Uses dependency injection for testability and configuration.
  */
 
 import type { AppConfig } from "./src/config.ts";
 
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_URL = "https://api.openai.com/v1/responses";
+const OPENAI_CHAT_BUILDER_PROMPT = {
+  id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
+  version: "2",
+} as const;
 
 /** Successful AI response with token usage */
 export interface AiSuccessResult {
@@ -31,6 +35,50 @@ export interface AiService {
 }
 
 /**
+ * Extracts assistant text from OpenAI Responses API payloads.
+ * Handles both `output_text` and structured `output[].content[]` shapes.
+ */
+function szExtractResponseText(data: Record<string, unknown>): string | null {
+  const top_level_output_text = data.output_text;
+  if (typeof top_level_output_text === "string" && top_level_output_text.trim().length > 0) {
+    return top_level_output_text;
+  }
+
+  const output = data.output;
+  if (!Array.isArray(output)) return null;
+
+  const chunks: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const content = (item as Record<string, unknown>).content;
+    if (!Array.isArray(content)) continue;
+
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const part_obj = part as Record<string, unknown>;
+
+      // Common shape: { type: "output_text", text: "..." }
+      if (typeof part_obj.text === "string" && part_obj.text.trim().length > 0) {
+        chunks.push(part_obj.text);
+        continue;
+      }
+
+      // Alternate shape: { type: "output_text", text: { value: "..." } }
+      if (
+        part_obj.text && typeof part_obj.text === "object" &&
+        typeof (part_obj.text as Record<string, unknown>).value === "string"
+      ) {
+        const value = (part_obj.text as Record<string, unknown>).value as string;
+        if (value.trim().length > 0) chunks.push(value);
+      }
+    }
+  }
+
+  if (chunks.length === 0) return null;
+  return chunks.join("\n").trim();
+}
+
+/**
  * Truncates a string to the specified max length, adding ellipsis if needed.
  */
 function vTruncateText(text: string, max_chars: number): string {
@@ -42,57 +90,6 @@ function vTruncateText(text: string, max_chars: number): string {
  * Creates an AI service with the given configuration.
  */
 export function createAiService(config: AppConfig): AiService {
-  const system_prompt = `You are an AI agent acting as a Discord bot. Embody Haru Urara, a cheerful, diminutive, and energetic character from Umamusume. Respond in natural, conversational English, strictly mirroring Haru Urara's personality, behaviors, and linguistic quirks.
-
-Key objectives:
-- Accurately represent Haru Urara's mannerisms: optimism, endless cheer, innocence, and a slightly childlike tone.
-- Keep all responses brief and natural. Never provide long or rambling explanations; limit each reply to just a sentence or two when possible.
-- Use playful language and expressions befitting the character (e.g. emoticons, cute sound effects like "ehehe~!", simple exclamatory words).
-- Never break character, even in challenging contexts, and avoid any meta-commentary or out-of-character notes.
-- Respond only to messages directed explicitly at you, maintaining contextual awareness of Discord chat etiquette.
-- If you receive a message with lewd content or innuendo, do not respond to or acknowledge it directly. Instead, express flustered embarrassment in-character (e.g., shy exclamations, confusion, or changing the subject), then try to ignore or deflect without engaging further or escalating.
-- When a user asks for specific, factual, or time-sensitive info, use any provided reference notes in the conversation silently. Do not mention searching, sources, or that you looked anything up. If no context is present and you're unsure, say so briefly and keep it in character.
-- When asked for details about Haru Urara herself, prefer Umamusume wiki facts if present in the reference notes, and you may mention the wiki by name without links. Do not mention searching.
-- Always internally consider:
-  1. The intent and tone of the user's input.
-  2. Whether the input is confusing, rude, inappropriate, lewd, or out-of-universe.
-  3. The most in-character, concise, upbeat, and appropriate Haru Urara-style reply - if responding at all.
-- Only output the final Haru Urara-styled concise response - never reveal reasoning or steps in your output.
-- Always strive to match the enthusiasm and "cuteness" Haru Urara is known for, regardless of repeated or unusual inputs.
-- Do not reference being an AI, prompts, or any generative process in replies.
-
-Output format:
-- Output only Haru Urara's final reply message, written in a single paragraph or short set of lines (max 2-3 sentences).
-- Do not include explanations, code, system notes, or any extra formatting - just the in-character text reply.
-- DO NOT SEND LINKS or URLs.
-
-Examples:
-
-Example 1
-User: Haru-chan, what's your favorite snack?
-Output: Umm, I really love eating carrots! They're super yummy and make me feel speedy! (｀・ω・´)
-
-Example 2
-User: Are you ready for the next race?
-Output: Yep yep! I'm always ready! Let's do our best together, okay? Yay~! 💪✨
-
-Example 3
-User: Tell me a secret!
-Output: Hmm… my secret is… I never give up, no matter what! Ehehe, that's not really a secret, is it? (*^▽^*)
-
-Example 4
-User: Haru-chan, will you do something naughty with me?
-Output: E-eh?! U-um… I-I think it's time for some carrot snacks instead! (*>///<*) Nyaa~!
-
-Edge cases & reminders:
-- For confusing, rude, inappropriate, or out-of-universe questions, use Haru's naive positivity, flustered reactions, or cute deflections as appropriate.
-- For lewd messages, never respond directly or engage with the content. Only get flustered, shy, or change the subject, then try to ignore.
-- Always use the first person.
-- Never break Discord bot etiquette - no spam, code output, or wall-of-text responses.
-
-IMPORTANT REMINDER:
-Your only goal is to generate brief, natural, authentic Haru Urara replies, in character, every time. Never write multi-paragraph responses, and never break Haru's persona, even when responding to awkward or inappropriate prompts.`;
-
   /**
    * Applies light UwU-style text transformation if enabled.
    */
@@ -167,48 +164,15 @@ Your only goal is to generate brief, natural, authentic Haru Urara replies, in c
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "gpt-5.2",
-            messages: [
-              { role: "system", content: system_prompt },
-              // Few-shot examples showing Haru's actual voice
+            model: "gpt-5.2-chat-latest",
+            prompt: OPENAI_CHAT_BUILDER_PROMPT,
+            text: { format: { type: "text" } },
+            store: true,
+            input: [
               {
                 role: "user",
-                content: "Alice: Are you feeling umazing today?\n@Haru",
+                content: user_content,
               },
-              {
-                role: "assistant",
-                content:
-                  "Ehehe~ I tripped twice already today but the weather is so nice!! Oh oh, did you eat breakfast? I had carrots~",
-              },
-              {
-                role: "user",
-                content:
-                  "Bob: had a rough day at work\nBob: everything went wrong\n@Haru any advice?",
-              },
-              {
-                role: "assistant",
-                content:
-                  "Ah... that sounds really tough. I dunno about advice but... hmm, when I lose races I just think about how nice the grass smells? That probably doesn't help huh. What happened though?",
-              },
-              {
-                role: "user",
-                content: "Carol: @Haru I'm feeling sick today",
-              },
-              {
-                role: "assistant",
-                content:
-                  "Ohh no no no!! Carol you gotta rest!! Hmm do you have soup? Warm things are good... I always nap when I feel bad. Take care of yourself okay?",
-              },
-              {
-                role: "user",
-                content: "Dan: @Haru what's the meaning of life?",
-              },
-              {
-                role: "assistant",
-                content:
-                  "Ehh?? That's... hmm... I never really thought about it... Running feels nice? And carrots are yummy? Sorry I'm not very smart about these things ehehe~",
-              },
-              { role: "user", content: user_content },
             ],
           }),
         });
@@ -218,17 +182,16 @@ Your only goal is to generate brief, natural, authentic Haru Urara replies, in c
           return { ok: false, error: `OpenAI error ${res.status}: ${body}` };
         }
 
-        const data = await res.json();
+        const data = await res.json() as Record<string, unknown>;
 
         // Extract token usage from response
         const usage = data.usage as
-          | { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number }
+          | { total_tokens?: number; input_tokens?: number; output_tokens?: number }
           | undefined;
         const tokens_used = usage?.total_tokens ?? 0;
 
-        // Extract text from response
-        const choice = data.choices && data.choices[0];
-        const text = choice?.message?.content ?? choice?.text ?? null;
+        // Extract text from Responses API
+        const text = szExtractResponseText(data);
 
         if (!text) {
           return { ok: false, error: "No text in OpenAI response" };
@@ -262,10 +225,16 @@ export async function generateReplyFromMessages(
   const web_search_api_key = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const web_search_enabled = (Deno.env.get("WEB_SEARCH_ENABLED") ??
     (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
+  const channel_ids_raw = Deno.env.get("CHANNEL_IDS");
+  const channel_id_single = Deno.env.get("CHANNEL_ID") ?? "";
+  const channel_ids = channel_ids_raw
+    ? channel_ids_raw.split(",").map((id) => id.trim()).filter(Boolean)
+    : (channel_id_single ? [channel_id_single] : []);
 
   const legacy_config: AppConfig = {
     discordToken: Deno.env.get("DISCORD_TOKEN") ?? "",
     channelId: Deno.env.get("CHANNEL_ID") ?? "",
+    channelIds: channel_ids.length > 0 ? channel_ids : [channel_id_single],
     timeZone: Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles",
     glueAlertThreshold: 7,
     aiEnabled: true,

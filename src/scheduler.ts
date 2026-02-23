@@ -41,29 +41,31 @@ export function registerCronJobs(
       const now = new Date();
       const dateString = dateFormatter.format(now);
       const payload = buildMoodPollPayload(dateString, DEFAULT_MOOD_CONFIG);
-      const response = await discord.postMessage(config.channelId, payload);
+      for (const channelId of config.channelIds) {
+        const response = await discord.postMessage(channelId, payload);
 
-      if (response.ok) {
-        // Parse response to get message ID
-        const messageData = await response.json();
-        const messageId = messageData.id;
+        if (response.ok) {
+          // Parse response to get message ID
+          const messageData = await response.json();
+          const messageId = messageData.id;
 
-        // Save pending poll for later collection
-        const pollRecord: PollRecord = {
-          messageId,
-          channelId: config.channelId,
-          date: now.toISOString().split("T")[0],
-          createdAt: Date.now(),
-          expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
-          collected: false,
-        };
+          // Save pending poll for later collection
+          const pollRecord: PollRecord = {
+            messageId,
+            channelId,
+            date: now.toISOString().split("T")[0],
+            createdAt: Date.now(),
+            expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
+            collected: false,
+          };
 
-        await storage.savePendingPoll(pollRecord);
-        console.log(`[CRON] Poll posted successfully! Message ID: ${messageId}`);
-      } else {
-        const body = await response.text();
-        console.error(`[CRON] Failed to post poll: ${response.status}`);
-        console.error(body);
+          await storage.savePendingPoll(pollRecord);
+          console.log(`[CRON] Poll posted in ${channelId}! Message ID: ${messageId}`);
+        } else {
+          const body = await response.text();
+          console.error(`[CRON] Failed to post poll in ${channelId}: ${response.status}`);
+          console.error(body);
+        }
       }
     } catch (error) {
       console.error("[CRON] Error posting poll:", error);
@@ -92,12 +94,14 @@ export function registerCronJobs(
         const user = userHistory[0];
         const alertEmbed = buildAlertEmbed(user.odUserName, userHistory.length);
 
-        const response = await discord.postMessage(config.channelId, alertEmbed);
+        for (const channelId of config.channelIds) {
+          const response = await discord.postMessage(channelId, alertEmbed);
 
-        if (response.ok) {
-          console.log(`[CRON] Alert sent for ${user.odUserName}`);
-        } else {
-          console.error(`[CRON] Failed to send alert for ${user.odUserName}`);
+          if (response.ok) {
+            console.log(`[CRON] Alert sent for ${user.odUserName} in ${channelId}`);
+          } else {
+            console.error(`[CRON] Failed to send alert for ${user.odUserName} in ${channelId}`);
+          }
         }
       }
     } catch (error) {
@@ -124,14 +128,17 @@ export function registerCronJobs(
       );
 
       const embed = buildStatsEmbed(stats, "📊 Weekly Mood Summary");
-      const response = await discord.postMessage(config.channelId, embed);
 
-      if (response.ok) {
-        console.log("[CRON] Weekly stats posted successfully!");
-      } else {
-        const body = await response.text();
-        console.error(`[CRON] Failed to post weekly stats: ${response.status}`);
-        console.error(body);
+      for (const channelId of config.channelIds) {
+        const response = await discord.postMessage(channelId, embed);
+
+        if (response.ok) {
+          console.log(`[CRON] Weekly stats posted in ${channelId}!`);
+        } else {
+          const body = await response.text();
+          console.error(`[CRON] Failed to post weekly stats in ${channelId}: ${response.status}`);
+          console.error(body);
+        }
       }
     } catch (error) {
       console.error("[CRON] Error posting weekly stats:", error);
