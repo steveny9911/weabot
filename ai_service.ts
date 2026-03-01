@@ -10,7 +10,6 @@ import type { AppConfig } from "./src/config.ts";
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 const OPENAI_CHAT_BUILDER_PROMPT = {
   id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
-  version: "2",
 } as const;
 
 /** Successful AI response with token usage */
