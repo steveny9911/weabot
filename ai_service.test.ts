@@ -109,7 +109,7 @@ Deno.test("generateReply sends correct model name (gpt-5.2-chat-latest)", async 
   }
 });
 
-Deno.test("generateReply sends chat builder prompt id/version", async () => {
+Deno.test("generateReply sends chat builder prompt id without pinning version", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -124,7 +124,6 @@ Deno.test("generateReply sends chat builder prompt id/version", async () => {
     const request = mock.getLastRequest();
     assertEquals(request?.body.prompt, {
       id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
-      version: "2",
     });
   } finally {
     mock.restore();
