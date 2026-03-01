@@ -16,12 +16,66 @@ import {
 
 // Discord API Base URL
 const API_BASE = "https://discord.com/api/v10";
+const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|tiff?)$/i;
 
 // In-memory cache of recent messages per channel
 const messages_cache = new Map<string, Array<Record<string, unknown>>>();
 
 // Cached bot user ID
 let cached_bot_user_id: string | undefined;
+
+function bIsHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function bAttachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
+  const content_type = attachment["content_type"];
+  if (typeof content_type === "string" && content_type.startsWith("image/")) {
+    return true;
+  }
+
+  const filename = attachment["filename"];
+  if (typeof filename === "string" && IMAGE_FILE_EXT_RE.test(filename)) {
+    return true;
+  }
+
+  const width = attachment["width"];
+  const height = attachment["height"];
+  if (typeof width === "number" && width > 0 && typeof height === "number" && height > 0) {
+    return true;
+  }
+
+  return false;
+}
+
+function aszExtractImageUrlsFromDiscordMessage(message: Record<string, unknown>): string[] {
+  const attachments = message["attachments"];
+  if (!Array.isArray(attachments)) return [];
+
+  const image_urls: string[] = [];
+  for (const raw_attachment of attachments) {
+    if (!raw_attachment || typeof raw_attachment !== "object") continue;
+
+    const attachment = raw_attachment as Record<string, unknown>;
+    if (!bAttachmentLooksLikeImage(attachment)) continue;
+
+    const candidate = typeof attachment["url"] === "string"
+      ? attachment["url"]
+      : (typeof attachment["proxy_url"] === "string" ? attachment["proxy_url"] : undefined);
+    if (!candidate) continue;
+
+    const trimmed = candidate.trim();
+    if (!trimmed || !bIsHttpUrl(trimmed)) continue;
+    image_urls.push(trimmed);
+  }
+
+  return [...new Set(image_urls)];
+}
 
 /**
  * Dependencies required by bot action handlers.
@@ -374,6 +428,7 @@ export async function saveContext(
       author: (m.author as Record<string, unknown>)?.username ??
         (m.author as Record<string, unknown>)?.id,
       content: m.content,
+      imageUrls: aszExtractImageUrlsFromDiscordMessage(m),
       timestamp: m.timestamp ?? m.created_at ?? null,
     }));
 
