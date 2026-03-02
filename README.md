@@ -254,6 +254,65 @@ deno task fmt
 deno task check
 ```
 
+### Local Issue Automation (Codex + GitHub Issues)
+
+If Haru is running locally, you can still automate issue triage and PR creation from this Mac.
+
+Prerequisites:
+
+1. `gh` is installed and authenticated (`gh auth status`).
+2. Token has `repo` scope (for labels/comments/closing/PRs).
+3. Commands run from this repository root.
+
+Agent state labels used by automation:
+
+1. `agent:accepted`
+2. `agent:needs-info`
+3. `agent:rejected`
+4. `agent:in-progress`
+5. `agent:pr-open`
+6. `agent:closed-inactive`
+
+These labels are auto-created/updated by the scripts below.
+
+Run triage:
+
+```bash
+deno task agent:triage
+```
+
+Run stale close (close rejected/needs-info issues after 3 days inactive):
+
+```bash
+deno task agent:stale-close
+```
+
+Run the full triage + stale-close + claim-next cycle:
+
+```bash
+deno task agent:run-once
+```
+
+Claim next accepted issue for implementation (prints JSON):
+
+```bash
+deno task agent:next-issue -- --claim
+```
+
+Mark an issue as PR-open after a PR is created:
+
+```bash
+deno task agent:mark-pr-open -- 123 https://github.com/OWNER/REPO/pull/456
+```
+
+Suggested recurring loop:
+
+1. `deno task agent:triage`
+2. `deno task agent:stale-close`
+3. `deno task agent:next-issue -- --claim`
+4. If issue found: implement + test + open PR
+5. `deno task agent:mark-pr-open -- <issue_number> <pr_url>`
+
 ---
 
 ## Deployment
