@@ -14,6 +14,7 @@ import {
   szExtractAutoSearchQuery,
   type WebSearchService,
 } from "./src/services/web_search.ts";
+import { szSelectGreetingGifForReply } from "./src/features/reaction_gif.ts";
 
 // Discord API Base URL
 const API_BASE = "https://discord.com/api/v10";
@@ -480,6 +481,15 @@ export async function handleMessage(
   const send_result = await sendMessage(config, channel_id, final_reply);
   if (!send_result.ok) {
     console.error("Failed to send AI reply:", send_result.error);
+    return;
+  }
+
+  const greeting_gif = szSelectGreetingGifForReply(final_reply);
+  if (greeting_gif) {
+    const gif_send_result = await sendMessage(config, channel_id, greeting_gif);
+    if (!gif_send_result.ok) {
+      console.error("Failed to send greeting GIF:", gif_send_result.error);
+    }
   }
 }
 

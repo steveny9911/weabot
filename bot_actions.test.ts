@@ -14,6 +14,7 @@ import type { AppConfig } from "./src/config.ts";
 import type { BudgetResult, RateLimitResult, UsageStats } from "./src/services/rate_limit.ts";
 import type { LinkOpenError } from "./src/services/link_open.ts";
 import type { SearchResult } from "./src/services/web_search.ts";
+import { aszHaruGreetingGifPool } from "./src/features/reaction_gif.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -168,18 +169,22 @@ function createDeps(
     },
     rateLimitService: {
       checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
-        return Promise.resolve(overrides.rateLimitResult ?? {
-          allowed: true,
-          remaining: 99,
-          resetInMs: 1000,
-        });
+        return Promise.resolve(
+          overrides.rateLimitResult ?? {
+            allowed: true,
+            remaining: 99,
+            resetInMs: 1000,
+          },
+        );
       },
       recordUserRequest(_userId: string): Promise<void> {
         request_count++;
         return Promise.resolve();
       },
       checkDailyBudget(): Promise<BudgetResult> {
-        return Promise.resolve(overrides.budgetResult ?? { allowed: true, tokensRemaining: 999999 });
+        return Promise.resolve(
+          overrides.budgetResult ?? { allowed: true, tokensRemaining: 999999 },
+        );
       },
       recordTokenUsage(tokens: number): Promise<void> {
         recorded_tokens.push(tokens);
@@ -196,23 +201,27 @@ function createDeps(
     linkOpenService: {
       open(url: string) {
         link_calls.push(url);
-        return Promise.resolve(overrides.linkResult ?? {
-          ok: true,
-          page: {
-            domain: "example.com",
-            title: "Example Title",
-            excerpt: "Example page excerpt",
+        return Promise.resolve(
+          overrides.linkResult ?? {
+            ok: true,
+            page: {
+              domain: "example.com",
+              title: "Example Title",
+              excerpt: "Example page excerpt",
+            },
           },
-        });
+        );
       },
     },
     webSearchService: {
       search(query: string, _maxResults?: number) {
         web_search_calls.push(query);
-        return Promise.resolve(overrides.webSearchResult ?? {
-          ok: true,
-          results: [{ title: "Deno", url: "https://deno.com", snippet: "A runtime" }],
-        });
+        return Promise.resolve(
+          overrides.webSearchResult ?? {
+            ok: true,
+            results: [{ title: "Deno", url: "https://deno.com", snippet: "A runtime" }],
+          },
+        );
       },
     },
   };
@@ -419,6 +428,41 @@ Deno.test("non-open mention still uses auto-search flow", async () => {
       String(web_entry?.["content"] ?? ""),
       'Reference notes for "what is deno?"',
     );
+  } finally {
+    fetch_mock.restore();
+  }
+});
+
+Deno.test("handleMessage posts one greeting GIF when final reply has greeting trigger", async () => {
+  const fetch_mock = mockDiscordApiFetch();
+  try {
+    const config = createMockConfig({ webSearchEnabled: false });
+    const ctx = createDeps(config, {
+      aiResult: { ok: true, text: "Ciallo! Hello there~", tokensUsed: 7 },
+    });
+
+    await handleMessage(createMentionMessage("<@12345> tell me something fun"), ctx.deps);
+
+    assertEquals(fetch_mock.postedMessages.length, 2);
+    assertEquals(fetch_mock.postedMessages[0], "Ciallo! Hello there~");
+    assertEquals(aszHaruGreetingGifPool.includes(fetch_mock.postedMessages[1]), true);
+  } finally {
+    fetch_mock.restore();
+  }
+});
+
+Deno.test("handleMessage does not post greeting GIF when final reply has no greeting trigger", async () => {
+  const fetch_mock = mockDiscordApiFetch();
+  try {
+    const config = createMockConfig({ webSearchEnabled: false });
+    const ctx = createDeps(config, {
+      aiResult: { ok: true, text: "I can help with that request.", tokensUsed: 7 },
+    });
+
+    await handleMessage(createMentionMessage("<@12345> tell me something fun"), ctx.deps);
+
+    assertEquals(fetch_mock.postedMessages.length, 1);
+    assertEquals(fetch_mock.postedMessages[0], "I can help with that request.");
   } finally {
     fetch_mock.restore();
   }
