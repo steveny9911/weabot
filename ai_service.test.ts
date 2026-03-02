@@ -206,10 +206,56 @@ Deno.test("generateReply does not truncate input when limits are disabled", asyn
     await service.generateReply([{ author: "user", content: longMessage }]);
 
     const request = mock.getLastRequest();
-    const input = request?.body.input as Array<{ content: string }>;
-    const userInput = input?.[input.length - 1];
-    assertStringIncludes(userInput?.content ?? "", longMessage);
-    assertEquals(userInput?.content?.includes("..."), false);
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const first_message = input?.[0];
+    const content_parts = first_message?.content ?? [];
+    const text_part = content_parts.find((part) => part["type"] === "input_text");
+    const text = (text_part?.["text"] as string | undefined) ?? "";
+
+    assertStringIncludes(text, longMessage);
+    assertEquals(text.includes("..."), false);
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply includes image URLs as input_image blocks", async () => {
+  const mock = mockFetch({
+    output_text: "Looks great!",
+    usage: { total_tokens: 60 },
+  });
+
+  try {
+    const config = createMockConfig();
+    const service = createAiService(config);
+
+    await service.generateReply([
+      {
+        author: "alice",
+        content: "check this out",
+        imageUrls: [
+          "https://cdn.discordapp.com/attachments/1/2/cat.png",
+          "not-a-url",
+        ],
+      },
+      {
+        author: "bob",
+        content: "and this one too",
+        imageUrls: [
+          "https://media.discordapp.net/attachments/3/4/dog.jpg",
+          "https://cdn.discordapp.com/attachments/1/2/cat.png",
+        ],
+      },
+    ]);
+
+    const request = mock.getLastRequest();
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const content_parts = input?.[0]?.content ?? [];
+    const image_parts = content_parts.filter((part) => part["type"] === "input_image");
+
+    assertEquals(image_parts.length, 2);
+    assertEquals(image_parts[0]["image_url"], "https://cdn.discordapp.com/attachments/1/2/cat.png");
+    assertEquals(image_parts[1]["image_url"], "https://media.discordapp.net/attachments/3/4/dog.jpg");
   } finally {
     mock.restore();
   }

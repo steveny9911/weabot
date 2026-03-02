@@ -11,6 +11,7 @@ const OPENAI_URL = "https://api.openai.com/v1/responses";
 const OPENAI_CHAT_BUILDER_PROMPT = {
   id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
 } as const;
+const MAX_CONTEXT_IMAGES = 6;
 
 /** Successful AI response with token usage */
 export interface AiSuccessResult {
@@ -75,6 +76,50 @@ function szExtractResponseText(data: Record<string, unknown>): string | null {
 
   if (chunks.length === 0) return null;
   return chunks.join("\n").trim();
+}
+
+function bIsHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function aszGetImageUrlsFromContextMessage(message: Record<string, unknown>): string[] {
+  const raw_urls = message["imageUrls"] ?? message["images"];
+  if (!Array.isArray(raw_urls)) return [];
+
+  const urls: string[] = [];
+  for (const raw_url of raw_urls) {
+    if (typeof raw_url !== "string") continue;
+    const trimmed = raw_url.trim();
+    if (!trimmed || !bIsHttpUrl(trimmed)) continue;
+    urls.push(trimmed);
+  }
+  return urls;
+}
+
+function aszCollectImageUrls(
+  messages: Array<Record<string, unknown>>,
+  max_images: number,
+): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+
+  for (const message of messages) {
+    for (const url of aszGetImageUrlsFromContextMessage(message)) {
+      if (seen.has(url)) continue;
+      seen.add(url);
+      urls.push(url);
+      if (urls.length >= max_images) {
+        return urls;
+      }
+    }
+  }
+
+  return urls;
 }
 
 /**
@@ -148,12 +193,28 @@ export function createAiService(config: AppConfig): AiService {
         const raw_text = (m.content as string) ?? "";
         const max_input_chars = config.aiMaxInputChars;
         const text = max_input_chars > 0 ? vTruncateText(raw_text, max_input_chars) : raw_text;
-        return `${author}: ${text}`;
+        const image_count = aszGetImageUrlsFromContextMessage(m).length;
+        const image_hint = image_count > 0
+          ? (image_count === 1 ? " [attached 1 image]" : ` [attached ${image_count} images]`)
+          : "";
+        return `${author}: ${text}${image_hint}`;
       });
+      const image_urls = aszCollectImageUrls(messages, MAX_CONTEXT_IMAGES);
 
       const user_content = `Here is the recent conversation (oldest->newest):\n\n${
         lines.join("\n")
       }\n\nRespond in-character as the assistant described in the system instructions.`;
+
+      const input_content: Array<Record<string, unknown>> = [{
+        type: "input_text",
+        text: user_content,
+      }];
+      for (const image_url of image_urls) {
+        input_content.push({
+          type: "input_image",
+          image_url,
+        });
+      }
 
       try {
         const res = await fetch(OPENAI_URL, {
@@ -170,7 +231,7 @@ export function createAiService(config: AppConfig): AiService {
             input: [
               {
                 role: "user",
-                content: user_content,
+                content: input_content,
               },
             ],
           }),
