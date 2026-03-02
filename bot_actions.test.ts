@@ -161,52 +161,58 @@ function createDeps(
   const deps: BotDependencies = {
     config,
     aiService: {
-      async generateReply(messages: Array<Record<string, unknown>>) {
+      generateReply(messages: Array<Record<string, unknown>>) {
         ai_calls.push(messages);
-        return overrides.aiResult ?? { ok: true, text: "AI reply", tokensUsed: 9 };
+        return Promise.resolve(overrides.aiResult ?? { ok: true, text: "AI reply", tokensUsed: 9 });
       },
     },
     rateLimitService: {
-      async checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
-        return overrides.rateLimitResult ?? { allowed: true, remaining: 99, resetInMs: 1000 };
+      checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
+        return Promise.resolve(overrides.rateLimitResult ?? {
+          allowed: true,
+          remaining: 99,
+          resetInMs: 1000,
+        });
       },
-      async recordUserRequest(_userId: string): Promise<void> {
+      recordUserRequest(_userId: string): Promise<void> {
         request_count++;
+        return Promise.resolve();
       },
-      async checkDailyBudget(): Promise<BudgetResult> {
-        return overrides.budgetResult ?? { allowed: true, tokensRemaining: 999999 };
+      checkDailyBudget(): Promise<BudgetResult> {
+        return Promise.resolve(overrides.budgetResult ?? { allowed: true, tokensRemaining: 999999 });
       },
-      async recordTokenUsage(tokens: number): Promise<void> {
+      recordTokenUsage(tokens: number): Promise<void> {
         recorded_tokens.push(tokens);
+        return Promise.resolve();
       },
-      async getUsageStats(): Promise<UsageStats> {
-        return {
+      getUsageStats(): Promise<UsageStats> {
+        return Promise.resolve({
           dailyTokensUsed: recorded_tokens.reduce((a, b) => a + b, 0),
           dailyTokenBudget: config.aiDailyTokenBudget,
           requestsToday: request_count,
-        };
+        });
       },
     },
     linkOpenService: {
-      async open(url: string) {
+      open(url: string) {
         link_calls.push(url);
-        return overrides.linkResult ?? {
+        return Promise.resolve(overrides.linkResult ?? {
           ok: true,
           page: {
             domain: "example.com",
             title: "Example Title",
             excerpt: "Example page excerpt",
           },
-        };
+        });
       },
     },
     webSearchService: {
-      async search(query: string, _maxResults?: number) {
+      search(query: string, _maxResults?: number) {
         web_search_calls.push(query);
-        return overrides.webSearchResult ?? {
+        return Promise.resolve(overrides.webSearchResult ?? {
           ok: true,
           results: [{ title: "Deno", url: "https://deno.com", snippet: "A runtime" }],
-        };
+        });
       },
     },
   };

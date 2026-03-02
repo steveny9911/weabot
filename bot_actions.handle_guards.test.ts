@@ -31,39 +31,43 @@ Deno.test("handleMessage exits when bot id cannot be fetched", async () => {
   const deps: BotDependencies = {
     config,
     aiService: {
-      async generateReply(_messages: Array<Record<string, unknown>>) {
+      generateReply(_messages: Array<Record<string, unknown>>) {
         ai_calls++;
-        return { ok: true, text: "ok", tokensUsed: 1 };
+        return Promise.resolve({ ok: true, text: "ok", tokensUsed: 1 });
       },
     },
     rateLimitService: {
-      async checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
-        return { allowed: true, remaining: 1, resetInMs: 1000 };
+      checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
+        return Promise.resolve({ allowed: true, remaining: 1, resetInMs: 1000 });
       },
-      async recordUserRequest(_userId: string): Promise<void> {},
-      async checkDailyBudget(): Promise<BudgetResult> {
-        return { allowed: true, tokensRemaining: 999 };
+      recordUserRequest(_userId: string): Promise<void> {
+        return Promise.resolve();
       },
-      async recordTokenUsage(_tokens: number): Promise<void> {},
-      async getUsageStats(): Promise<UsageStats> {
-        return {
+      checkDailyBudget(): Promise<BudgetResult> {
+        return Promise.resolve({ allowed: true, tokensRemaining: 999 });
+      },
+      recordTokenUsage(_tokens: number): Promise<void> {
+        return Promise.resolve();
+      },
+      getUsageStats(): Promise<UsageStats> {
+        return Promise.resolve({
           dailyTokensUsed: 0,
           dailyTokenBudget: config.aiDailyTokenBudget,
           requestsToday: 0,
-        };
+        });
       },
     },
     linkOpenService: {
-      async open(_url: string) {
-        return {
+      open(_url: string) {
+        return Promise.resolve({
           ok: false as const,
           error: "fetch_failed" as const,
-        };
+        });
       },
     },
     webSearchService: {
-      async search(_query: string) {
-        return { ok: true as const, results: [] };
+      search(_query: string) {
+        return Promise.resolve({ ok: true as const, results: [] });
       },
     },
   };

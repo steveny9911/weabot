@@ -5,11 +5,16 @@
   "tasks": {
     "start": "deno run --unstable-cron --unstable-kv --env --allow-net --allow-env main.ts",
     "dev": "deno run --unstable-cron --unstable-kv --env --watch --allow-net --allow-env main.ts",
-    "check": "deno check main.ts src/**/*.ts *.ts",
+    "check": "deno check main.ts src/**/*.ts scripts/**/*.ts *.ts",
     "test": "deno test --unstable-kv --allow-env",
     "lint": "deno lint",
     "fmt": "deno fmt",
-    "fmt:check": "deno fmt --check"
+    "fmt:check": "deno fmt --check",
+    "agent:triage": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/triage.ts",
+    "agent:stale-close": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/stale_close.ts",
+    "agent:next-issue": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/next_issue.ts",
+    "agent:mark-pr-open": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/mark_pr_open.ts",
+    "agent:run-once": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/run_once.ts"
   },
   "fmt": {
     "useTabs": false,
