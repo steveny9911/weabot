@@ -285,6 +285,8 @@ export async function generateReplyFromMessages(
   const web_search_api_key = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const web_search_enabled = (Deno.env.get("WEB_SEARCH_ENABLED") ??
     (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
+  const link_open_enabled = (Deno.env.get("LINK_OPEN_ENABLED") ?? "true").toLowerCase() !==
+    "false";
   const channel_ids_raw = Deno.env.get("CHANNEL_IDS");
   const channel_id_single = Deno.env.get("CHANNEL_ID") ?? "";
   const channel_ids = channel_ids_raw
@@ -306,6 +308,7 @@ export async function generateReplyFromMessages(
     webSearchEnabled: web_search_enabled,
     webSearchApiKey: web_search_api_key,
     webSearchMaxResults: parseInt(Deno.env.get("WEB_SEARCH_MAX_RESULTS") ?? "3", 10),
+    linkOpenEnabled: link_open_enabled,
   };
 
   const service = createAiService(legacy_config);

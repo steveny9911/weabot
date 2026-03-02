@@ -5,7 +5,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { createAiService } from "./ai_service.ts";
+import { createAiService, generateReplyFromMessages } from "./ai_service.ts";
 import type { AppConfig } from "./src/config.ts";
 
 // Helper to create a mock config
@@ -25,6 +25,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webSearchEnabled: false,
     webSearchApiKey: undefined,
     webSearchMaxResults: 3,
+    linkOpenEnabled: true,
     ...overrides,
   };
 }
@@ -33,7 +34,10 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 function mockFetch(
   responseBody: Record<string, unknown>,
   status = 200,
-): { restore: () => void; getLastRequest: () => { url: string; body: Record<string, unknown> } | null } {
+): {
+  restore: () => void;
+  getLastRequest: () => { url: string; body: Record<string, unknown> } | null;
+} {
   let lastRequest: { url: string; body: Record<string, unknown> } | null = null;
   const originalFetch = globalThis.fetch;
 
@@ -56,6 +60,35 @@ function mockFetch(
     },
     getLastRequest: () => lastRequest,
   };
+}
+
+async function withEnv(
+  vars: Record<string, string | undefined>,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const original: Record<string, string | undefined> = {};
+  for (const key of Object.keys(vars)) {
+    original[key] = Deno.env.get(key);
+  }
+
+  try {
+    for (const [key, value] of Object.entries(vars)) {
+      if (value === undefined) {
+        Deno.env.delete(key);
+      } else {
+        Deno.env.set(key, value);
+      }
+    }
+    await fn();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) {
+        Deno.env.delete(key);
+      } else {
+        Deno.env.set(key, value);
+      }
+    }
+  }
 }
 
 // =============================================================================
@@ -255,7 +288,10 @@ Deno.test("generateReply includes image URLs as input_image blocks", async () =>
 
     assertEquals(image_parts.length, 2);
     assertEquals(image_parts[0]["image_url"], "https://cdn.discordapp.com/attachments/1/2/cat.png");
-    assertEquals(image_parts[1]["image_url"], "https://media.discordapp.net/attachments/3/4/dog.jpg");
+    assertEquals(
+      image_parts[1]["image_url"],
+      "https://media.discordapp.net/attachments/3/4/dog.jpg",
+    );
   } finally {
     mock.restore();
   }
@@ -409,6 +445,242 @@ Deno.test("generateReply applies UwU transformation when enabled", async () => {
       assertStringIncludes(result.text, "!~");
       assertStringIncludes(result.text, "uwu");
     }
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply truncates input when aiMaxInputChars is set", async () => {
+  const mock = mockFetch({
+    output_text: "ok",
+    usage: { total_tokens: 20 },
+  });
+
+  try {
+    const config = createMockConfig({ aiMaxInputChars: 10 });
+    const service = createAiService(config);
+
+    await service.generateReply([{ author: "user", content: "this is definitely too long" }]);
+
+    const request = mock.getLastRequest();
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const textPart = input?.[0]?.content?.find((part) => part["type"] === "input_text");
+    const text = String(textPart?.["text"] ?? "");
+    assertStringIncludes(text, "this is...");
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply sanitizes greetings and apology phrasing", async () => {
+  const mock = mockFetch({
+    output_text: "Hello there, I'm sorry I cannot do that!",
+    usage: { total_tokens: 22 },
+  });
+
+  try {
+    const service = createAiService(createMockConfig());
+    const result = await service.generateReply([{ author: "user", content: "help" }]);
+    assertEquals(result.ok, true);
+    if (result.ok) {
+      assertEquals(result.text, "do that!");
+    }
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply returns error when fetch throws", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) => {
+    return Promise.reject(new Error("network down"));
+  }) as typeof fetch;
+
+  try {
+    const service = createAiService(createMockConfig());
+    const result = await service.generateReply([{ author: "user", content: "hello" }]);
+    assertEquals(result.ok, false);
+    if (!result.ok) {
+      assertStringIncludes(result.error, "network down");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("generateReplyFromMessages uses env config and returns legacy success shape", async () => {
+  const mock = mockFetch({
+    output_text: "Legacy works",
+    usage: { total_tokens: 30 },
+  });
+
+  try {
+    await withEnv(
+      {
+        OPENAI_API_KEY: "sk-env",
+        DISCORD_TOKEN: "discord-env",
+        CHANNEL_IDS: "chan-1, chan-2",
+        CHANNEL_ID: "fallback-chan",
+        ENABLE_UWU: "false",
+        WEB_SEARCH_ENABLED: "true",
+        BRAVE_SEARCH_API_KEY: "brave-env",
+        WEB_SEARCH_MAX_RESULTS: "7",
+        LINK_OPEN_ENABLED: "true",
+      },
+      async () => {
+        const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
+        assertEquals(result.ok, true);
+        if (result.ok) {
+          assertEquals(result.text, "Legacy works");
+        }
+
+        const request = mock.getLastRequest();
+        assertEquals(request?.body.model, "gpt-5.2-chat-latest");
+      },
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReplyFromMessages returns error when OPENAI_API_KEY is missing", async () => {
+  await withEnv(
+    {
+      OPENAI_API_KEY: undefined,
+      BRAVE_SEARCH_API_KEY: undefined,
+      WEB_SEARCH_ENABLED: undefined,
+      CHANNEL_IDS: undefined,
+      CHANNEL_ID: undefined,
+      DISCORD_TOKEN: undefined,
+      ENABLE_UWU: undefined,
+      WEB_SEARCH_MAX_RESULTS: undefined,
+      LINK_OPEN_ENABLED: undefined,
+    },
+    async () => {
+      const result = await generateReplyFromMessages([{ author: "user", content: "hi" }]);
+      assertEquals(result.ok, false);
+      if (!result.ok) {
+        assertEquals(result.error, "OPENAI_API_KEY not set");
+      }
+    },
+  );
+});
+
+Deno.test("generateReply handles malformed output shapes without extractable text", async () => {
+  {
+    const mock = mockFetch({
+      output: "not-an-array",
+    });
+    try {
+      const service = createAiService(createMockConfig());
+      const result = await service.generateReply([{ author: "user", content: "hi" }]);
+      assertEquals(result, { ok: false, error: "No text in OpenAI response" });
+    } finally {
+      mock.restore();
+    }
+  }
+
+  {
+    const mock = mockFetch({
+      output: [
+        null,
+        "bad-item",
+        { content: "not-array" },
+        { content: [null, { type: "output_text", text: "" }] },
+      ],
+    });
+    try {
+      const service = createAiService(createMockConfig());
+      const result = await service.generateReply([{ author: "user", content: "hi" }]);
+      assertEquals(result, { ok: false, error: "No text in OpenAI response" });
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
+Deno.test("generateReply caps image inputs to six unique URLs and ignores non-strings", async () => {
+  const mock = mockFetch({
+    output_text: "ok",
+    usage: { total_tokens: 40 },
+  });
+
+  try {
+    const service = createAiService(createMockConfig());
+    await service.generateReply([
+      {
+        author: "a",
+        content: "x",
+        imageUrls: [
+          "https://example.com/1.png",
+          "https://example.com/2.png",
+          123,
+          "https://example.com/3.png",
+          "https://example.com/4.png",
+          "https://example.com/5.png",
+          "https://example.com/6.png",
+          "https://example.com/7.png",
+        ],
+      },
+    ]);
+
+    const request = mock.getLastRequest();
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const image_parts = input?.[0]?.content?.filter((part) => part["type"] === "input_image") ??
+      [];
+    assertEquals(image_parts.length, 6);
+    assertEquals(
+      image_parts[5]["image_url"],
+      "https://example.com/6.png",
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply falls back to unknown author/content and zero token usage", async () => {
+  const mock = mockFetch({
+    output_text: "Works",
+  });
+
+  try {
+    const service = createAiService(createMockConfig());
+    const result = await service.generateReply([{}]);
+
+    assertEquals(result.ok, true);
+    if (result.ok) {
+      assertEquals(result.tokensUsed, 0);
+    }
+
+    const request = mock.getLastRequest();
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const textPart = input?.[0]?.content?.find((part) => part["type"] === "input_text");
+    assertStringIncludes(String(textPart?.["text"] ?? ""), "unknown: ");
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReplyFromMessages supports CHANNEL_ID fallback when CHANNEL_IDS is missing", async () => {
+  const mock = mockFetch({
+    output_text: "fallback works",
+    usage: { total_tokens: 15 },
+  });
+
+  try {
+    await withEnv(
+      {
+        OPENAI_API_KEY: "sk-env",
+        CHANNEL_IDS: undefined,
+        CHANNEL_ID: "chan-fallback",
+        BRAVE_SEARCH_API_KEY: undefined,
+        WEB_SEARCH_ENABLED: undefined,
+      },
+      async () => {
+        const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
+        assertEquals(result.ok, true);
+      },
+    );
   } finally {
     mock.restore();
   }

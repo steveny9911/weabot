@@ -6,6 +6,7 @@
 
 import { assertEquals } from "@std/assert";
 import { createStorageService, type StorageService } from "./storage.ts";
+import type { PollRecord } from "../types/storage.ts";
 
 // Helper to create a fresh storage service for each test
 async function createTestStorage(): Promise<{ storage: StorageService; kv: Deno.Kv }> {
@@ -308,6 +309,76 @@ Deno.test("getUsersAtRisk identifies multiple users at risk", async () => {
 
   const atRisk = await storage.getUsersAtRisk(7);
   assertEquals(atRisk.length, 2);
+
+  kv.close();
+});
+
+// ============================================================================
+// Pending Poll Tests
+// ============================================================================
+
+function createPoll(overrides: Partial<PollRecord> = {}): PollRecord {
+  const now = Date.now();
+  return {
+    messageId: "poll-1",
+    channelId: "chan-1",
+    date: "2025-12-10",
+    createdAt: now - 1000,
+    expiresAt: now + 1000,
+    collected: false,
+    ...overrides,
+  };
+}
+
+Deno.test("savePendingPoll and getAllPendingPolls include uncollected polls only", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.savePendingPoll(createPoll({ messageId: "poll-a", collected: false }));
+  await storage.savePendingPoll(createPoll({ messageId: "poll-b", collected: true }));
+
+  const pending = await storage.getAllPendingPolls();
+  assertEquals(pending.length, 1);
+  assertEquals(pending[0].messageId, "poll-a");
+
+  kv.close();
+});
+
+Deno.test("getExpiredPolls returns only expired and uncollected polls", async () => {
+  const { storage, kv } = await createTestStorage();
+  const now = Date.now();
+
+  await storage.savePendingPoll(createPoll({
+    messageId: "expired-open",
+    expiresAt: now - 10,
+    collected: false,
+  }));
+  await storage.savePendingPoll(createPoll({
+    messageId: "expired-collected",
+    expiresAt: now - 10,
+    collected: true,
+  }));
+  await storage.savePendingPoll(createPoll({
+    messageId: "future-open",
+    expiresAt: now + 100000,
+    collected: false,
+  }));
+
+  const expired = await storage.getExpiredPolls();
+  assertEquals(expired.length, 1);
+  assertEquals(expired[0].messageId, "expired-open");
+
+  kv.close();
+});
+
+Deno.test("markPollCollected updates existing poll and leaves missing poll unchanged", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.savePendingPoll(createPoll({ messageId: "poll-to-collect", collected: false }));
+  await storage.markPollCollected("poll-to-collect");
+  await storage.markPollCollected("does-not-exist");
+
+  const entry = await kv.get<PollRecord>(["pending_polls", "poll-to-collect"]);
+  assertEquals(entry.value?.collected, true);
 
   kv.close();
 });

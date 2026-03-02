@@ -84,21 +84,22 @@ CHANNEL_ID=your_channel_id_here
 # Optional
 TIME_ZONE=America/Los_Angeles
 GLUE_ALERT_THRESHOLD=7
+LINK_OPEN_ENABLED=true
 
 # Multi-server (optional)
 # CHANNEL_IDS=channel_id_1,channel_id_2
-
 ```
 
 | Variable               | Required | Description                                                   |
 | ---------------------- | -------- | ------------------------------------------------------------- |
 | `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                        |
-| `CHANNEL_ID`           | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)             |
-| `CHANNEL_IDS`          | Yes*     | Comma-separated channel IDs for multi-server posting           |
+| `CHANNEL_ID`           | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)            |
+| `CHANNEL_IDS`          | Yes*     | Comma-separated channel IDs for multi-server posting          |
 | `TIME_ZONE`            | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
 | `GLUE_ALERT_THRESHOLD` | No       | Days of consecutive "glue" before alert (default: `7`)        |
+| `LINK_OPEN_ENABLED`    | No       | Enable `\open` link command (default: `true`)                 |
 
-*Set either `CHANNEL_ID` or `CHANNEL_IDS`.*
+_Set either `CHANNEL_ID` or `CHANNEL_IDS`._
 
 ### 6. Run the Bot
 
@@ -127,6 +128,7 @@ Mention Haru to chat, or use a command:
 
 - `@Haru hello there`
 - `@Haru \reset` (clear chat context)
+- `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
 
 ## Testing the Bot
 
@@ -212,7 +214,10 @@ weabot/
 │   │   └── storage.ts          # Storage types (VoteRecord, etc.)
 │   ├── services/
 │   │   ├── discord.ts          # Discord API client
-│   │   └── storage.ts          # Deno KV storage service
+│   │   ├── storage.ts          # Deno KV storage service
+│   │   ├── web_search.ts       # Brave web search integration
+│   │   ├── link_open.ts        # Safe HTML link opener for \open command
+│   │   └── rate_limit.ts       # AI usage/rate limiting
 │   └── features/
 │       ├── poll/               # Poll creation logic
 │       │   ├── mod.ts
