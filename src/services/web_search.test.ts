@@ -26,6 +26,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
+    linkOpenEnabled: true,
     ...overrides,
   };
 }

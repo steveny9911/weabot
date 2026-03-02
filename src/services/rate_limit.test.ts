@@ -23,6 +23,7 @@ function createTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webSearchEnabled: false,
     webSearchApiKey: undefined,
     webSearchMaxResults: 3,
+    linkOpenEnabled: true,
     ...overrides,
   };
 }

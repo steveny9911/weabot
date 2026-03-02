@@ -25,6 +25,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webSearchEnabled: false,
     webSearchApiKey: undefined,
     webSearchMaxResults: 3,
+    linkOpenEnabled: true,
     ...overrides,
   };
 }
@@ -33,7 +34,10 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 function mockFetch(
   responseBody: Record<string, unknown>,
   status = 200,
-): { restore: () => void; getLastRequest: () => { url: string; body: Record<string, unknown> } | null } {
+): {
+  restore: () => void;
+  getLastRequest: () => { url: string; body: Record<string, unknown> } | null;
+} {
   let lastRequest: { url: string; body: Record<string, unknown> } | null = null;
   const originalFetch = globalThis.fetch;
 
@@ -255,7 +259,10 @@ Deno.test("generateReply includes image URLs as input_image blocks", async () =>
 
     assertEquals(image_parts.length, 2);
     assertEquals(image_parts[0]["image_url"], "https://cdn.discordapp.com/attachments/1/2/cat.png");
-    assertEquals(image_parts[1]["image_url"], "https://media.discordapp.net/attachments/3/4/dog.jpg");
+    assertEquals(
+      image_parts[1]["image_url"],
+      "https://media.discordapp.net/attachments/3/4/dog.jpg",
+    );
   } finally {
     mock.restore();
   }

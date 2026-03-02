@@ -28,6 +28,7 @@ function withEnv(
     "WEB_SEARCH_ENABLED",
     "BRAVE_SEARCH_API_KEY",
     "WEB_SEARCH_MAX_RESULTS",
+    "LINK_OPEN_ENABLED",
   ]);
 
   for (const key of allKeys) {
@@ -182,6 +183,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
       WEB_SEARCH_ENABLED: "true",
       BRAVE_SEARCH_API_KEY: "brave-key",
       WEB_SEARCH_MAX_RESULTS: "5",
+      LINK_OPEN_ENABLED: "false",
     },
     () => {
       const config = loadConfig();
@@ -200,6 +202,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
         webSearchEnabled: true,
         webSearchApiKey: "brave-key",
         webSearchMaxResults: 5,
+        linkOpenEnabled: false,
       });
     },
   );
@@ -223,6 +226,7 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.webSearchEnabled, false);
       assertEquals(config.webSearchApiKey, undefined);
       assertEquals(config.webSearchMaxResults, 3);
+      assertEquals(config.linkOpenEnabled, true);
     },
   );
 });
@@ -267,6 +271,20 @@ Deno.test("loadConfig allows WEB_SEARCH_ENABLED=false to override key", () => {
     () => {
       const config = loadConfig();
       assertEquals(config.webSearchEnabled, false);
+    },
+  );
+});
+
+Deno.test("loadConfig handles LINK_OPEN_ENABLED=false", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      LINK_OPEN_ENABLED: "false",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.linkOpenEnabled, false);
     },
   );
 });
