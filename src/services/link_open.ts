@@ -45,7 +45,11 @@ export interface LinkOpenService {
 }
 
 function szNormalizeHost(hostname: string): string {
-  return hostname.trim().toLowerCase().replace(/\.+$/, "");
+  let normalized = hostname.trim().toLowerCase().replace(/\.+$/, "");
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized;
 }
 
 function aiParseIpv4(hostname: string): number[] | null {

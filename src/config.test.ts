@@ -109,6 +109,21 @@ Deno.test("loadConfig accepts CHANNEL_IDS without CHANNEL_ID", () => {
   );
 });
 
+Deno.test("loadConfig appends CHANNEL_ID when CHANNEL_IDS is provided and missing it", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "my-token",
+      CHANNEL_IDS: "chan-1, chan-2",
+      CHANNEL_ID: "chan-3",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.channelId, "chan-1");
+      assertEquals(config.channelIds, ["chan-1", "chan-2", "chan-3"]);
+    },
+  );
+});
+
 // =============================================================================
 // loadConfig - Optional Variables with Defaults
 // =============================================================================
