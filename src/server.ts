@@ -104,16 +104,16 @@ export function createServer(
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
 
-        const stats = await storage.getStats(
-          startDate.toISOString().split("T")[0],
-          endDate.toISOString().split("T")[0],
-        );
-
-        const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
         const results: string[] = [];
         let successCount = 0;
 
         for (const channelId of config.channelIds) {
+          const stats = await storage.getStats(
+            channelId,
+            startDate.toISOString().split("T")[0],
+            endDate.toISOString().split("T")[0],
+          );
+          const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
           const response = await discord.postMessage(channelId, embed);
 
           if (response.ok) {
@@ -201,7 +201,13 @@ export function createServer(
             if (!mood) continue;
 
             for (const voter of answer.voters) {
-              await storage.recordVote(voter.odUserId, voter.odUserName, mood, poll.date);
+              await storage.recordVote(
+                poll.channelId,
+                voter.odUserId,
+                voter.odUserName,
+                mood,
+                poll.date,
+              );
               pollVotes++;
             }
           }
@@ -229,6 +235,7 @@ export function createServer(
 
     // Record a vote (for testing)
     if (url.pathname === "/vote") {
+      const channelId = url.searchParams.get("channelId") ?? config.channelId;
       const userId = url.searchParams.get("user");
       const userName = url.searchParams.get("name") ?? "TestUser";
       const mood = url.searchParams.get("mood") as Mood | null;
@@ -236,8 +243,8 @@ export function createServer(
 
       if (!userId || !mood) {
         return new Response(
-          "Missing required params: user, mood. Optional: name, date\n" +
-            "Example: /vote?user=123&mood=glue&name=Alice&date=2025-12-11",
+          "Missing required params: user, mood. Optional: name, date, channelId\n" +
+            "Example: /vote?user=123&mood=glue&name=Alice&date=2025-12-11&channelId=123456789",
           { status: 400 },
         );
       }
@@ -247,9 +254,13 @@ export function createServer(
       }
 
       try {
-        await storage.recordVote(userId, userName, mood, date);
-        console.log(`[SERVER] Recorded vote: ${userName} (${userId}) = ${mood} on ${date}`);
-        return new Response(`✅ Vote recorded: ${userName} = ${mood} on ${date}`);
+        await storage.recordVote(channelId, userId, userName, mood, date);
+        console.log(
+          `[SERVER] Recorded vote in ${channelId}: ${userName} (${userId}) = ${mood} on ${date}`,
+        );
+        return new Response(
+          `✅ Vote recorded in ${channelId}: ${userName} = ${mood} on ${date}`,
+        );
       } catch (error) {
         console.error("[SERVER] Error recording vote:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
@@ -258,6 +269,7 @@ export function createServer(
 
     // Get stats as JSON (without posting)
     if (url.pathname === "/stats") {
+      const channelId = url.searchParams.get("channelId") ?? config.channelId;
       const days = parseInt(url.searchParams.get("days") ?? "7", 10);
 
       try {
@@ -266,13 +278,14 @@ export function createServer(
         startDate.setDate(startDate.getDate() - days);
 
         const stats = await storage.getStats(
+          channelId,
           startDate.toISOString().split("T")[0],
           endDate.toISOString().split("T")[0],
         );
 
         const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
 
-        return new Response(JSON.stringify({ stats, embed }, null, 2), {
+        return new Response(JSON.stringify({ channelId, stats, embed }, null, 2), {
           headers: { "Content-Type": "application/json" },
         });
       } catch (error) {
@@ -284,19 +297,25 @@ export function createServer(
     // Check for users at risk (without sending alerts)
     if (url.pathname === "/check-alerts") {
       try {
-        const atRisk = await storage.getUsersAtRisk(config.glueAlertThreshold);
+        const results = [];
 
-        if (atRisk.length === 0) {
+        for (const channelId of config.channelIds) {
+          const atRisk = await storage.getUsersAtRisk(channelId, config.glueAlertThreshold);
+          results.push({
+            channelId,
+            usersAtRisk: atRisk.map((userHistory) => ({
+              user: userHistory[0].odUserName,
+              odUserId: userHistory[0].odUserId,
+              consecutiveDays: userHistory.length,
+            })),
+          });
+        }
+
+        if (results.every((entry) => entry.usersAtRisk.length === 0)) {
           return new Response("✅ No users at risk. Everyone is doing okay! 🎉");
         }
 
-        const results = atRisk.map((userHistory) => ({
-          user: userHistory[0].odUserName,
-          odUserId: userHistory[0].odUserId,
-          consecutiveDays: userHistory.length,
-        }));
-
-        return new Response(JSON.stringify({ usersAtRisk: results }, null, 2), {
+        return new Response(JSON.stringify({ results }, null, 2), {
           headers: { "Content-Type": "application/json" },
         });
       } catch (error) {
@@ -307,20 +326,24 @@ export function createServer(
 
     // Get user history
     if (url.pathname === "/user-history") {
+      const channelId = url.searchParams.get("channelId") ?? config.channelId;
       const userId = url.searchParams.get("user");
 
       if (!userId) {
-        return new Response("Missing required param: user\nExample: /user-history?user=123", {
-          status: 400,
-        });
+        return new Response(
+          "Missing required param: user\nExample: /user-history?user=123&channelId=123456789",
+          {
+            status: 400,
+          },
+        );
       }
 
       try {
-        const history = await storage.getUserHistory(userId);
-        const consecutiveGlue = await storage.getConsecutiveGlueCount(userId);
+        const history = await storage.getUserHistory(channelId, userId);
+        const consecutiveGlue = await storage.getConsecutiveGlueCount(channelId, userId);
 
         return new Response(
-          JSON.stringify({ userId, consecutiveGlue, history }, null, 2),
+          JSON.stringify({ channelId, userId, consecutiveGlue, history }, null, 2),
           { headers: { "Content-Type": "application/json" } },
         );
       } catch (error) {
@@ -447,9 +470,9 @@ TRIGGER ENDPOINTS (post to Discord)
 DATA ENDPOINTS (view/modify data)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   /vote?user=ID&mood=MOOD   Record a vote
-  /stats?days=7             View stats as JSON
+  /stats?days=7             View channel stats as JSON
   /check-alerts             Check who's at risk
-  /user-history?user=ID     View user history
+  /user-history?user=ID     View channel-scoped user history
   /pending-polls            View polls awaiting collection
   /add-pending-poll?...     Add a poll for testing
 

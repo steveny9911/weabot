@@ -8,6 +8,7 @@ import type { Mood } from "./bot.ts";
 
 /** A single vote record from a user */
 export interface VoteRecord {
+  channelId: string;
   odUserId: string;
   odUserName: string;
   mood: Mood;

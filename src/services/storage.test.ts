@@ -8,6 +8,9 @@ import { assertEquals } from "@std/assert";
 import { createStorageService, type StorageService } from "./storage.ts";
 import type { PollRecord } from "../types/storage.ts";
 
+const TEST_CHANNEL_ID = "chan-1";
+const OTHER_CHANNEL_ID = "chan-2";
+
 // Helper to create a fresh storage service for each test
 async function createTestStorage(): Promise<{ storage: StorageService; kv: Deno.Kv }> {
   const kv = await Deno.openKv(":memory:");
@@ -22,10 +25,11 @@ async function createTestStorage(): Promise<{ storage: StorageService; kv: Deno.
 Deno.test("recordVote stores a vote correctly", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "umazing", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-10");
 
-  const votes = await storage.getVotesForDate("2025-12-10");
+  const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
   assertEquals(votes.length, 1);
+  assertEquals(votes[0].channelId, TEST_CHANNEL_ID);
   assertEquals(votes[0].odUserId, "user123");
   assertEquals(votes[0].odUserName, "Alice");
   assertEquals(votes[0].mood, "umazing");
@@ -37,10 +41,10 @@ Deno.test("recordVote stores a vote correctly", async () => {
 Deno.test("recordVote overwrites vote for same user on same date", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "umazing", "2025-12-10");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-10");
 
-  const votes = await storage.getVotesForDate("2025-12-10");
+  const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
   assertEquals(votes.length, 1);
   assertEquals(votes[0].mood, "glue"); // Should be updated
 
@@ -50,12 +54,29 @@ Deno.test("recordVote overwrites vote for same user on same date", async () => {
 Deno.test("recordVote stores multiple users on same date", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user1", "Alice", "umazing", "2025-12-10");
-  await storage.recordVote("user2", "Bob", "ok", "2025-12-10");
-  await storage.recordVote("user3", "Charlie", "glue", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user2", "Bob", "ok", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user3", "Charlie", "glue", "2025-12-10");
 
-  const votes = await storage.getVotesForDate("2025-12-10");
+  const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
   assertEquals(votes.length, 3);
+
+  kv.close();
+});
+
+Deno.test("recordVote isolates same user across channels", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-10");
+  await storage.recordVote(OTHER_CHANNEL_ID, "user123", "Alice", "ok", "2025-12-10");
+
+  const firstChannelVotes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
+  const secondChannelVotes = await storage.getVotesForDate(OTHER_CHANNEL_ID, "2025-12-10");
+
+  assertEquals(firstChannelVotes.length, 1);
+  assertEquals(firstChannelVotes[0].mood, "glue");
+  assertEquals(secondChannelVotes.length, 1);
+  assertEquals(secondChannelVotes[0].mood, "ok");
 
   kv.close();
 });
@@ -67,7 +88,7 @@ Deno.test("recordVote stores multiple users on same date", async () => {
 Deno.test("getUserHistory returns empty array for unknown user", async () => {
   const { storage, kv } = await createTestStorage();
 
-  const history = await storage.getUserHistory("unknown");
+  const history = await storage.getUserHistory(TEST_CHANNEL_ID, "unknown");
   assertEquals(history, []);
 
   kv.close();
@@ -76,11 +97,11 @@ Deno.test("getUserHistory returns empty array for unknown user", async () => {
 Deno.test("getUserHistory returns votes sorted by date descending", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "umazing", "2025-12-08");
-  await storage.recordVote("user123", "Alice", "ok", "2025-12-10");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-09");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-08");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "ok", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-09");
 
-  const history = await storage.getUserHistory("user123");
+  const history = await storage.getUserHistory(TEST_CHANNEL_ID, "user123");
 
   assertEquals(history.length, 3);
   assertEquals(history[0].date, "2025-12-10"); // Most recent first
@@ -96,10 +117,10 @@ Deno.test("getUserHistory respects limit parameter", async () => {
   // Add 10 votes
   for (let i = 1; i <= 10; i++) {
     const date = `2025-12-${i.toString().padStart(2, "0")}`;
-    await storage.recordVote("user123", "Alice", "ok", date);
+    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "ok", date);
   }
 
-  const history = await storage.getUserHistory("user123", 5);
+  const history = await storage.getUserHistory(TEST_CHANNEL_ID, "user123", 5);
   assertEquals(history.length, 5);
 
   kv.close();
@@ -112,7 +133,7 @@ Deno.test("getUserHistory respects limit parameter", async () => {
 Deno.test("getVotesForDate returns empty array for date with no votes", async () => {
   const { storage, kv } = await createTestStorage();
 
-  const votes = await storage.getVotesForDate("2025-12-10");
+  const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
   assertEquals(votes, []);
 
   kv.close();
@@ -121,11 +142,11 @@ Deno.test("getVotesForDate returns empty array for date with no votes", async ()
 Deno.test("getVotesForDate returns all votes for a specific date", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user1", "Alice", "umazing", "2025-12-10");
-  await storage.recordVote("user2", "Bob", "ok", "2025-12-10");
-  await storage.recordVote("user3", "Charlie", "glue", "2025-12-11"); // Different date
+  await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user2", "Bob", "ok", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user3", "Charlie", "glue", "2025-12-11"); // Different date
 
-  const votes = await storage.getVotesForDate("2025-12-10");
+  const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
   assertEquals(votes.length, 2);
 
   kv.close();
@@ -138,7 +159,7 @@ Deno.test("getVotesForDate returns all votes for a specific date", async () => {
 Deno.test("getStats returns empty stats for date range with no votes", async () => {
   const { storage, kv } = await createTestStorage();
 
-  const stats = await storage.getStats("2025-12-01", "2025-12-03");
+  const stats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-01", "2025-12-03");
 
   assertEquals(stats.length, 3);
   assertEquals(stats[0].total, 0);
@@ -151,12 +172,12 @@ Deno.test("getStats returns empty stats for date range with no votes", async () 
 Deno.test("getStats aggregates votes correctly", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user1", "Alice", "umazing", "2025-12-10");
-  await storage.recordVote("user2", "Bob", "umazing", "2025-12-10");
-  await storage.recordVote("user3", "Charlie", "ok", "2025-12-10");
-  await storage.recordVote("user4", "Diana", "glue", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user2", "Bob", "umazing", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user3", "Charlie", "ok", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user4", "Diana", "glue", "2025-12-10");
 
-  const stats = await storage.getStats("2025-12-10", "2025-12-10");
+  const stats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-10", "2025-12-10");
 
   assertEquals(stats.length, 1);
   assertEquals(stats[0].umazing, 2);
@@ -170,16 +191,37 @@ Deno.test("getStats aggregates votes correctly", async () => {
 Deno.test("getStats returns stats sorted by date ascending", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user1", "Alice", "umazing", "2025-12-12");
-  await storage.recordVote("user1", "Alice", "ok", "2025-12-10");
-  await storage.recordVote("user1", "Alice", "glue", "2025-12-11");
+  await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-12");
+  await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "ok", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "glue", "2025-12-11");
 
-  const stats = await storage.getStats("2025-12-10", "2025-12-12");
+  const stats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-10", "2025-12-12");
 
   assertEquals(stats.length, 3);
   assertEquals(stats[0].date, "2025-12-10");
   assertEquals(stats[1].date, "2025-12-11");
   assertEquals(stats[2].date, "2025-12-12");
+
+  kv.close();
+});
+
+Deno.test("getStats isolates channels", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "glue", "2025-12-10");
+  await storage.recordVote(OTHER_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-10");
+
+  const firstChannelStats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-10", "2025-12-10");
+  const secondChannelStats = await storage.getStats(
+    OTHER_CHANNEL_ID,
+    "2025-12-10",
+    "2025-12-10",
+  );
+
+  assertEquals(firstChannelStats[0].glue, 1);
+  assertEquals(firstChannelStats[0].umazing, 0);
+  assertEquals(secondChannelStats[0].glue, 0);
+  assertEquals(secondChannelStats[0].umazing, 1);
 
   kv.close();
 });
@@ -191,7 +233,7 @@ Deno.test("getStats returns stats sorted by date ascending", async () => {
 Deno.test("getConsecutiveGlueCount returns 0 for user with no votes", async () => {
   const { storage, kv } = await createTestStorage();
 
-  const count = await storage.getConsecutiveGlueCount("unknown");
+  const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "unknown");
   assertEquals(count, 0);
 
   kv.close();
@@ -200,11 +242,11 @@ Deno.test("getConsecutiveGlueCount returns 0 for user with no votes", async () =
 Deno.test("getConsecutiveGlueCount returns 0 when most recent is not glue", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-08");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-09");
-  await storage.recordVote("user123", "Alice", "ok", "2025-12-10"); // Most recent
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-09");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "ok", "2025-12-10"); // Most recent
 
-  const count = await storage.getConsecutiveGlueCount("user123");
+  const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
   assertEquals(count, 0);
 
   kv.close();
@@ -213,12 +255,12 @@ Deno.test("getConsecutiveGlueCount returns 0 when most recent is not glue", asyn
 Deno.test("getConsecutiveGlueCount counts consecutive glue votes from most recent", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "umazing", "2025-12-05");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-06");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-07");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-08");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-05");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-06");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-07");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
 
-  const count = await storage.getConsecutiveGlueCount("user123");
+  const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
   assertEquals(count, 3); // 3 consecutive glue days
 
   kv.close();
@@ -227,12 +269,12 @@ Deno.test("getConsecutiveGlueCount counts consecutive glue votes from most recen
 Deno.test("getConsecutiveGlueCount stops at first non-glue vote", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-05");
-  await storage.recordVote("user123", "Alice", "ok", "2025-12-06"); // Breaks streak
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-07");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-08");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-05");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "ok", "2025-12-06"); // Breaks streak
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-07");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
 
-  const count = await storage.getConsecutiveGlueCount("user123");
+  const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
   assertEquals(count, 2); // Only 2 consecutive from most recent
 
   kv.close();
@@ -241,11 +283,11 @@ Deno.test("getConsecutiveGlueCount stops at first non-glue vote", async () => {
 Deno.test("getConsecutiveGlueCount stops when there is a gap in vote dates", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-05");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-07");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-08");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-05");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-07");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
 
-  const count = await storage.getConsecutiveGlueCount("user123");
+  const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
   assertEquals(count, 2); // 12-06 is missing, so 12-05 does not extend the streak
 
   kv.close();
@@ -254,11 +296,27 @@ Deno.test("getConsecutiveGlueCount stops when there is a gap in vote dates", asy
 Deno.test("getConsecutiveGlueCount returns 1 when most recent glue vote is stale", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-01");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-03");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-01");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-03");
 
-  const count = await storage.getConsecutiveGlueCount("user123");
+  const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
   assertEquals(count, 1);
+
+  kv.close();
+});
+
+Deno.test("getConsecutiveGlueCount is channel scoped", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-07");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
+  await storage.recordVote(OTHER_CHANNEL_ID, "user123", "Alice", "ok", "2025-12-08");
+
+  const firstChannelCount = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
+  const secondChannelCount = await storage.getConsecutiveGlueCount(OTHER_CHANNEL_ID, "user123");
+
+  assertEquals(firstChannelCount, 2);
+  assertEquals(secondChannelCount, 0);
 
   kv.close();
 });
@@ -270,9 +328,9 @@ Deno.test("getConsecutiveGlueCount returns 1 when most recent glue vote is stale
 Deno.test("getUsersAtRisk returns empty array when no users at risk", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "umazing", "2025-12-10");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-10");
 
-  const atRisk = await storage.getUsersAtRisk(7);
+  const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
   assertEquals(atRisk, []);
 
   kv.close();
@@ -284,10 +342,10 @@ Deno.test("getUsersAtRisk identifies user at threshold", async () => {
   // Create 7 consecutive glue days for user
   for (let i = 1; i <= 7; i++) {
     const date = `2025-12-${i.toString().padStart(2, "0")}`;
-    await storage.recordVote("user123", "Alice", "glue", date);
+    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", date);
   }
 
-  const atRisk = await storage.getUsersAtRisk(7);
+  const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
   assertEquals(atRisk.length, 1);
   assertEquals(atRisk[0][0].odUserId, "user123");
 
@@ -300,10 +358,10 @@ Deno.test("getUsersAtRisk does not include users below threshold", async () => {
   // Create only 5 consecutive glue days
   for (let i = 1; i <= 5; i++) {
     const date = `2025-12-${i.toString().padStart(2, "0")}`;
-    await storage.recordVote("user123", "Alice", "glue", date);
+    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", date);
   }
 
-  const atRisk = await storage.getUsersAtRisk(7);
+  const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
   assertEquals(atRisk, []);
 
   kv.close();
@@ -314,17 +372,30 @@ Deno.test("getUsersAtRisk identifies multiple users at risk", async () => {
 
   // User 1: 7 glue days
   for (let i = 1; i <= 7; i++) {
-    await storage.recordVote("user1", "Alice", "glue", `2025-12-${i.toString().padStart(2, "0")}`);
+    await storage.recordVote(
+      TEST_CHANNEL_ID,
+      "user1",
+      "Alice",
+      "glue",
+      `2025-12-${i.toString().padStart(2, "0")}`,
+    );
   }
 
   // User 2: 8 glue days
   for (let i = 1; i <= 8; i++) {
-    await storage.recordVote("user2", "Bob", "glue", `2025-12-${i.toString().padStart(2, "0")}`);
+    await storage.recordVote(
+      TEST_CHANNEL_ID,
+      "user2",
+      "Bob",
+      "glue",
+      `2025-12-${i.toString().padStart(2, "0")}`,
+    );
   }
 
   // User 3: Only 3 glue days (not at risk)
   for (let i = 1; i <= 3; i++) {
     await storage.recordVote(
+      TEST_CHANNEL_ID,
       "user3",
       "Charlie",
       "glue",
@@ -332,7 +403,7 @@ Deno.test("getUsersAtRisk identifies multiple users at risk", async () => {
     );
   }
 
-  const atRisk = await storage.getUsersAtRisk(7);
+  const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
   assertEquals(atRisk.length, 2);
 
   kv.close();
@@ -341,13 +412,31 @@ Deno.test("getUsersAtRisk identifies multiple users at risk", async () => {
 Deno.test("getUsersAtRisk excludes users whose glue votes are not on consecutive days", async () => {
   const { storage, kv } = await createTestStorage();
 
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-01");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-03");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-04");
-  await storage.recordVote("user123", "Alice", "glue", "2025-12-05");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-01");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-03");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-04");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-05");
 
-  const atRisk = await storage.getUsersAtRisk(4);
+  const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 4);
   assertEquals(atRisk, []);
+
+  kv.close();
+});
+
+Deno.test("getUsersAtRisk is channel scoped", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  for (let i = 1; i <= 7; i++) {
+    const date = `2025-12-${i.toString().padStart(2, "0")}`;
+    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", date);
+    await storage.recordVote(OTHER_CHANNEL_ID, "user123", "Alice", "ok", date);
+  }
+
+  const firstChannelAtRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
+  const secondChannelAtRisk = await storage.getUsersAtRisk(OTHER_CHANNEL_ID, 7);
+
+  assertEquals(firstChannelAtRisk.length, 1);
+  assertEquals(secondChannelAtRisk, []);
 
   kv.close();
 });
