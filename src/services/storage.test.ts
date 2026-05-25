@@ -238,6 +238,31 @@ Deno.test("getConsecutiveGlueCount stops at first non-glue vote", async () => {
   kv.close();
 });
 
+Deno.test("getConsecutiveGlueCount stops when there is a gap in vote dates", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-05");
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-07");
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-08");
+
+  const count = await storage.getConsecutiveGlueCount("user123");
+  assertEquals(count, 2); // 12-06 is missing, so 12-05 does not extend the streak
+
+  kv.close();
+});
+
+Deno.test("getConsecutiveGlueCount returns 1 when most recent glue vote is stale", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-01");
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-03");
+
+  const count = await storage.getConsecutiveGlueCount("user123");
+  assertEquals(count, 1);
+
+  kv.close();
+});
+
 // ============================================================================
 // getUsersAtRisk Tests
 // ============================================================================
@@ -309,6 +334,20 @@ Deno.test("getUsersAtRisk identifies multiple users at risk", async () => {
 
   const atRisk = await storage.getUsersAtRisk(7);
   assertEquals(atRisk.length, 2);
+
+  kv.close();
+});
+
+Deno.test("getUsersAtRisk excludes users whose glue votes are not on consecutive days", async () => {
+  const { storage, kv } = await createTestStorage();
+
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-01");
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-03");
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-04");
+  await storage.recordVote("user123", "Alice", "glue", "2025-12-05");
+
+  const atRisk = await storage.getUsersAtRisk(4);
+  assertEquals(atRisk, []);
 
   kv.close();
 });

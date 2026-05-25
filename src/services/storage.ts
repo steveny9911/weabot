@@ -50,6 +50,13 @@ export interface StorageService {
  * Creates a storage service backed by Deno KV.
  */
 export function createStorageService(kv: Deno.Kv): StorageService {
+  const getPreviousDate = (date: string): string => {
+    const [year, month, day] = date.split("-").map(Number);
+    const value = new Date(Date.UTC(year, month - 1, day));
+    value.setUTCDate(value.getUTCDate() - 1);
+    return value.toISOString().split("T")[0];
+  };
+
   return {
     async recordVote(userId, userName, mood, date) {
       const record: VoteRecord = {
@@ -134,14 +141,20 @@ export function createStorageService(kv: Deno.Kv): StorageService {
 
     async getConsecutiveGlueCount(userId) {
       const history = await this.getUserHistory(userId, 30);
-      let count = 0;
+      if (history.length === 0 || history[0].mood !== "glue") {
+        return 0;
+      }
 
-      for (const record of history) {
-        if (record.mood === "glue") {
-          count++;
-        } else {
-          break; // Stop at first non-glue
+      let count = 1;
+      let expectedDate = getPreviousDate(history[0].date);
+
+      for (const record of history.slice(1)) {
+        if (record.mood !== "glue" || record.date !== expectedDate) {
+          break;
         }
+
+        count++;
+        expectedDate = getPreviousDate(record.date);
       }
 
       return count;
@@ -161,7 +174,7 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       for (const userId of userIds) {
         const count = await this.getConsecutiveGlueCount(userId);
         if (count >= threshold) {
-          const history = await this.getUserHistory(userId, threshold);
+          const history = await this.getUserHistory(userId, count);
           atRisk.push(history);
         }
       }
