@@ -81,20 +81,19 @@ export function registerCronJobs(
     console.log("[CRON] Starting wellness check...");
 
     try {
-      const atRisk = await storage.getUsersAtRisk(config.glueAlertThreshold);
+      for (const channelId of config.channelIds) {
+        const atRisk = await storage.getUsersAtRisk(channelId, config.glueAlertThreshold);
 
-      if (atRisk.length === 0) {
-        console.log("[CRON] No users at risk. Everyone is doing okay! 🎉");
-        return;
-      }
+        if (atRisk.length === 0) {
+          console.log(`[CRON] No users at risk in ${channelId}`);
+          continue;
+        }
 
-      console.log(`[CRON] Found ${atRisk.length} user(s) at risk`);
+        console.log(`[CRON] Found ${atRisk.length} user(s) at risk in ${channelId}`);
 
-      for (const userHistory of atRisk) {
-        const user = userHistory[0];
-        const alertEmbed = buildAlertEmbed(user.odUserName, userHistory.length);
-
-        for (const channelId of config.channelIds) {
+        for (const userHistory of atRisk) {
+          const user = userHistory[0];
+          const alertEmbed = buildAlertEmbed(user.odUserName, userHistory.length);
           const response = await discord.postMessage(channelId, alertEmbed);
 
           if (response.ok) {
@@ -122,14 +121,13 @@ export function registerCronJobs(
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 7);
 
-      const stats = await storage.getStats(
-        startDate.toISOString().split("T")[0],
-        endDate.toISOString().split("T")[0],
-      );
-
-      const embed = buildStatsEmbed(stats, "📊 Weekly Mood Summary");
-
       for (const channelId of config.channelIds) {
+        const stats = await storage.getStats(
+          channelId,
+          startDate.toISOString().split("T")[0],
+          endDate.toISOString().split("T")[0],
+        );
+        const embed = buildStatsEmbed(stats, "📊 Weekly Mood Summary");
         const response = await discord.postMessage(channelId, embed);
 
         if (response.ok) {
@@ -187,7 +185,13 @@ export function registerCronJobs(
             }
 
             for (const voter of answer.voters) {
-              await storage.recordVote(voter.odUserId, voter.odUserName, mood, poll.date);
+              await storage.recordVote(
+                poll.channelId,
+                voter.odUserId,
+                voter.odUserName,
+                mood,
+                poll.date,
+              );
               totalVotes++;
             }
           }

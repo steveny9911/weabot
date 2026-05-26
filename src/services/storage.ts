@@ -12,6 +12,7 @@ import type { DailyStats, PollRecord, VoteRecord } from "../types/storage.ts";
 export interface StorageService {
   /** Record a user's vote */
   recordVote(
+    channelId: string,
     userId: string,
     userName: string,
     mood: Mood,
@@ -19,19 +20,19 @@ export interface StorageService {
   ): Promise<void>;
 
   /** Get a user's vote history (most recent first) */
-  getUserHistory(userId: string, limit?: number): Promise<VoteRecord[]>;
+  getUserHistory(channelId: string, userId: string, limit?: number): Promise<VoteRecord[]>;
 
   /** Get aggregated stats for a date range */
-  getStats(startDate: string, endDate: string): Promise<DailyStats[]>;
+  getStats(channelId: string, startDate: string, endDate: string): Promise<DailyStats[]>;
 
   /** Get all votes for a specific date */
-  getVotesForDate(date: string): Promise<VoteRecord[]>;
+  getVotesForDate(channelId: string, date: string): Promise<VoteRecord[]>;
 
   /** Check if a user has consecutive "glue" votes */
-  getConsecutiveGlueCount(userId: string): Promise<number>;
+  getConsecutiveGlueCount(channelId: string, userId: string): Promise<number>;
 
   /** Get all users who have hit the glue threshold */
-  getUsersAtRisk(threshold: number): Promise<VoteRecord[][]>;
+  getUsersAtRisk(channelId: string, threshold: number): Promise<VoteRecord[][]>;
 
   /** Save a pending poll for later result collection */
   savePendingPoll(poll: PollRecord): Promise<void>;
@@ -50,9 +51,17 @@ export interface StorageService {
  * Creates a storage service backed by Deno KV.
  */
 export function createStorageService(kv: Deno.Kv): StorageService {
+  const getPreviousDate = (date: string): string => {
+    const [year, month, day] = date.split("-").map(Number);
+    const value = new Date(Date.UTC(year, month - 1, day));
+    value.setUTCDate(value.getUTCDate() - 1);
+    return value.toISOString().split("T")[0];
+  };
+
   return {
-    async recordVote(userId, userName, mood, date) {
+    async recordVote(channelId, userId, userName, mood, date) {
       const record: VoteRecord = {
+        channelId,
         odUserId: userId,
         odUserName: userName,
         mood,
@@ -61,16 +70,16 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       };
 
       // Store by date and user (for daily lookups)
-      await kv.set(["votes", date, userId], record);
+      await kv.set(["votes", channelId, date, userId], record);
 
       // Store in user's history (for consecutive checks)
-      await kv.set(["user_votes", userId, date], record);
+      await kv.set(["user_votes", channelId, userId, date], record);
     },
 
-    async getUserHistory(userId, limit = 30) {
+    async getUserHistory(channelId, userId, limit = 30) {
       const records: VoteRecord[] = [];
       const iter = kv.list<VoteRecord>({
-        prefix: ["user_votes", userId],
+        prefix: ["user_votes", channelId, userId],
       });
 
       for await (const entry of iter) {
@@ -83,10 +92,10 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       return records.slice(0, limit);
     },
 
-    async getVotesForDate(date) {
+    async getVotesForDate(channelId, date) {
       const records: VoteRecord[] = [];
       const iter = kv.list<VoteRecord>({
-        prefix: ["votes", date],
+        prefix: ["votes", channelId, date],
       });
 
       for await (const entry of iter) {
@@ -96,7 +105,7 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       return records;
     },
 
-    async getStats(startDate, endDate) {
+    async getStats(channelId, startDate, endDate) {
       const statsMap = new Map<string, DailyStats>();
 
       // Initialize all dates in range
@@ -116,7 +125,7 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       }
 
       // Aggregate votes
-      const iter = kv.list<VoteRecord>({ prefix: ["votes"] });
+      const iter = kv.list<VoteRecord>({ prefix: ["votes", channelId] });
       for await (const entry of iter) {
         const record = entry.value;
         if (record.date >= startDate && record.date <= endDate) {
@@ -132,25 +141,31 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       return Array.from(statsMap.values()).sort((a, b) => a.date.localeCompare(b.date));
     },
 
-    async getConsecutiveGlueCount(userId) {
-      const history = await this.getUserHistory(userId, 30);
-      let count = 0;
+    async getConsecutiveGlueCount(channelId, userId) {
+      const history = await this.getUserHistory(channelId, userId, 30);
+      if (history.length === 0 || history[0].mood !== "glue") {
+        return 0;
+      }
 
-      for (const record of history) {
-        if (record.mood === "glue") {
-          count++;
-        } else {
-          break; // Stop at first non-glue
+      let count = 1;
+      let expectedDate = getPreviousDate(history[0].date);
+
+      for (const record of history.slice(1)) {
+        if (record.mood !== "glue" || record.date !== expectedDate) {
+          break;
         }
+
+        count++;
+        expectedDate = getPreviousDate(record.date);
       }
 
       return count;
     },
 
-    async getUsersAtRisk(threshold) {
+    async getUsersAtRisk(channelId, threshold) {
       // Get all unique user IDs
       const userIds = new Set<string>();
-      const iter = kv.list<VoteRecord>({ prefix: ["user_votes"] });
+      const iter = kv.list<VoteRecord>({ prefix: ["user_votes", channelId] });
 
       for await (const entry of iter) {
         userIds.add(entry.value.odUserId);
@@ -159,9 +174,9 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       // Check each user
       const atRisk: VoteRecord[][] = [];
       for (const userId of userIds) {
-        const count = await this.getConsecutiveGlueCount(userId);
+        const count = await this.getConsecutiveGlueCount(channelId, userId);
         if (count >= threshold) {
-          const history = await this.getUserHistory(userId, threshold);
+          const history = await this.getUserHistory(channelId, userId, count);
           atRisk.push(history);
         }
       }

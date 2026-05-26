@@ -22,7 +22,56 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
 
   let ws: WebSocket | null = null;
   let heartbeat_handle: number | undefined;
+  let heartbeat_interval_ms = 45000;
   let seq: number | null = null;
+  let awaiting_heartbeat_ack = false;
+
+  function sendHeartbeat(): void {
+    try {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      if (awaiting_heartbeat_ack) {
+        console.warn("Missed heartbeat ACK, reconnecting gateway");
+        ws.close();
+        return;
+      }
+
+      ws.send(JSON.stringify({ op: 1, d: seq }));
+      awaiting_heartbeat_ack = true;
+    } catch (e) {
+      console.error("Heartbeat error", e);
+    }
+  }
+
+  function startHeartbeatLoop(interval: number): void {
+    heartbeat_interval_ms = interval;
+    awaiting_heartbeat_ack = false;
+
+    if (heartbeat_handle) clearInterval(heartbeat_handle);
+
+    const jitter = Math.random();
+    setTimeout(() => {
+      sendHeartbeat();
+
+      heartbeat_handle = setInterval(() => {
+        sendHeartbeat();
+      }, heartbeat_interval_ms) as unknown as number;
+    }, Math.floor(heartbeat_interval_ms * jitter));
+  }
+
+  function sendOnlinePresence(): void {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(JSON.stringify({
+      op: 3,
+      d: {
+        since: null,
+        activities: [],
+        status: "online",
+        afk: false,
+      },
+    }));
+  }
 
   function vConnect(): void {
     console.log("Connecting to Discord Gateway...");
@@ -43,18 +92,7 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
         // Op 10: Hello - start heartbeat and identify
         if (op === 10 && d) {
           const interval = (d["heartbeat_interval"] as number) ?? 45000;
-
-          if (heartbeat_handle) clearInterval(heartbeat_handle);
-
-          heartbeat_handle = setInterval(() => {
-            try {
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ op: 1, d: seq }));
-              }
-            } catch (e) {
-              console.error("Heartbeat error", e);
-            }
-          }, interval) as unknown as number;
+          startHeartbeatLoop(interval);
 
           // Send identify payload
           // Intents breakdown:
@@ -73,6 +111,12 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
                 browser: "deno",
                 device: "deno",
               },
+              presence: {
+                since: null,
+                activities: [],
+                status: "online",
+                afk: false,
+              },
             },
           };
           ws?.send(JSON.stringify(identify));
@@ -83,6 +127,7 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
           const guilds = d["guilds"] as Array<Record<string, unknown>> | undefined;
           console.log(`[GATEWAY] Bot ready as: ${user?.username}#${user?.discriminator} (${user?.id})`);
           console.log(`[GATEWAY] Connected to ${guilds?.length ?? 0} guild(s)`);
+          sendOnlinePresence();
         } else if (op === 0 && t === "GUILD_CREATE" && d) {
           // Log when we receive guild info
           const guild_name = d["name"] as string | undefined;
@@ -90,6 +135,10 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
           console.log(`[GATEWAY] Guild available: "${guild_name}" (${guild_id})`);
         } else if (op === 0 && t === "MESSAGE_CREATE" && d) {
           await handleMessage(d as Record<string, unknown>, deps);
+        } else if (op === 1) {
+          sendHeartbeat();
+        } else if (op === 11) {
+          awaiting_heartbeat_ack = false;
         } // Op 9: Invalid session
         else if (op === 9) {
           console.warn("Invalid session, reconnecting");
@@ -103,6 +152,8 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
     ws.onclose = (ev: CloseEvent) => {
       console.warn("Gateway socket closed", ev.code, ev.reason);
       if (heartbeat_handle) clearInterval(heartbeat_handle);
+      heartbeat_handle = undefined;
+      awaiting_heartbeat_ack = false;
       // Reconnect after 5 seconds
       setTimeout(vConnect, 5000);
     };
