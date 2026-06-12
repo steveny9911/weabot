@@ -27,7 +27,7 @@ function createTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     autonomousChatEnabled: false,
     autonomousChatMinHumanMessages: 4,
     autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 30,
+    autonomousChatCooldownMinutes: 1,
     autonomousChatReplyChance: 0.35,
     autonomousChatMaxContextMessages: 40,
     ...overrides,

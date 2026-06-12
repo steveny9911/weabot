@@ -223,10 +223,10 @@ export function registerCronJobs(
 
   // =========================================================================
   // Autonomous Chat
-  // Schedule: Every 10 minutes
+  // Schedule: Every minute
   // Joins active conversations only when explicitly enabled and guardrails pass.
   // =========================================================================
-  Deno.cron("Autonomous Chat", "*/10 * * * *", async () => {
+  Deno.cron("Autonomous Chat", "* * * * *", async () => {
     if (!config.autonomousChatEnabled) return;
     if (!config.aiEnabled || !config.openaiApiKey) {
       console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
@@ -306,5 +306,5 @@ export function registerCronJobs(
   console.log("  - Daily Wellness Check (06:00 UTC)");
   console.log("  - Weekly Stats Summary (Sundays 06:00 UTC)");
   console.log("  - Poll Result Collection (every hour at :30)");
-  console.log("  - Autonomous Chat (every 10 minutes, disabled unless configured)");
+  console.log("  - Autonomous Chat (every minute, disabled unless configured)");
 }

@@ -263,7 +263,7 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.autonomousChatEnabled, false);
       assertEquals(config.autonomousChatMinHumanMessages, 4);
       assertEquals(config.autonomousChatActivityWindowMinutes, 20);
-      assertEquals(config.autonomousChatCooldownMinutes, 30);
+      assertEquals(config.autonomousChatCooldownMinutes, 1);
       assertEquals(config.autonomousChatReplyChance, 0.35);
       assertEquals(config.autonomousChatMaxContextMessages, 40);
     },

@@ -48,7 +48,7 @@ export interface AppConfig {
   autonomousChatMinHumanMessages: number;
   /** Minutes used to decide whether a channel is currently active (default: 20) */
   autonomousChatActivityWindowMinutes: number;
-  /** Minutes Haru waits after speaking before speaking again (default: 30) */
+  /** Minutes Haru waits after speaking before speaking again (default: 1) */
   autonomousChatCooldownMinutes: number;
   /** Probability [0, 1] of replying when the channel is eligible (default: 0.35) */
   autonomousChatReplyChance: number;
@@ -142,7 +142,7 @@ export function loadConfig(): AppConfig {
       10,
     ),
     autonomousChatCooldownMinutes: parseInt(
-      Deno.env.get("AUTONOMOUS_CHAT_COOLDOWN_MINUTES") ?? "30",
+      Deno.env.get("AUTONOMOUS_CHAT_COOLDOWN_MINUTES") ?? "1",
       10,
     ),
     autonomousChatReplyChance: Math.min(1, Math.max(0, autonomous_chat_reply_chance)),
