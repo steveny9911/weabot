@@ -19,6 +19,13 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
     linkOpenEnabled: true,
+    autonomousChatEnabled: false,
+    autonomousChatChannelIds: ["chan-1"],
+    autonomousChatMinHumanMessages: 4,
+    autonomousChatActivityWindowMinutes: 20,
+    autonomousChatCooldownMinutes: 1,
+    autonomousChatReplyChance: 0.35,
+    autonomousChatMaxContextMessages: 40,
     ...overrides,
   };
 }

@@ -8,13 +8,20 @@
  */
 
 import type { AppConfig } from "./config.ts";
+import type { AiService } from "../ai_service.ts";
 import type { DiscordClient } from "./services/discord.ts";
+import type { RateLimitService } from "./services/rate_limit.ts";
 import type { StorageService } from "./services/storage.ts";
 import type { PollRecord } from "./types/storage.ts";
 import type { Mood } from "./types/bot.ts";
+import { getBotUserId } from "../bot_actions.ts";
+import { decideAutonomousChatReply } from "./features/autonomous_chat/mod.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
 import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
+
+const AUTONOMOUS_CHAT_GUIDANCE =
+  "Autonomous reply guidance: You are Haru joining an already-active group chat without being directly mentioned. Send one brief, natural message that responds to the latest context. Do not say this is automated, scheduled, or from a cron job. Do not force a reply if the context is sensitive; be supportive and concise. Keep it under 280 characters.";
 
 /**
  * Registers all cron jobs for the application.
@@ -23,13 +30,19 @@ import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
  * @param discord - Discord API client
  * @param storage - Storage service for vote data
  * @param dateFormatter - Date formatter for poll questions
+ * @param aiService - AI service for autonomous chat replies
+ * @param rateLimit - Rate limit service for AI budget tracking
  */
 export function registerCronJobs(
   config: AppConfig,
   discord: DiscordClient,
   storage: StorageService,
   dateFormatter: Intl.DateTimeFormat,
+  aiService: AiService,
+  rateLimit: RateLimitService,
 ): void {
+  let autonomous_chat_running = false;
+
   // =========================================================================
   // Daily Mood Poll
   // Schedule: 05:00 UTC = 21:00 PST / 22:00 PDT
@@ -208,9 +221,90 @@ export function registerCronJobs(
     }
   });
 
+  // =========================================================================
+  // Autonomous Chat
+  // Schedule: Every minute
+  // Joins active conversations only when explicitly enabled and guardrails pass.
+  // =========================================================================
+  Deno.cron("Autonomous Chat", "* * * * *", async () => {
+    if (!config.autonomousChatEnabled) return;
+    if (!config.aiEnabled || !config.openaiApiKey) {
+      console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
+      return;
+    }
+    if (autonomous_chat_running) {
+      console.log("[CRON] Autonomous chat skipped because previous run is still active");
+      return;
+    }
+
+    autonomous_chat_running = true;
+    try {
+      const bot_user_id = await getBotUserId(config);
+      if (!bot_user_id) {
+        console.error("[CRON] Autonomous chat skipped because bot user id is unavailable");
+        return;
+      }
+
+      for (const channelId of config.autonomousChatChannelIds) {
+        const recent_messages = await discord.getRecentMessages(
+          channelId,
+          config.autonomousChatMaxContextMessages,
+        );
+        const decision = decideAutonomousChatReply(recent_messages, {
+          botUserId: bot_user_id,
+          nowMs: Date.now(),
+          minHumanMessages: config.autonomousChatMinHumanMessages,
+          activityWindowMs: config.autonomousChatActivityWindowMinutes * 60_000,
+          cooldownMs: config.autonomousChatCooldownMinutes * 60_000,
+          maxContextMessages: config.autonomousChatMaxContextMessages,
+          replyChance: config.autonomousChatReplyChance,
+          random: Math.random,
+        });
+
+        if (!decision.shouldReply) {
+          console.log(`[CRON] Autonomous chat skipped in ${channelId}: ${decision.reason}`);
+          continue;
+        }
+
+        const budget_result = await rateLimit.checkDailyBudget();
+        if (!budget_result.allowed) {
+          console.log("[CRON] Autonomous chat skipped because daily token budget is exhausted");
+          continue;
+        }
+
+        await rateLimit.recordUserRequest("autonomous-chat");
+        const ai_result = await aiService.generateReply([
+          ...decision.contextMessages,
+          { author: "system", content: AUTONOMOUS_CHAT_GUIDANCE },
+        ]);
+
+        if (!ai_result.ok) {
+          console.error(`[CRON] Autonomous chat AI failed in ${channelId}: ${ai_result.error}`);
+          continue;
+        }
+
+        await rateLimit.recordTokenUsage(ai_result.tokensUsed);
+        const response = await discord.postMessage(channelId, { content: ai_result.text });
+
+        if (response.ok) {
+          console.log(`[CRON] Autonomous chat posted in ${channelId}`);
+        } else {
+          const body = await response.text();
+          console.error(`[CRON] Autonomous chat failed in ${channelId}: ${response.status}`);
+          console.error(body);
+        }
+      }
+    } catch (error) {
+      console.error("[CRON] Error in autonomous chat:", error);
+    } finally {
+      autonomous_chat_running = false;
+    }
+  });
+
   console.log("[CRON] Registered jobs:");
   console.log("  - Daily Retro Poll (05:00 UTC)");
   console.log("  - Daily Wellness Check (06:00 UTC)");
   console.log("  - Weekly Stats Summary (Sundays 06:00 UTC)");
   console.log("  - Poll Result Collection (every hour at :30)");
+  console.log("  - Autonomous Chat (every minute, disabled unless configured)");
 }

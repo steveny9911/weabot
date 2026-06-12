@@ -29,6 +29,13 @@ function withEnv(
     "BRAVE_SEARCH_API_KEY",
     "WEB_SEARCH_MAX_RESULTS",
     "LINK_OPEN_ENABLED",
+    "AUTONOMOUS_CHAT_ENABLED",
+    "AUTONOMOUS_CHAT_CHANNEL_IDS",
+    "AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES",
+    "AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES",
+    "AUTONOMOUS_CHAT_COOLDOWN_MINUTES",
+    "AUTONOMOUS_CHAT_REPLY_CHANCE",
+    "AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES",
   ]);
 
   for (const key of allKeys) {
@@ -199,6 +206,13 @@ Deno.test("loadConfig returns complete config with all values", () => {
       BRAVE_SEARCH_API_KEY: "brave-key",
       WEB_SEARCH_MAX_RESULTS: "5",
       LINK_OPEN_ENABLED: "false",
+      AUTONOMOUS_CHAT_ENABLED: "true",
+      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2",
+      AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES: "6",
+      AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES: "25",
+      AUTONOMOUS_CHAT_COOLDOWN_MINUTES: "45",
+      AUTONOMOUS_CHAT_REPLY_CHANCE: "0.2",
+      AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES: "60",
     },
     () => {
       const config = loadConfig();
@@ -218,6 +232,13 @@ Deno.test("loadConfig returns complete config with all values", () => {
         webSearchApiKey: "brave-key",
         webSearchMaxResults: 5,
         linkOpenEnabled: false,
+        autonomousChatEnabled: true,
+        autonomousChatChannelIds: ["auto-1", "auto-2"],
+        autonomousChatMinHumanMessages: 6,
+        autonomousChatActivityWindowMinutes: 25,
+        autonomousChatCooldownMinutes: 45,
+        autonomousChatReplyChance: 0.2,
+        autonomousChatMaxContextMessages: 60,
       });
     },
   );
@@ -242,6 +263,41 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.webSearchApiKey, undefined);
       assertEquals(config.webSearchMaxResults, 3);
       assertEquals(config.linkOpenEnabled, true);
+      assertEquals(config.autonomousChatEnabled, false);
+      assertEquals(config.autonomousChatChannelIds, ["channel"]);
+      assertEquals(config.autonomousChatMinHumanMessages, 4);
+      assertEquals(config.autonomousChatActivityWindowMinutes, 20);
+      assertEquals(config.autonomousChatCooldownMinutes, 1);
+      assertEquals(config.autonomousChatReplyChance, 0.35);
+      assertEquals(config.autonomousChatMaxContextMessages, 40);
+    },
+  );
+});
+
+Deno.test("loadConfig defaults AUTONOMOUS_CHAT_CHANNEL_IDS to configured channels", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_IDS: "chan-1, chan-2",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.autonomousChatChannelIds, ["chan-1", "chan-2"]);
+    },
+  );
+});
+
+Deno.test("loadConfig supports AUTONOMOUS_CHAT_CHANNEL_IDS override", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_IDS: "chan-1, chan-2",
+      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2, auto-1",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.channelIds, ["chan-1", "chan-2"]);
+      assertEquals(config.autonomousChatChannelIds, ["auto-1", "auto-2"]);
     },
   );
 });
@@ -300,6 +356,34 @@ Deno.test("loadConfig handles LINK_OPEN_ENABLED=false", () => {
     () => {
       const config = loadConfig();
       assertEquals(config.linkOpenEnabled, false);
+    },
+  );
+});
+
+Deno.test("loadConfig clamps AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      AUTONOMOUS_CHAT_REPLY_CHANCE: "2",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.autonomousChatReplyChance, 1);
+    },
+  );
+});
+
+Deno.test("loadConfig defaults invalid AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      AUTONOMOUS_CHAT_REPLY_CHANCE: "sometimes",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.autonomousChatReplyChance, 0.35);
     },
   );
 });
