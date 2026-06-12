@@ -44,6 +44,8 @@ export interface AppConfig {
   // Autonomous Chat
   /** Allow Haru to speak without a direct mention during active conversations (default: false) */
   autonomousChatEnabled: boolean;
+  /** Channels where autonomous chat is allowed (default: all configured channels) */
+  autonomousChatChannelIds: string[];
   /** Minimum recent human messages before autonomous chat can join (default: 4) */
   autonomousChatMinHumanMessages: number;
   /** Minutes used to decide whether a channel is currently active (default: 20) */
@@ -106,6 +108,10 @@ export function loadConfig(): AppConfig {
   }
 
   const channel_ids_unique = [...new Set(channel_ids)];
+  const autonomous_chat_channel_ids_raw = Deno.env.get("AUTONOMOUS_CHAT_CHANNEL_IDS");
+  const autonomous_chat_channel_ids = autonomous_chat_channel_ids_raw
+    ? autonomous_chat_channel_ids_raw.split(",").map((id) => id.trim()).filter(Boolean)
+    : channel_ids_unique;
 
   return {
     discordToken: getEnvOrThrow("DISCORD_TOKEN"),
@@ -133,6 +139,7 @@ export function loadConfig(): AppConfig {
     // Autonomous Chat
     autonomousChatEnabled: (Deno.env.get("AUTONOMOUS_CHAT_ENABLED") ?? "false").toLowerCase() ===
       "true",
+    autonomousChatChannelIds: [...new Set(autonomous_chat_channel_ids)],
     autonomousChatMinHumanMessages: parseInt(
       Deno.env.get("AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES") ?? "4",
       10,

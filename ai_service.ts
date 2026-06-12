@@ -310,6 +310,7 @@ export async function generateReplyFromMessages(
     webSearchMaxResults: parseInt(Deno.env.get("WEB_SEARCH_MAX_RESULTS") ?? "3", 10),
     linkOpenEnabled: link_open_enabled,
     autonomousChatEnabled: false,
+    autonomousChatChannelIds: channel_ids.length > 0 ? channel_ids : [channel_id_single],
     autonomousChatMinHumanMessages: 4,
     autonomousChatActivityWindowMinutes: 20,
     autonomousChatCooldownMinutes: 1,

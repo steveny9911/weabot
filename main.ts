@@ -79,6 +79,7 @@ console.log(`   Enabled: ${config.linkOpenEnabled}`);
 console.log("");
 console.log("💬 Autonomous Chat:");
 console.log(`   Enabled: ${config.autonomousChatEnabled}`);
+console.log(`   Channels: ${config.autonomousChatChannelIds.join(", ")}`);
 console.log(`   Min Human Messages: ${config.autonomousChatMinHumanMessages}`);
 console.log(`   Activity Window: ${config.autonomousChatActivityWindowMinutes} minutes`);
 console.log(`   Cooldown: ${config.autonomousChatCooldownMinutes} minutes`);

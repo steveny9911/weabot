@@ -22,6 +22,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webSearchMaxResults: 3,
     linkOpenEnabled: true,
     autonomousChatEnabled: false,
+    autonomousChatChannelIds: ["chan-1"],
     autonomousChatMinHumanMessages: 4,
     autonomousChatActivityWindowMinutes: 20,
     autonomousChatCooldownMinutes: 1,

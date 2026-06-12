@@ -245,7 +245,7 @@ export function registerCronJobs(
         return;
       }
 
-      for (const channelId of config.channelIds) {
+      for (const channelId of config.autonomousChatChannelIds) {
         const recent_messages = await discord.getRecentMessages(
           channelId,
           config.autonomousChatMaxContextMessages,

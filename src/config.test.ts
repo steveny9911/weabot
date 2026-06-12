@@ -30,6 +30,7 @@ function withEnv(
     "WEB_SEARCH_MAX_RESULTS",
     "LINK_OPEN_ENABLED",
     "AUTONOMOUS_CHAT_ENABLED",
+    "AUTONOMOUS_CHAT_CHANNEL_IDS",
     "AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES",
     "AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES",
     "AUTONOMOUS_CHAT_COOLDOWN_MINUTES",
@@ -206,6 +207,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
       WEB_SEARCH_MAX_RESULTS: "5",
       LINK_OPEN_ENABLED: "false",
       AUTONOMOUS_CHAT_ENABLED: "true",
+      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2",
       AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES: "6",
       AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES: "25",
       AUTONOMOUS_CHAT_COOLDOWN_MINUTES: "45",
@@ -231,6 +233,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
         webSearchMaxResults: 5,
         linkOpenEnabled: false,
         autonomousChatEnabled: true,
+        autonomousChatChannelIds: ["auto-1", "auto-2"],
         autonomousChatMinHumanMessages: 6,
         autonomousChatActivityWindowMinutes: 25,
         autonomousChatCooldownMinutes: 45,
@@ -261,11 +264,40 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.webSearchMaxResults, 3);
       assertEquals(config.linkOpenEnabled, true);
       assertEquals(config.autonomousChatEnabled, false);
+      assertEquals(config.autonomousChatChannelIds, ["channel"]);
       assertEquals(config.autonomousChatMinHumanMessages, 4);
       assertEquals(config.autonomousChatActivityWindowMinutes, 20);
       assertEquals(config.autonomousChatCooldownMinutes, 1);
       assertEquals(config.autonomousChatReplyChance, 0.35);
       assertEquals(config.autonomousChatMaxContextMessages, 40);
+    },
+  );
+});
+
+Deno.test("loadConfig defaults AUTONOMOUS_CHAT_CHANNEL_IDS to configured channels", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_IDS: "chan-1, chan-2",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.autonomousChatChannelIds, ["chan-1", "chan-2"]);
+    },
+  );
+});
+
+Deno.test("loadConfig supports AUTONOMOUS_CHAT_CHANNEL_IDS override", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_IDS: "chan-1, chan-2",
+      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2, auto-1",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.channelIds, ["chan-1", "chan-2"]);
+      assertEquals(config.autonomousChatChannelIds, ["auto-1", "auto-2"]);
     },
   );
 });
