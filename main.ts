@@ -46,7 +46,7 @@ const date_formatter = new Intl.DateTimeFormat("en-US", {
 
 // --- Register Services ---
 startGateway(config, bot_deps);
-registerCronJobs(config, discord, storage, date_formatter);
+registerCronJobs(config, discord, storage, date_formatter, ai_service, rate_limit);
 createServer(config, discord, storage, date_formatter, rate_limit);
 
 // --- Startup Logging ---
@@ -76,3 +76,11 @@ if (!config.webSearchApiKey) {
 console.log("");
 console.log("🔗 Link Open:");
 console.log(`   Enabled: ${config.linkOpenEnabled}`);
+console.log("");
+console.log("💬 Autonomous Chat:");
+console.log(`   Enabled: ${config.autonomousChatEnabled}`);
+console.log(`   Min Human Messages: ${config.autonomousChatMinHumanMessages}`);
+console.log(`   Activity Window: ${config.autonomousChatActivityWindowMinutes} minutes`);
+console.log(`   Cooldown: ${config.autonomousChatCooldownMinutes} minutes`);
+console.log(`   Reply Chance: ${config.autonomousChatReplyChance}`);
+console.log(`   Max Context Messages: ${config.autonomousChatMaxContextMessages}`);

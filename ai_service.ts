@@ -309,6 +309,12 @@ export async function generateReplyFromMessages(
     webSearchApiKey: web_search_api_key,
     webSearchMaxResults: parseInt(Deno.env.get("WEB_SEARCH_MAX_RESULTS") ?? "3", 10),
     linkOpenEnabled: link_open_enabled,
+    autonomousChatEnabled: false,
+    autonomousChatMinHumanMessages: 4,
+    autonomousChatActivityWindowMinutes: 20,
+    autonomousChatCooldownMinutes: 30,
+    autonomousChatReplyChance: 0.35,
+    autonomousChatMaxContextMessages: 40,
   };
 
   const service = createAiService(legacy_config);

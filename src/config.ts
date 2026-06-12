@@ -40,6 +40,20 @@ export interface AppConfig {
   // Link Open
   /** Master switch for explicit link opening command (default: true) */
   linkOpenEnabled: boolean;
+
+  // Autonomous Chat
+  /** Allow Haru to speak without a direct mention during active conversations (default: false) */
+  autonomousChatEnabled: boolean;
+  /** Minimum recent human messages before autonomous chat can join (default: 4) */
+  autonomousChatMinHumanMessages: number;
+  /** Minutes used to decide whether a channel is currently active (default: 20) */
+  autonomousChatActivityWindowMinutes: number;
+  /** Minutes Haru waits after speaking before speaking again (default: 30) */
+  autonomousChatCooldownMinutes: number;
+  /** Probability [0, 1] of replying when the channel is eligible (default: 0.35) */
+  autonomousChatReplyChance: number;
+  /** Max recent messages sent to the AI for autonomous replies (default: 40) */
+  autonomousChatMaxContextMessages: number;
 }
 
 /**
@@ -67,6 +81,12 @@ export function loadConfig(): AppConfig {
     (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
   const link_open_enabled = (Deno.env.get("LINK_OPEN_ENABLED") ?? "true").toLowerCase() !==
     "false";
+  const parsed_autonomous_chat_reply_chance = parseFloat(
+    Deno.env.get("AUTONOMOUS_CHAT_REPLY_CHANCE") ?? "0.35",
+  );
+  const autonomous_chat_reply_chance = Number.isFinite(parsed_autonomous_chat_reply_chance)
+    ? parsed_autonomous_chat_reply_chance
+    : 0.35;
   const channel_ids_raw = Deno.env.get("CHANNEL_IDS");
   const channel_id_single = Deno.env.get("CHANNEL_ID");
 
@@ -109,5 +129,26 @@ export function loadConfig(): AppConfig {
 
     // Link Open
     linkOpenEnabled: link_open_enabled,
+
+    // Autonomous Chat
+    autonomousChatEnabled: (Deno.env.get("AUTONOMOUS_CHAT_ENABLED") ?? "false").toLowerCase() ===
+      "true",
+    autonomousChatMinHumanMessages: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES") ?? "4",
+      10,
+    ),
+    autonomousChatActivityWindowMinutes: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES") ?? "20",
+      10,
+    ),
+    autonomousChatCooldownMinutes: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_COOLDOWN_MINUTES") ?? "30",
+      10,
+    ),
+    autonomousChatReplyChance: Math.min(1, Math.max(0, autonomous_chat_reply_chance)),
+    autonomousChatMaxContextMessages: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES") ?? "40",
+      10,
+    ),
   };
 }
