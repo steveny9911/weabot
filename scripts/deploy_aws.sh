@@ -153,8 +153,14 @@ run_ssm() {
     --document-name AWS-RunShellScript \
     --parameters "$parameters" \
     --query Command.CommandId --output text)
-  "${AWS[@]}" ssm wait command-executed \
-    --command-id "$command_id" --instance-id "$INSTANCE_ID"
+  if ! "${AWS[@]}" ssm wait command-executed \
+    --command-id "$command_id" --instance-id "$INSTANCE_ID"; then
+    "${AWS[@]}" ssm get-command-invocation \
+      --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+      --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
+      --output json >&2
+    return 1
+  fi
   "${AWS[@]}" ssm get-command-invocation \
     --command-id "$command_id" --instance-id "$INSTANCE_ID" \
     --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
