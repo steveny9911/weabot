@@ -168,7 +168,7 @@ run_ssm() {
 }
 
 echo "Waiting for instance initialization..."
-run_ssm "cloud-init status --wait" >/dev/null
+run_ssm "cloud-init status --wait >/dev/null 2>&1 || true; test -x /usr/local/bin/haru-deploy" >/dev/null
 
 if [ -n "$MIGRATE_KV_PATH" ]; then
   echo "Migrating Haru's local KV history..."
