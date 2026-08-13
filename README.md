@@ -315,20 +315,43 @@ Suggested recurring loop:
 
 ---
 
-## Deployment
+## AWS Deployment
 
-Weabot is designed to run on [Deno Deploy](https://deno.com/deploy), which provides:
+The production deployment uses a small ARM EC2 instance in the account's default VPC. It has no
+inbound ports, is administered through AWS Systems Manager, restarts Haru after process or health
+check failures, and backs up Deno KV to a private versioned S3 bucket each day.
 
-- Automatic HTTPS
-- Built-in Deno KV for data persistence
-- Cron job support
+Prerequisites:
 
-To deploy:
+- AWS CLI v2 with an authenticated profile
+- `jq` and `sqlite3`
+- A pushed Git commit that the EC2 instance can fetch
 
-1. Push your code to GitHub.
-2. Connect your repo to Deno Deploy.
-3. Set the environment variables in the Deno Deploy dashboard.
-4. Deploy!
+Deploy from the repository root, migrating the current local KV database if desired:
+
+```bash
+AWS_PROFILE=mochi-admin ./scripts/deploy_aws.sh \
+  --migrate-kv /path/to/deno/location_data/project/kv.sqlite3
+```
+
+Useful operations:
+
+```bash
+# Show the instance ID and backup bucket
+aws cloudformation describe-stacks --profile mochi-admin --region us-west-2 \
+  --stack-name haru-bot --query 'Stacks[0].Outputs'
+
+# Open a shell without SSH or an inbound firewall rule
+aws ssm start-session --profile mochi-admin --region us-west-2 --target INSTANCE_ID
+
+# Inside the instance
+sudo systemctl status haru
+sudo journalctl -u haru -n 100 --no-pager
+```
+
+Secrets from `.env` are copied to an encrypted SSM `SecureString`; they are never embedded in the
+CloudFormation template. The `/health` and manual trigger endpoints remain accessible only from the
+instance itself.
 
 ## Acknowledgments
 

@@ -14,8 +14,10 @@ import type { BotDependencies } from "./bot_actions.ts";
 // Throws immediately if required env vars are missing (Fail Fast pattern)
 const config = loadConfig();
 
-// Initialize Deno KV for data persistence
-const kv = await Deno.openKv();
+// Production can pin the database to a persistent volume while local development
+// continues to use Deno's default per-project location.
+const kv_path = Deno.env.get("DENO_KV_PATH");
+const kv = await Deno.openKv(kv_path || undefined);
 const storage = createStorageService(kv);
 
 // Create the Discord API client

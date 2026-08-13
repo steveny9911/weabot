@@ -1,0 +1,361 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Always-on, no-ingress EC2 hosting for the Haru Discord bot
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: haru
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9-]{1,30}"
+  RepositoryUrl:
+    Type: String
+    Default: https://github.com/steveny9911/weabot.git
+  RepositoryRef:
+    Type: String
+    Description: Git branch, tag, or commit to deploy
+  EnvParameterName:
+    Type: String
+    Default: /haru/env-file
+    Description: SSM SecureString containing Haru's dotenv file
+  InstanceType:
+    Type: String
+    Default: t4g.nano
+    AllowedValues:
+      - t4g.nano
+      - t4g.micro
+      - t4g.small
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+  DenoVersion:
+    Type: String
+    Default: 2.6.0
+
+Resources:
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveOldBackupVersions
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+            Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Application
+          Value: !Ref EnvironmentName
+      VersioningConfiguration:
+        Status: Enabled
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Haru outbound access only
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-no-ingress
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: HaruRuntimeAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${EnvParameterName}
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub ${BackupBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt BackupBucket.Arn
+      Tags:
+        - Key: Application
+          Value: !Ref EnvironmentName
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref SecurityGroup
+          SubnetId: !Ref SubnetId
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 8
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: !Ref EnvironmentName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          dnf install -y curl git jq sqlite unzip
+          curl -fsSL -o /tmp/deno.zip "https://github.com/denoland/deno/releases/download/v${DenoVersion}/deno-aarch64-unknown-linux-gnu.zip"
+          unzip -o /tmp/deno.zip -d /tmp/deno
+          install -o root -g root -m 0755 /tmp/deno/deno /usr/local/bin/deno
+
+          useradd --system --home-dir /opt/haru --shell /sbin/nologin haru || true
+          install -d -o haru -g haru -m 0755 /opt/haru/app /var/lib/haru /var/lib/haru/deno-cache
+
+          cat > /etc/systemd/system/haru.service <<'UNIT'
+          [Unit]
+          Description=Haru Discord bot
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=simple
+          User=haru
+          Group=haru
+          WorkingDirectory=/opt/haru/app
+          Environment=HOME=/opt/haru
+          Environment=DENO_DIR=/var/lib/haru/deno-cache
+          Environment=DENO_KV_PATH=/var/lib/haru/haru.sqlite3
+          Environment=AUTONOMOUS_CHAT_ENABLED=true
+          Environment=AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES=4
+          Environment=AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES=20
+          Environment=AUTONOMOUS_CHAT_COOLDOWN_MINUTES=1
+          Environment=AUTONOMOUS_CHAT_REPLY_CHANCE=0.35
+          Environment=AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES=40
+          EnvironmentFile=/etc/haru.env
+          ExecStart=/usr/local/bin/deno task start
+          Restart=always
+          RestartSec=5
+          TimeoutStopSec=30
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectHome=true
+          ProtectSystem=strict
+          ReadWritePaths=/var/lib/haru
+          LimitNOFILE=65536
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          cat > /usr/local/bin/haru-deploy <<'SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+
+          REPOSITORY_URL=$1
+          REPOSITORY_REF=$2
+          ENV_PARAMETER_NAME=$3
+          AWS_REGION=__AWS_REGION__
+          APP_DIR=/opt/haru/app
+          TEMP_ENV=$(mktemp)
+          trap 'rm -f "$TEMP_ENV"' EXIT
+
+          systemctl stop haru.service 2>/dev/null || true
+          if [ ! -d "$APP_DIR/.git" ]; then
+            git -C "$APP_DIR" init
+            git -C "$APP_DIR" remote add origin "$REPOSITORY_URL"
+          else
+            git -C "$APP_DIR" remote set-url origin "$REPOSITORY_URL"
+          fi
+          git -C "$APP_DIR" fetch --force --depth 1 origin "$REPOSITORY_REF"
+          git -C "$APP_DIR" checkout --force --detach FETCH_HEAD
+          git -C "$APP_DIR" clean -ffd
+
+          aws --region "$AWS_REGION" ssm get-parameter \
+            --name "$ENV_PARAMETER_NAME" \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text > "$TEMP_ENV"
+          install -o root -g root -m 0600 "$TEMP_ENV" /etc/haru.env
+          chown -R haru:haru /opt/haru /var/lib/haru
+          runuser -u haru -- env DENO_DIR=/var/lib/haru/deno-cache \
+            /usr/local/bin/deno cache "$APP_DIR/main.ts"
+
+          systemctl daemon-reload
+          systemctl enable haru.service haru-healthcheck.timer haru-backup.timer
+          systemctl restart haru.service
+          systemctl start haru-healthcheck.timer haru-backup.timer
+          SCRIPT
+          sed -i 's/__AWS_REGION__/${AWS::Region}/g' /usr/local/bin/haru-deploy
+          chmod 0755 /usr/local/bin/haru-deploy
+
+          cat > /usr/local/bin/haru-backup <<'SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+
+          DB_PATH=/var/lib/haru/haru.sqlite3
+          BACKUP_BUCKET=__BACKUP_BUCKET__
+          AWS_REGION=__AWS_REGION__
+          if [ ! -f "$DB_PATH" ]; then
+            exit 0
+          fi
+
+          TEMP_DB=$(mktemp)
+          trap 'rm -f "$TEMP_DB"' EXIT
+          sqlite3 "$DB_PATH" ".timeout 5000" ".backup '$TEMP_DB'"
+          aws --region "$AWS_REGION" s3 cp "$TEMP_DB" \
+            "s3://$BACKUP_BUCKET/kv/latest.sqlite3" --only-show-errors --sse AES256
+          SCRIPT
+          sed -i 's/__BACKUP_BUCKET__/${BackupBucket}/g; s/__AWS_REGION__/${AWS::Region}/g' /usr/local/bin/haru-backup
+          chmod 0755 /usr/local/bin/haru-backup
+
+          cat > /usr/local/bin/haru-restore <<'SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+
+          BACKUP_BUCKET=$1
+          AWS_REGION=__AWS_REGION__
+          DB_PATH=/var/lib/haru/haru.sqlite3
+          TEMP_DB=/var/lib/haru/haru.sqlite3.restore
+
+          systemctl stop haru.service 2>/dev/null || true
+          aws --region "$AWS_REGION" s3 cp \
+            "s3://$BACKUP_BUCKET/kv/latest.sqlite3" "$TEMP_DB" --only-show-errors
+          rm -f /var/lib/haru/haru.sqlite3-wal /var/lib/haru/haru.sqlite3-shm
+          mv "$TEMP_DB" "$DB_PATH"
+          chown haru:haru "$DB_PATH"
+          chmod 0600 "$DB_PATH"
+          SCRIPT
+          sed -i 's/__AWS_REGION__/${AWS::Region}/g' /usr/local/bin/haru-restore
+          chmod 0755 /usr/local/bin/haru-restore
+
+          cat > /usr/local/bin/haru-healthcheck <<'SCRIPT'
+          #!/bin/bash
+          if ! systemctl is-active --quiet haru.service || \
+             ! curl -fsS --max-time 10 http://127.0.0.1:8000/health >/dev/null; then
+            systemctl restart haru.service
+          fi
+          SCRIPT
+          chmod 0755 /usr/local/bin/haru-healthcheck
+
+          cat > /etc/systemd/system/haru-healthcheck.service <<'UNIT'
+          [Unit]
+          Description=Restart Haru if its health endpoint fails
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/haru-healthcheck
+          UNIT
+
+          cat > /etc/systemd/system/haru-healthcheck.timer <<'UNIT'
+          [Unit]
+          Description=Check Haru every minute
+
+          [Timer]
+          OnBootSec=2min
+          OnUnitActiveSec=1min
+          AccuracySec=10s
+
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          cat > /etc/systemd/system/haru-backup.service <<'UNIT'
+          [Unit]
+          Description=Back up Haru's Deno KV database
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/haru-backup
+          UNIT
+
+          cat > /etc/systemd/system/haru-backup.timer <<'UNIT'
+          [Unit]
+          Description=Back up Haru daily
+
+          [Timer]
+          OnCalendar=daily
+          RandomizedDelaySec=15min
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          systemctl daemon-reload
+          systemctl enable --now amazon-ssm-agent
+
+  SystemRecoveryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Recover Haru after an EC2 host-level failure
+      AlarmActions:
+        - !Sub arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+      EvaluationPeriods: 2
+      MetricName: StatusCheckFailed_System
+      Namespace: AWS/EC2
+      Period: 60
+      Statistic: Maximum
+      Threshold: 1
+      TreatMissingData: missing
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  BackupBucketName:
+    Value: !Ref BackupBucket
+  EnvParameterName:
+    Value: !Ref EnvParameterName
+  StatusCommand:
+    Value: !Sub aws ssm start-session --target ${Instance} --region ${AWS::Region}
