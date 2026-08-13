@@ -211,9 +211,11 @@ Resources:
           chown -R haru:haru "$APP_DIR"
           if [ ! -d "$APP_DIR/.git" ]; then
             runuser -u haru -- git -C "$APP_DIR" init
-            runuser -u haru -- git -C "$APP_DIR" remote add origin "$REPOSITORY_URL"
-          else
+          fi
+          if runuser -u haru -- git -C "$APP_DIR" remote get-url origin >/dev/null 2>&1; then
             runuser -u haru -- git -C "$APP_DIR" remote set-url origin "$REPOSITORY_URL"
+          else
+            runuser -u haru -- git -C "$APP_DIR" remote add origin "$REPOSITORY_URL"
           fi
           runuser -u haru -- git -C "$APP_DIR" fetch --force --depth 1 origin "$REPOSITORY_REF"
           runuser -u haru -- git -C "$APP_DIR" checkout --force --detach FETCH_HEAD
