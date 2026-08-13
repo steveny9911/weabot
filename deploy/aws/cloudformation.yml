@@ -208,6 +208,7 @@ Resources:
           trap 'rm -f "$TEMP_ENV"' EXIT
 
           systemctl stop haru.service 2>/dev/null || true
+          chown -R haru:haru "$APP_DIR"
           if [ ! -d "$APP_DIR/.git" ]; then
             runuser -u haru -- git -C "$APP_DIR" init
             runuser -u haru -- git -C "$APP_DIR" remote add origin "$REPOSITORY_URL"
