@@ -209,14 +209,14 @@ Resources:
 
           systemctl stop haru.service 2>/dev/null || true
           if [ ! -d "$APP_DIR/.git" ]; then
-            git -C "$APP_DIR" init
-            git -C "$APP_DIR" remote add origin "$REPOSITORY_URL"
+            runuser -u haru -- git -C "$APP_DIR" init
+            runuser -u haru -- git -C "$APP_DIR" remote add origin "$REPOSITORY_URL"
           else
-            git -C "$APP_DIR" remote set-url origin "$REPOSITORY_URL"
+            runuser -u haru -- git -C "$APP_DIR" remote set-url origin "$REPOSITORY_URL"
           fi
-          git -C "$APP_DIR" fetch --force --depth 1 origin "$REPOSITORY_REF"
-          git -C "$APP_DIR" checkout --force --detach FETCH_HEAD
-          git -C "$APP_DIR" clean -ffd
+          runuser -u haru -- git -C "$APP_DIR" fetch --force --depth 1 origin "$REPOSITORY_REF"
+          runuser -u haru -- git -C "$APP_DIR" checkout --force --detach FETCH_HEAD
+          runuser -u haru -- git -C "$APP_DIR" clean -ffd
 
           aws --region "$AWS_REGION" ssm get-parameter \
             --name "$ENV_PARAMETER_NAME" \
