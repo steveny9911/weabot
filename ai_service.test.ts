@@ -127,10 +127,10 @@ Deno.test("generateReply returns error when API key is missing", async () => {
 });
 
 // =============================================================================
-// createAiService - API Request Structure (GPT-5.2 chat builder prompt)
+// createAiService - API Request Structure
 // =============================================================================
 
-Deno.test("generateReply sends correct model name (gpt-5.2-chat-latest)", async () => {
+Deno.test("generateReply lets the saved prompt select the model", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -143,7 +143,7 @@ Deno.test("generateReply sends correct model name (gpt-5.2-chat-latest)", async 
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.model, "gpt-5.2-chat-latest");
+    assertEquals(request?.body.model, undefined);
   } finally {
     mock.restore();
   }
@@ -542,7 +542,7 @@ Deno.test("generateReplyFromMessages uses env config and returns legacy success 
         }
 
         const request = mock.getLastRequest();
-        assertEquals(request?.body.model, "gpt-5.2-chat-latest");
+        assertEquals(request?.body.model, undefined);
       },
     );
   } finally {

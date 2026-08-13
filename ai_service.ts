@@ -224,7 +224,6 @@ export function createAiService(config: AppConfig): AiService {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "gpt-5.2-chat-latest",
             prompt: OPENAI_CHAT_BUILDER_PROMPT,
             text: { format: { type: "text" } },
             store: true,
