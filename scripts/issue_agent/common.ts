@@ -55,7 +55,10 @@ export const STATE_LABELS = [
   "agent:closed-inactive",
 ] as const;
 
-export const STATE_LABEL_META: Record<(typeof STATE_LABELS)[number], { color: string; description: string }> = {
+export const STATE_LABEL_META: Record<
+  (typeof STATE_LABELS)[number],
+  { color: string; description: string }
+> = {
   "agent:accepted": {
     color: "0E8A16",
     description: "Accepted by automation for implementation",
@@ -184,14 +187,16 @@ export function parseDecisionMarker(body: string): AgentDecisionMarker | null {
   if (!match) return null;
 
   const raw_decision = match[1].toLowerCase();
-  if (![
-    "accepted",
-    "needs-info",
-    "rejected",
-    "in-progress",
-    "pr-open",
-    "closed-inactive",
-  ].includes(raw_decision)) {
+  if (
+    ![
+      "accepted",
+      "needs-info",
+      "rejected",
+      "in-progress",
+      "pr-open",
+      "closed-inactive",
+    ].includes(raw_decision)
+  ) {
     return null;
   }
 
