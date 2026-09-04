@@ -282,6 +282,117 @@ Deno.test("failed model continuation preserves consumed usage without repeating 
   }
 });
 
+Deno.test("stalled continuations time out through headers and body while preserving completed actions", async (t) => {
+  for (const phase of ["headers", "success body", "error body"] as const) {
+    await t.step(phase, async () => {
+      const originalFetch = globalThis.fetch;
+      const receipts: Array<Record<string, unknown>> = [];
+      let requests = 0;
+      let continuationSignal: AbortSignal | null | undefined;
+      globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+        requests++;
+        if (requests === 1) {
+          return Promise.resolve(Response.json({
+            output: [call("created")],
+            usage: { total_tokens: 37 },
+          }));
+        }
+        continuationSignal = init?.signal;
+        if (phase === "headers") return new Promise<Response>(() => {});
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            continuationSignal?.addEventListener("abort", () => {
+              controller.error(new DOMException("Request aborted", "AbortError"));
+            }, { once: true });
+          },
+        });
+        return Promise.resolve(new Response(body, { status: phase === "error body" ? 503 : 200 }));
+      }) as typeof fetch;
+      try {
+        const result = await createAiService(mockConfig(), {
+          // Exercise both the per-response and overall-loop deadlines.
+          requestTimeoutMs: phase === "headers" ? 20 : 1000,
+          toolLoopTimeoutMs: phase === "headers" ? 1000 : 20,
+        }).generateReply(
+          [],
+          options(() => {
+            const receipt = { ok: true, eventId: "created" };
+            receipts.push(receipt);
+            return Promise.resolve(receipt);
+          }),
+        );
+        assertEquals(result.ok, false);
+        assertEquals(result.tokensUsed, 37);
+        assertEquals(receipts, [{ ok: true, eventId: "created" }]);
+        assertEquals(requests, 2);
+        assertEquals(continuationSignal?.aborted, true);
+        if (!result.ok) {
+          assertStringIncludes(
+            result.error,
+            phase === "headers" ? "OpenAI response timed out" : "AI tool time limit reached",
+          );
+        }
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  }
+});
+
+Deno.test("the overall deadline stops later model output from executing more tools", async () => {
+  let elapsedMs = 0;
+  let executions = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    elapsedMs += 60;
+    return Promise.resolve(Response.json({
+      output: [call(String(elapsedMs))],
+      usage: { total_tokens: 5 },
+    }));
+  }) as typeof fetch;
+  try {
+    const result = await createAiService(mockConfig(), {
+      toolLoopTimeoutMs: 100,
+      now: () => elapsedMs,
+    }).generateReply(
+      [],
+      options(() => {
+        executions++;
+        return Promise.resolve({ ok: true });
+      }),
+    );
+    assertEquals(result, { ok: false, error: "AI tool time limit reached", tokensUsed: 10 });
+    assertEquals(executions, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("tool execution counts toward the deadline without abandoning an in-flight receipt", async () => {
+  let elapsedMs = 0;
+  const receipts: Array<Record<string, unknown>> = [];
+  await withResponses([
+    { output: [call("first"), call("second")], usage: { total_tokens: 37 } },
+  ], async (requests) => {
+    const result = await createAiService(mockConfig(), {
+      toolLoopTimeoutMs: 100,
+      now: () => elapsedMs,
+    }).generateReply(
+      [],
+      options(async () => {
+        await Promise.resolve();
+        elapsedMs = 120;
+        const receipt = { ok: true, eventId: "created" };
+        receipts.push(receipt);
+        return receipt;
+      }),
+    );
+    assertEquals(result, { ok: false, error: "AI tool time limit reached", tokensUsed: 37 });
+    assertEquals(receipts, [{ ok: true, eventId: "created" }]);
+    assertEquals(requests.length, 1);
+  });
+});
+
 Deno.test("tool loop stops after six responses without executing last response writes", async () => {
   let executions = 0;
   await withResponses(

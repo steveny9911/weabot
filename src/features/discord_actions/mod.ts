@@ -35,7 +35,12 @@ export interface DiscordActionSession extends AiReplyOptions {
 }
 export interface DiscordActionService {
   createSession(context: DiscordActionContext): Promise<DiscordActionSession>;
-  clearPending(guildId: string, channelId: string, userId: string): Promise<void>;
+  clearPending(
+    guildId: string,
+    channelId: string,
+    userId: string,
+    messageId?: string,
+  ): Promise<void>;
 }
 interface PendingRequest {
   messageId: string;
@@ -49,11 +54,22 @@ interface OperationRecord {
   result?: ActionResult;
 }
 const PENDING_TTL = 20 * 60_000;
+function isOlder(messageId: string, previousId: string): boolean {
+  return /^\d+$/.test(messageId) && /^\d+$/.test(previousId) &&
+    BigInt(messageId) < BigInt(previousId);
+}
+interface RequestGeneration {
+  token: string;
+  messageId: string;
+  reset?: boolean;
+}
 
 /** A conservative authorization gate, independent of the model's interpretation of details. */
 function directReferenceText(content: string): string {
   return content.replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`]*`/g, " ")
+    // Discord's >>> blockquote consumes every following line, not just its first.
+    .replace(/^[ \t]*>>>(?:\s|$)[\s\S]*$/gm, " ")
     .replace(/^\s*>.*$/gm, " ");
 }
 function directRequestText(content: string): string {
@@ -84,15 +100,34 @@ function isAbandonment(content: string): boolean {
   return isNegativeRequest(content) ||
     (/\bcancel\b/i.test(directRequestText(content)) && !hasExplicitCancellationRequest(content));
 }
-function hasExplicitCreationRequest(content: string): boolean {
+function creationRequestText(content: string): string {
   const direct = directRequestText(content);
-  if (isAbandonment(content) || /\b(?:cancel|call\s+off)\b/i.test(direct)) return false;
-  if (isDiscussion(content)) return false;
-  return (/\b(event|meetup|meeting|game night|movie night|watch party|hangout|session|party|workshop)\b/i
-    .test(direct) &&
-    /\b(create|schedule|make|set\s+up|arrange|organ[is]e|plan|host|add)\b/i.test(direct)) ||
-    (/\b(invite|invitation|join\s+link)\b/i.test(direct) &&
-      /\b(create|make|get|give|send|share|generate|need|want)\b/i.test(direct));
+  if (isAbandonment(content) || /\b(?:cancel|call\s+off)\b/i.test(direct)) return "";
+  return isDiscussion(content) ? "" : direct;
+}
+function hasExplicitEventCreationRequest(content: string): boolean {
+  const direct = creationRequestText(content);
+  // An invite for an existing event does not authorize creating that event.
+  // Keep independent event clauses and the common "event with an invite" form.
+  const clauses = direct.split(/[.!?;\n]|\b(?:and|then|also)\b/i);
+  return clauses.some((clause) => {
+    const eventClause = clause.replace(
+      /\bwith\s+(?:an?\s+)?(?:invite|invitation|join\s+link)\b.*$/i,
+      " ",
+    );
+    return !/\b(invite|invitation|join\s+link)\b/i.test(eventClause) &&
+      /\b(event|meetup|meeting|game night|movie night|watch party|hangout|session|party|workshop)\b/i
+        .test(eventClause) &&
+      /\b(create|schedule|make|set\s+up|arrange|organ[is]e|plan|host|add)\b/i.test(eventClause);
+  });
+}
+function hasExplicitInviteCreationRequest(content: string): boolean {
+  const direct = creationRequestText(content);
+  return /\b(invite|invitation|join\s+link)\b/i.test(direct) &&
+    /\b(create|make|get|give|send|share|generate|need|want)\b/i.test(direct);
+}
+function hasExplicitCreationRequest(content: string): boolean {
+  return hasExplicitEventCreationRequest(content) || hasExplicitInviteCreationRequest(content);
 }
 export function hasExplicitActionRequest(content: string): boolean {
   return hasExplicitCreationRequest(content) || hasExplicitCancellationRequest(content);
@@ -148,7 +183,7 @@ function eventResult(event: DiscordScheduledEvent, reused = false): ActionResult
           ? "Ehehe~ your event is already waiting for you! (｡•ᴗ•｡)"
           : "Ehehe~ I made your event! (｡•ᴗ•｡)"
       }\n${event.name}\n` +
-      `<t:${start}:F>${end ? ` – <t:${end}:t>` : ""}\n${eventUrl}`,
+      `<t:${start}:F>${end ? ` – <t:${end}:F>` : ""}\n${eventUrl}`,
   };
 }
 
@@ -164,11 +199,23 @@ export function createDiscordActionService(
     channel,
     user,
   ];
+  const generationKey = (guild: string, channel: string, user: string) => [
+    "discord_action_generation",
+    guild,
+    channel,
+    user,
+  ];
+  function superseded(): Error {
+    return new Error(
+      "That request was replaced, cancelled or expired. Please ask me again if you still want it!~",
+    );
+  }
 
   async function once(
     messageKey: Deno.KvKey,
     fingerprintKey: Deno.KvKey | null,
     perform: () => Promise<ActionResult>,
+    generation: Deno.KvEntryMaybe<RequestGeneration>,
     refreshCreationFingerprint = true,
   ): Promise<ActionResult> {
     const previous = await kv.get<OperationRecord>(messageKey);
@@ -205,7 +252,7 @@ export function createDiscordActionService(
           "A matching event action is already in progress or awaiting verification. Check Discord before retrying.",
       };
     }
-    let claim = kv.atomic().check(previous).set(messageKey, { state: "pending" });
+    let claim = kv.atomic().check(previous, generation).set(messageKey, { state: "pending" });
     if (fingerprint && fingerprintKey) {
       claim = claim.check(fingerprint).set(fingerprintKey, { state: "pending" });
     }
@@ -240,26 +287,77 @@ export function createDiscordActionService(
   }
 
   return {
-    async clearPending(guildId, channelId, userId) {
-      await kv.delete(pendingKey(guildId, channelId, userId));
+    async clearPending(guildId, channelId, userId, messageId) {
+      // Leave a new generation behind so already-running sessions cannot restore the request.
+      const stateKey = generationKey(guildId, channelId, userId);
+      while (true) {
+        const previous = await kv.get<RequestGeneration>(stateKey);
+        if (messageId && previous.value && isOlder(messageId, previous.value.messageId)) return;
+        const value: RequestGeneration = {
+          token: crypto.randomUUID(),
+          messageId: messageId ?? previous.value?.messageId ?? "0",
+          reset: true,
+        };
+        if (
+          (await kv.atomic().check(previous)
+            .set(stateKey, value, { expireIn: PENDING_TTL })
+            .delete(pendingKey(guildId, channelId, userId)).commit()).ok
+        ) return;
+      }
     },
     async createSession(context) {
       const key = pendingKey(context.guildId, context.channelId, context.userId);
-      let pending = (await kv.get<PendingRequest>(key)).value;
-      const abandoningCreation = Boolean(
-        pending && hasExplicitCreationRequest(pending.content) &&
-          /\b(?:cancel|call\s+off)\s+(?:it|that|this)[.!?\s]*$/i.test(
-            directRequestText(context.content),
-          ),
-      );
-      if (isAbandonment(context.content) || abandoningCreation) {
-        await kv.delete(key);
-        pending = null;
-      }
-      const currentExplicit = !abandoningCreation && hasExplicitActionRequest(context.content);
-      if (currentExplicit && pending) {
-        await kv.delete(key);
-        pending = null;
+      const stateKey = generationKey(context.guildId, context.channelId, context.userId);
+      let pending: PendingRequest | null;
+      let generation: Deno.KvEntryMaybe<RequestGeneration>;
+      let abandoningCreation: boolean;
+      let currentExplicit: boolean;
+      // Claim this turn before model work begins. CAS prevents a stale snapshot from
+      // overwriting an abandonment or clarification processed by another handler.
+      for (let attempt = 0;; attempt++) {
+        const [storedPending, storedGeneration] = await kv.getMany<
+          [PendingRequest, RequestGeneration]
+        >([
+          key,
+          stateKey,
+        ]);
+        const previous = storedGeneration.value;
+        if (
+          attempt >= 3 || (previous &&
+            (isOlder(context.messageId, previous.messageId) ||
+              (previous.reset && context.messageId === previous.messageId)))
+        ) {
+          // Earlier handler work may finish after a newer message has already arrived.
+          // Keep the session read-only rather than reviving that older authorization.
+          generation = storedGeneration;
+          pending = null;
+          abandoningCreation = false;
+          currentExplicit = false;
+          break;
+        }
+        pending = storedPending.value;
+        abandoningCreation = Boolean(
+          pending && hasExplicitCreationRequest(pending.content) &&
+            /\b(?:cancel|call\s+off)\s+(?:it|that|this)[.!?\s]*$/i.test(
+              directRequestText(context.content),
+            ),
+        );
+        const abandoned = isAbandonment(context.content) || abandoningCreation;
+        currentExplicit = !abandoningCreation && hasExplicitActionRequest(context.content);
+        const value: RequestGeneration = {
+          token: crypto.randomUUID(),
+          messageId: context.messageId,
+        };
+        let update = kv.atomic().check(storedPending, storedGeneration)
+          .set(stateKey, value, { expireIn: PENDING_TTL });
+        if (abandoned || currentExplicit) {
+          update = update.delete(key);
+          pending = null;
+        }
+        const committed = await update.commit();
+        if (!committed.ok) continue;
+        generation = { key: stateKey, value, versionstamp: committed.versionstamp };
+        break;
       }
       const origin = currentExplicit
         ? context
@@ -268,6 +366,14 @@ export function createDiscordActionService(
         : context;
       const results: ActionResult[] = [];
       const verifiedEvents = new Map<string, DiscordScheduledEvent>();
+
+      async function ensureCurrent(): Promise<void> {
+        if ((await kv.get(stateKey)).versionstamp !== generation.versionstamp) throw superseded();
+      }
+      async function finishPending(): Promise<void> {
+        // A completed older action must never erase the newer turn's clarification.
+        await kv.atomic().check(generation).delete(key).commit();
+      }
 
       async function loadAccess(): Promise<{
         guild: DiscordGuild;
@@ -289,7 +395,10 @@ export function createDiscordActionService(
         }
         return { guild, requester, bot, channels };
       }
-      function authorize(args: Record<string, unknown>, kind?: "create" | "cancel") {
+      function authorize(
+        args: Record<string, unknown>,
+        kind?: "create_event" | "create_invite" | "cancel",
+      ) {
         const quote = requiredText(args, "request_quote", 4000);
         const directQuote = directRequestText(quote).replace(/\s+/g, " ").trim();
         const directOrigin = directRequestText(origin.content).replace(/\s+/g, " ").trim();
@@ -299,8 +408,12 @@ export function createDiscordActionService(
           !hasExplicitActionRequest(origin.content) ||
           !origin.content.includes(quote) || !hasExplicitActionRequest(quote) ||
           !directOrigin.includes(directQuote) ||
-          (kind === "create" &&
-            (!hasExplicitCreationRequest(origin.content) || !hasExplicitCreationRequest(quote))) ||
+          (kind === "create_event" &&
+            (!hasExplicitEventCreationRequest(origin.content) ||
+              !hasExplicitEventCreationRequest(quote))) ||
+          (kind === "create_invite" &&
+            (!hasExplicitInviteCreationRequest(origin.content) ||
+              !hasExplicitInviteCreationRequest(quote))) ||
           (kind === "cancel" &&
             (!hasExplicitCancellationRequest(origin.content) ||
               !hasExplicitCancellationRequest(quote)))
@@ -343,7 +456,12 @@ export function createDiscordActionService(
             : pending?.requestedAt ?? new Date(now()).toISOString(),
           replies: currentExplicit ? [] : [...(pending?.replies ?? []), context.content].slice(-5),
         };
-        await kv.set(key, request, { expireIn: PENDING_TTL });
+        if (
+          !(await kv.atomic().check(generation).set(key, request, { expireIn: PENDING_TTL })
+            .commit()).ok
+        ) {
+          throw superseded();
+        }
         const result: ActionResult = { ok: false, message: question, needsClarification: true };
         results.push(result);
         return result;
@@ -423,12 +541,15 @@ export function createDiscordActionService(
                 ? undefined
                 : name === "cancel_discord_event"
                 ? "cancel"
-                : "create",
+                : name === "create_discord_invite"
+                ? "create_invite"
+                : "create_event",
             );
             if (name === "clarify_discord_action") {
               return await ask(requiredText(args, "question", 1000));
             }
             if (name === "cancel_discord_event") {
+              await ensureCurrent();
               const reference = optionalText(args, "event_reference", 200);
               if (!reference) {
                 return await ask("Which event should I cancel? Send me its name or event link!~");
@@ -466,17 +587,25 @@ export function createDiscordActionService(
                 );
               };
               const events = (await client.listScheduledEvents(context.guildId)).filter(accessible);
+              // Discord mentions and emoji embed non-event snowflakes, never event targets.
+              const withoutMentions = source.replace(
+                /<(?:(?:@!?|@&|#)\d+|a?:[A-Za-z0-9_]+:\d+|\/[^:>]+:\d+)>/g,
+                " ",
+              );
               const sourceLinks = [
-                ...source.matchAll(/https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)/gi),
+                ...withoutMentions.matchAll(
+                  /https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)/gi,
+                ),
               ];
               const references = new Set(sourceLinks.map((link) => `${link[1]}/${link[2]}`));
-              const withoutLinks = source.replace(/https?:\/\/\S+/gi, " ");
+              const withoutLinks = withoutMentions.replace(/https?:\/\/\S+/gi, " ");
               for (const id of withoutLinks.match(/\b\d{17,20}\b/g) ?? []) {
                 references.add(`${context.guildId}/${id}`);
               }
               for (const event of events) {
                 if (
-                  containsReference(source, event.name) || containsReference(withoutLinks, event.id)
+                  containsReference(withoutMentions, event.name) ||
+                  containsReference(withoutLinks, event.id)
                 ) {
                   references.add(`${context.guildId}/${event.id}`);
                 }
@@ -511,7 +640,9 @@ export function createDiscordActionService(
                 const matches = events.filter((event) =>
                   event.name.toLowerCase() === reference.toLowerCase()
                 );
-                const mentioned = events.filter((event) => containsReference(source, event.name));
+                const mentioned = events.filter((event) =>
+                  containsReference(withoutMentions, event.name)
+                );
                 if (matches.length !== 1 || new Set(mentioned.map((event) => event.id)).size > 1) {
                   const candidates = matches.length ? matches : mentioned;
                   const choices = candidates.slice(0, 5).map((event) =>
@@ -597,6 +728,7 @@ export function createDiscordActionService(
                 ["discord_actions", context.guildId, origin.messageId, name],
                 ["discord_event_cancellation", context.guildId, eventId],
                 async () => {
+                  await ensureCurrent();
                   const cancelled = await client.cancelScheduledEvent(
                     context.guildId,
                     eventId,
@@ -614,13 +746,15 @@ export function createDiscordActionService(
                   }
                   return receipt(false);
                 },
+                generation,
                 false,
               );
               results.push(result);
-              if (result.ok) await kv.delete(key);
+              if (result.ok) await finishPending();
               return result;
             }
             if (name === "create_discord_event") {
+              await ensureCurrent();
               const title = requiredText(args, "name", 100);
               const description = optionalText(args, "description", 1000);
               const zone = requiredText(args, "time_zone", 100);
@@ -711,6 +845,7 @@ export function createDiscordActionService(
                     (event.entity_metadata?.location ?? "") ===
                       (payload.entity_metadata?.location ?? "")
                   );
+                  await ensureCurrent();
                   const event = existing ??
                     await client.createScheduledEvent(
                       context.guildId,
@@ -720,12 +855,14 @@ export function createDiscordActionService(
                   verifiedEvents.set(event.id, event);
                   return eventResult(event, Boolean(existing));
                 },
+                generation,
               );
               results.push(result);
-              if (result.ok) await kv.delete(key);
+              if (result.ok) await finishPending();
               return result;
             }
             if (name === "create_discord_invite") {
+              await ensureCurrent();
               if (!/\b(invite|invitation|join\s+link)\b/i.test(directRequestText(origin.content))) {
                 throw new Error(
                   "Please explicitly ask for a server invite; a direct event link does not require one.",
@@ -779,6 +916,7 @@ export function createDiscordActionService(
                 ["discord_actions", context.guildId, origin.messageId, name],
                 null,
                 async () => {
+                  await ensureCurrent();
                   const invite = await client.createInvite(channel.id, {
                     max_age: Number(maxAge),
                     max_uses: Number(maxUses),
@@ -794,9 +932,10 @@ export function createDiscordActionService(
                     message: `Here's your ${eventId ? "event " : ""}invite!~\n${inviteUrl}`,
                   };
                 },
+                generation,
               );
               results.push(result);
-              if (result.ok) await kv.delete(key);
+              if (result.ok) await finishPending();
               return result;
             }
             throw new Error("That Discord action is not supported.");

@@ -157,6 +157,31 @@ function setPermissions(client: CancellationDiscord, userId: string, permissions
   role.permissions = String(permissions);
 }
 
+Deno.test("never mind invalidates an already-running cancellation followup", async () => {
+  await fixture(async (client, service) => {
+    const request = "Cancel an event";
+    const initial = await service.createSession(context({ content: request }));
+    await initial.executeTool(
+      "cancel_discord_event",
+      args({
+        request_quote: request,
+        event_reference: null,
+      }),
+    );
+    const delayed = await service.createSession(
+      context({ messageId: "601", content: "Movie night" }),
+    );
+    await service.createSession(context({ messageId: "602", content: "Never mind" }));
+    const result = await delayed.executeTool(
+      "cancel_discord_event",
+      args({ request_quote: request }),
+    );
+    assertEquals(result.ok, false);
+    assertEquals(client.cancellationWrites.length, 0);
+    assertEquals(client.events[0].status, 1);
+  });
+});
+
 Deno.test("cancellation cancels the exactly named event and records the real requester", async () => {
   await fixture(async (client, service) => {
     const session = await service.createSession(context());
@@ -173,6 +198,69 @@ Deno.test("cancellation cancels the exactly named event and records the real req
     assertEquals(client.eventReads.length > 0, true);
     assertMatch(formatActionResults(session.results)!, /cancel/i);
     assertEquals(client.createWrites + client.inviteWrites, 0);
+  });
+});
+
+Deno.test("cancellation ignores real Discord mention snowflakes when resolving an event", async (t) => {
+  const botId = "1448562887038599168";
+  const eventId = "1545337190928613416";
+  const mentions = [
+    ["bot user mention", `<@${botId}>`],
+    ["bot nickname mention", `<@!${botId}>`],
+    ["another user mention", `<@${botId}> <@181268251601403905>`],
+    ["role mention", `<@${botId}> <@&589723496473690135>`],
+    ["channel mention", `<@${botId}> <#589723496473690136>`],
+    ["static custom emoji", `<@${botId}> <:wave:123456789012345678>`],
+    ["animated custom emoji", `<@${botId}> <a:wave:123456789012345678>`],
+    ["slash-command mention", `<@${botId}> </event manage:123456789012345678>`],
+  ];
+  for (const [label, markup] of mentions) {
+    await t.step(label, async () => {
+      await fixture(async (client, service) => {
+        client.members[botId] = { user: { id: botId, bot: true }, roles: ["301"] };
+        client.events[0] = existingEvent({ id: eventId, creator_id: botId });
+        const request = `${markup} Cancel the Movie night event.`;
+        const session = await service.createSession(context({ botId, content: request }));
+        const result = await session.executeTool(
+          "cancel_discord_event",
+          args({ request_quote: request }),
+        );
+        assertEquals(result.ok, true);
+        assertEquals(client.cancellationWrites.map((write) => write.eventId), [eventId]);
+        assertEquals(client.events[0].status, 4);
+      });
+    });
+  }
+});
+
+Deno.test("cancellation accepts an event-link clarification with a real bot mention", async () => {
+  await fixture(async (client, service) => {
+    const botId = "1448562887038599168";
+    const eventId = "1545337190928613416";
+    client.members[botId] = { user: { id: botId, bot: true }, roles: ["301"] };
+    client.events[0] = existingEvent({ id: eventId, creator_id: botId });
+    const request = `<@${botId}> Cancel the event.`;
+    const session = await service.createSession(context({ botId, content: request }));
+    const question = await session.executeTool(
+      "cancel_discord_event",
+      args({ request_quote: request, event_reference: null }),
+    );
+    assertEquals(question.needsClarification, true);
+    assertEquals(client.cancellationWrites.length, 0);
+
+    const link = `https://discord.com/events/${GUILD}/${eventId}`;
+    const followup = await service.createSession(context({
+      botId,
+      messageId: "601",
+      content: `<@!${botId}> ${link}`,
+    }));
+    const result = await followup.executeTool(
+      "cancel_discord_event",
+      args({ request_quote: request, event_reference: link }),
+    );
+    assertEquals(result.ok, true);
+    assertEquals(client.cancellationWrites.map((write) => write.eventId), [eventId]);
+    assertEquals(client.events[0].status, 4);
   });
 });
 
@@ -666,9 +754,9 @@ Deno.test("concurrent cancellation requests claim only one Discord mutation", as
       return blocked;
     };
     const first = await service.createSession(context());
-    const second = await service.createSession(context({ messageId: "601" }));
     const running = first.executeTool("cancel_discord_event", args());
     await started;
+    const second = await service.createSession(context({ messageId: "601" }));
     try {
       const competing = await second.executeTool("cancel_discord_event", args());
       assertEquals(competing.ok, false);

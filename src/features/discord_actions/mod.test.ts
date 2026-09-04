@@ -179,6 +179,99 @@ function denyRole(client: StubDiscord, memberId: string, permission: bigint) {
   role.permissions = String(BigInt(role.permissions) & ~permission);
 }
 
+Deno.test("abandonment and reset invalidate a delayed creation and clarification", async () => {
+  for (const reset of [false, true]) {
+    await fixture(async (client, service, kv) => {
+      const initial = await service.createSession(context());
+      await initial.executeTool("clarify_discord_action", {
+        request_quote: REQUEST,
+        question: "Which channel?",
+      });
+      const delayed = await service.createSession(context({ messageId: "601", content: "Lounge" }));
+      if (reset) await service.clearPending(GUILD, TEXT, USER);
+      else await service.createSession(context({ messageId: "602", content: "Never mind" }));
+
+      const creation = await delayed.executeTool("create_discord_event", eventArgs());
+      assertEquals(creation.ok, false);
+      assertEquals(client.eventWrites.length, 0);
+      const clarification = await delayed.executeTool("clarify_discord_action", {
+        request_quote: REQUEST,
+        question: "What end time?",
+      });
+      assertEquals(clarification.needsClarification, undefined);
+      assertEquals((await kv.get(["discord_action_pending", GUILD, TEXT, USER])).value, null);
+    });
+  }
+});
+
+Deno.test("an older completed mutation preserves a newer clarification", async () => {
+  await fixture(async (client, service, kv) => {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => markStarted = resolve);
+    const blocked = new Promise<void>((resolve) => release = resolve);
+    client.beforeEvent = () => {
+      markStarted();
+      return blocked;
+    };
+    const older = await service.createSession(context());
+    const running = older.executeTool("create_discord_event", eventArgs());
+    await started;
+    const request = "Create a workshop event tomorrow";
+    try {
+      const newer = await service.createSession(context({ messageId: "602", content: request }));
+      await newer.executeTool("clarify_discord_action", {
+        request_quote: request,
+        question: "When?",
+      });
+    } finally {
+      release();
+      assertEquals((await running).ok, true);
+    }
+    const pending = await kv.get<{ content: string }>([
+      "discord_action_pending",
+      GUILD,
+      TEXT,
+      USER,
+    ]);
+    assertEquals(pending.value?.content, request);
+  });
+});
+
+Deno.test("abandonment during the final event lookup prevents the external write", async () => {
+  await fixture(async (client, service) => {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => markStarted = resolve);
+    const blocked = new Promise<void>((resolve) => release = resolve);
+    client.listScheduledEvents = async () => {
+      markStarted();
+      await blocked;
+      return [];
+    };
+    const session = await service.createSession(context());
+    const running = session.executeTool("create_discord_event", eventArgs());
+    await started;
+    try {
+      await service.createSession(context({ messageId: "601", content: "Never mind" }));
+    } finally {
+      release();
+    }
+    assertEquals((await running).ok, false);
+    assertEquals(client.eventWrites.length, 0);
+  });
+});
+
+Deno.test("a newer explicit request invalidates a delayed invite", async () => {
+  await fixture(async (client, service) => {
+    const delayed = await service.createSession(context());
+    await service.createSession(context({ messageId: "601", content: "Create a workshop event" }));
+    const result = await delayed.executeTool("create_discord_invite", inviteArgs());
+    assertEquals(result.ok, false);
+    assertEquals(client.inviteWrites.length, 0);
+  });
+});
+
 Deno.test("voice request creates a real event with resolved UTC time and verified invite URL", async () => {
   await fixture(async (client, service) => {
     const session = await service.createSession(context());
@@ -286,12 +379,38 @@ Deno.test("Haru's action voice preserves exact event names, Discord timestamps, 
     const lines = formatActionResults(session.results)!.split("\n");
     assertStringIncludes(lines[0], "Ehehe~");
     assertEquals(lines[1], title);
-    assertEquals(lines[2], "<t:1757127600:F> – <t:1757134800:t>");
+    assertEquals(lines[2], "<t:1757127600:F> – <t:1757134800:F>");
     assertEquals(lines[3], "https://discord.com/events/100/501");
     assertEquals(lines[5], "Here's your event invite!~");
     assertEquals(lines[6], "https://discord.gg/sandbox-invite?event=501");
     assertEquals(event.eventUrl, lines[3]);
     assertEquals(invite.inviteUrl, lines[6]);
+  });
+});
+
+Deno.test("multi-day event receipts include the verified end date", async () => {
+  await fixture(async (client, service) => {
+    const request =
+      "Create a Retreat event at Camp from September 5 at 8pm until September 7 at 10pm Vancouver time.";
+    const session = await service.createSession(context({ content: request }));
+    const result = await session.executeTool(
+      "create_discord_event",
+      eventArgs({
+        request_quote: request,
+        name: "Retreat",
+        entity_type: "external",
+        channel_id: null,
+        location: "Camp",
+        end_time: "2025-09-07T22:00:00",
+      }),
+    );
+    assertEquals(result.ok, true);
+    assertEquals(client.eventWrites[0].payload.scheduled_start_time, "2025-09-06T03:00:00.000Z");
+    assertEquals(client.eventWrites[0].payload.scheduled_end_time, "2025-09-08T05:00:00.000Z");
+    assertStringIncludes(
+      formatActionResults(session.results)!,
+      "<t:1757127600:F> – <t:1757307600:F>",
+    );
   });
 });
 
@@ -545,9 +664,9 @@ Deno.test("concurrent matching requests claim only one Discord write", async () 
       return blocked;
     };
     const first = await service.createSession(context());
-    const second = await service.createSession(context({ messageId: "601" }));
     const running = first.executeTool("create_discord_event", eventArgs());
     await started;
+    const second = await service.createSession(context({ messageId: "601" }));
     try {
       const competing = await second.executeTool("create_discord_event", eventArgs());
       assertEquals(competing.ok, false);
@@ -648,14 +767,15 @@ Deno.test("successful event and failed invite both remain in truthful receipts",
 
 Deno.test("verified event success survives receipt persistence failure and its durable claim blocks replay", async () => {
   await fixture(async (client, _service, kv) => {
-    let atomicCalls = 0;
+    let failed = false;
     const failingKv = new Proxy(kv, {
       get(target, property) {
         if (property === "atomic") {
           return () => {
             const operation = target.atomic();
-            atomicCalls++;
-            if (atomicCalls === 2) {
+            // Fail the first receipt write after Discord accepted the mutation.
+            if (client.eventWrites.length && !failed) {
+              failed = true;
               operation.commit = () => Promise.reject(new Error("Simulated storage failure"));
             }
             return operation;
@@ -793,4 +913,132 @@ Deno.test("invalid or past event times and mismatched channel kinds cannot reach
       assertEquals(client.eventWrites.length, 0);
     });
   }
+});
+
+Deno.test("a session losing its generation claim cannot retry over a newer abandonment", async () => {
+  await fixture(async (client, _service, kv) => {
+    let release!: () => void;
+    let signalReady!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      signalReady = resolve;
+    });
+    let firstClaim = true;
+    const racingKv = new Proxy(kv, {
+      get(target, property) {
+        if (property === "atomic") {
+          return () => {
+            const operation = target.atomic();
+            if (firstClaim) {
+              firstClaim = false;
+              const commit = operation.commit.bind(operation);
+              operation.commit = async () => {
+                signalReady();
+                await blocked;
+                return await commit();
+              };
+            }
+            return operation;
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const service = createDiscordActionService(client, racingKv, "America/Vancouver", () => NOW);
+    const olderPending = service.createSession(context());
+    await ready;
+    try {
+      await service.createSession(context({ messageId: "602", content: "Never mind" }));
+    } finally {
+      release();
+    }
+    const older = await olderPending;
+    assertEquals((await older.executeTool("create_discord_event", eventArgs())).ok, false);
+    assertEquals(
+      (await older.executeTool("clarify_discord_action", {
+        request_quote: REQUEST,
+        question: "Which channel?",
+      })).ok,
+      false,
+    );
+    assertEquals(client.eventWrites.length, 0);
+    assertEquals((await kv.get(["discord_action_pending", GUILD, TEXT, USER])).value, null);
+    const generation = await kv.get<{ messageId: string }>([
+      "discord_action_generation",
+      GUILD,
+      TEXT,
+      USER,
+    ]);
+    assertEquals(generation.value?.messageId, "602");
+  });
+});
+
+Deno.test("an older Discord message reaching session initialization late cannot revive an abandoned request", async () => {
+  await fixture(async (client, service, kv) => {
+    // These adjacent snowflakes collapse to the same value if compared as Numbers.
+    const olderId = "1545337190928613416";
+    const newerId = "1545337190928613417";
+    await service.createSession(context({ messageId: newerId, content: "Never mind" }));
+    // An older handler may still be awaiting context or web-search requests.
+    const older = await service.createSession(context({ messageId: olderId }));
+    assertEquals((await older.executeTool("create_discord_event", eventArgs())).ok, false);
+    assertEquals(
+      (await older.executeTool("clarify_discord_action", {
+        request_quote: REQUEST,
+        question: "Which channel?",
+      })).ok,
+      false,
+    );
+    assertEquals(client.eventWrites.length, 0);
+    assertEquals((await kv.get(["discord_action_pending", GUILD, TEXT, USER])).value, null);
+    const generation = await kv.get<{ messageId: string }>([
+      "discord_action_generation",
+      GUILD,
+      TEXT,
+      USER,
+    ]);
+    assertEquals(generation.value?.messageId, newerId);
+  });
+});
+
+Deno.test("reset ordering blocks older requests without clearing newer clarification", async () => {
+  await fixture(async (client, service, kv) => {
+    await service.clearPending(GUILD, TEXT, USER, "602");
+    for (const messageId of ["600", "602"]) {
+      const stale = await service.createSession(context({ messageId }));
+      assertEquals((await stale.executeTool("create_discord_event", eventArgs())).ok, false);
+      assertEquals(
+        (await stale.executeTool("clarify_discord_action", {
+          request_quote: REQUEST,
+          question: "Which channel?",
+        })).ok,
+        false,
+      );
+    }
+    assertEquals(client.eventWrites.length, 0);
+    const newer = await service.createSession(context({ messageId: "603" }));
+    assertEquals(
+      (await newer.executeTool("clarify_discord_action", {
+        request_quote: REQUEST,
+        question: "Which channel?",
+      })).needsClarification,
+      true,
+    );
+    // A delayed older reset must not delete the newer request's clarification.
+    await service.clearPending(GUILD, TEXT, USER, "601");
+    const pending = await kv.get<{ messageId: string }>([
+      "discord_action_pending",
+      GUILD,
+      TEXT,
+      USER,
+    ]);
+    assertEquals(pending.value?.messageId, "603");
+    const followup = await service.createSession(context({ messageId: "604", content: "Lounge" }));
+    assertEquals((await followup.executeTool("create_discord_event", eventArgs())).ok, true);
+    assertEquals(client.eventWrites.length, 1);
+    assertStringIncludes(client.eventWrites[0].reason!, "message 603");
+  });
 });

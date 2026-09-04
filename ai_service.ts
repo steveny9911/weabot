@@ -14,6 +14,29 @@ const OPENAI_CHAT_BUILDER_PROMPT = {
 const MAX_CONTEXT_IMAGES = 6;
 const MAX_TOOL_RESPONSES = 6;
 const MAX_TOOL_CALLS = 8;
+const RESPONSE_TIMEOUT_MS = 60_000;
+const TOOL_LOOP_TIMEOUT_MS = 120_000;
+
+/** Bound both receiving headers and consuming the response body. */
+async function withResponseDeadline<T>(
+  timeoutMs: number,
+  timeoutMessage: string,
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+      controller.abort();
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([request(controller.signal), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Successful AI response with token usage */
 export interface AiSuccessResult {
@@ -161,7 +184,17 @@ function vTruncateText(text: string, max_chars: number): string {
 /**
  * Creates an AI service with the given configuration.
  */
-export function createAiService(config: AppConfig): AiService {
+export function createAiService(
+  config: AppConfig,
+  runtime: {
+    requestTimeoutMs?: number;
+    toolLoopTimeoutMs?: number;
+    now?: () => number;
+  } = {},
+): AiService {
+  const requestTimeoutMs = runtime.requestTimeoutMs ?? RESPONSE_TIMEOUT_MS;
+  const toolLoopTimeoutMs = runtime.toolLoopTimeoutMs ?? TOOL_LOOP_TIMEOUT_MS;
+  const now = runtime.now ?? (() => performance.now());
   /**
    * Applies light UwU-style text transformation if enabled.
    */
@@ -279,37 +312,50 @@ export function createAiService(config: AppConfig): AiService {
         error,
         ...(options ? { tokensUsed: tokens_used } : {}),
       });
+      const toolDeadline = now() + toolLoopTimeoutMs;
+      const toolTimeExpired = () => Boolean(options && now() >= toolDeadline);
 
       try {
         const max_responses = options ? MAX_TOOL_RESPONSES : 1;
         for (let response_index = 0; response_index < max_responses; response_index++) {
-          const res = await fetch(OPENAI_URL, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${config.openaiApiKey}`,
-              "Content-Type": "application/json",
+          if (toolTimeExpired()) return failure("AI tool time limit reached");
+          const remainingMs = options ? toolDeadline - now() : requestTimeoutMs;
+          const response = await withResponseDeadline(
+            Math.min(requestTimeoutMs, remainingMs),
+            options && remainingMs <= requestTimeoutMs
+              ? "AI tool time limit reached"
+              : "OpenAI response timed out",
+            async (signal) => {
+              const res = await fetch(OPENAI_URL, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${config.openaiApiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  prompt: OPENAI_CHAT_BUILDER_PROMPT,
+                  text: { format: { type: "text" } },
+                  store: true,
+                  input,
+                  ...(options
+                    ? { tools: options.tools, parallel_tool_calls: false }
+                    : { tool_choice: "none" }),
+                }),
+                signal,
+              });
+              if (!res.ok) {
+                return { error: `OpenAI error ${res.status}: ${await res.text()}` };
+              }
+              return { data: await res.json() as Record<string, unknown> };
             },
-            body: JSON.stringify({
-              prompt: OPENAI_CHAT_BUILDER_PROMPT,
-              text: { format: { type: "text" } },
-              store: true,
-              input,
-              ...(options
-                ? { tools: options.tools, parallel_tool_calls: false }
-                : { tool_choice: "none" }),
-            }),
-          });
-
-          if (!res.ok) {
-            const body = await res.text();
-            return failure(`OpenAI error ${res.status}: ${body}`);
-          }
-
-          const data = await res.json() as Record<string, unknown>;
+          );
+          if (response.error !== undefined) return failure(response.error);
+          const data = response.data!;
           const usage = data.usage as
             | { total_tokens?: number; input_tokens?: number; output_tokens?: number }
             | undefined;
           tokens_used += usage?.total_tokens ?? 0;
+          if (toolTimeExpired()) return failure("AI tool time limit reached");
           if (options && (data.status === "incomplete" || data.status === "failed")) {
             return failure(`OpenAI response ${data.status}`);
           }
@@ -334,6 +380,9 @@ export function createAiService(config: AppConfig): AiService {
             // Reasoning and every other output item must survive manual continuation.
             input.push(...output);
             for (const call of calls) {
+              // Count tool execution time in the overall budget, but await an
+              // in-flight mutation so its verified receipt is never lost to a race.
+              if (toolTimeExpired()) return failure("AI tool time limit reached");
               const call_id = call.call_id as string;
               let result = tool_results.get(call_id);
               if (result === undefined) {

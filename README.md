@@ -152,7 +152,9 @@ Unfinished requests are kept for 20 minutes and are scoped to the same user, ser
 Haru can cancel an existing event that has not started. Give its exact name or event link; if the
 name matches more than one event, she asks you to pick a link. Saying “never mind” or “cancel my
 request” abandons an unfinished request. Cancellation keeps her usual character and reports success
-only when Discord confirms it. Cancelling an event does not revoke its server invitation.
+only when Discord confirms it. Cancelling an event does not revoke its server invitation. A newer
+request or reset prevents a delayed reply from starting an older action. An action already sent to
+Discord can still finish and return its receipt.
 
 The event's creator needs Create Events or Manage Events; another user needs Manage Events. Haru
 applies these ownership checks independently to you and herself. Discord records events created

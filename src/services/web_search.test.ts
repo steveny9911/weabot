@@ -316,13 +316,13 @@ Deno.test("web search returns error on non-ok response", async () => {
   const original_set_timeout = globalThis.setTimeout;
   const original_clear_timeout = globalThis.clearTimeout;
 
-  globalThis.setTimeout = ((handler: unknown, _timeout?: number, ...args: unknown[]) => {
-    if (typeof handler === "function") {
-      (handler as (...args: unknown[]) => unknown)(...args);
-    }
-    return 0 as unknown as number;
-  }) as typeof setTimeout;
-  globalThis.clearTimeout = ((_id?: number) => {}) as typeof clearTimeout;
+  globalThis.setTimeout = new Proxy(original_set_timeout, {
+    apply(_target, _thisArg, [handler, _timeout, ...args]) {
+      if (typeof handler === "function") handler(...args);
+      return 0;
+    },
+  });
+  globalThis.clearTimeout = new Proxy(original_clear_timeout, { apply() {} });
 
   try {
     const service = createWebSearchService(createMockConfig());

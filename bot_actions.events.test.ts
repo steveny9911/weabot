@@ -47,7 +47,7 @@ async function fixture(
     contexts: DiscordActionContext[];
     options: (AiReplyOptions | undefined)[];
     usage: number[];
-    resets: string[][];
+    resets: Array<[string, string, string, string?]>;
   }) => Promise<void>,
 ) {
   const originalFetch = globalThis.fetch;
@@ -55,7 +55,7 @@ async function fixture(
   const contexts: DiscordActionContext[] = [];
   const options: (AiReplyOptions | undefined)[] = [];
   const usage: number[] = [];
-  const resets: string[][] = [];
+  const resets: Array<[string, string, string, string?]> = [];
   const session: DiscordActionSession = {
     results: [],
     instructions: "trusted tools",
@@ -218,6 +218,6 @@ Deno.test("action receipts preserve invite query strings and partial failures", 
 Deno.test("reset clears only this user's pending action", () =>
   fixture(async (state) => {
     await handleMessage(mention({ content: "<@12345> \\reset" }), state.deps);
-    assertEquals(state.resets, [["sandbox", "text", "requester"]]);
+    assertEquals(state.resets, [["sandbox", "text", "requester", "message-1"]]);
     assertEquals(state.contexts, []);
   }));

@@ -323,7 +323,12 @@ export async function handleMessage(
   // Handle reset context command
   if (bIsResetCommand(content)) {
     if (typeof message["guild_id"] === "string") {
-      await deps.discordActionService?.clearPending(message["guild_id"], channel_id, user_id);
+      await deps.discordActionService?.clearPending(
+        message["guild_id"],
+        channel_id,
+        user_id,
+        typeof message["id"] === "string" ? message["id"] : undefined,
+      );
     }
     const source_timestamp = typeof message["timestamp"] === "string"
       ? Date.parse(message["timestamp"])
