@@ -20,6 +20,8 @@ function createTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 100000,
     aiMaxInputChars: 500,
     aiEnableUwu: true,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: false,
     webSearchApiKey: undefined,
     webSearchMaxResults: 3,

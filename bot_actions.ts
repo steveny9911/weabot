@@ -7,6 +7,10 @@
 
 import type { AppConfig } from "./src/config.ts";
 import type { AiService } from "./ai_service.ts";
+import {
+  type DiscordActionService,
+  formatActionResults,
+} from "./src/features/discord_actions/mod.ts";
 import type { RateLimitService } from "./src/services/rate_limit.ts";
 import type { LinkOpenError, LinkOpenService } from "./src/services/link_open.ts";
 import {
@@ -15,10 +19,15 @@ import {
   type WebSearchService,
 } from "./src/services/web_search.ts";
 import { szSelectGreetingGifForReply } from "./src/features/reaction_gif.ts";
+import type { ContextStorageService } from "./src/services/storage.ts";
+import {
+  oMapDiscordMessage,
+  oToAiContextMessage,
+  selectActiveConversation,
+} from "./src/features/chat_context/mod.ts";
 
 // Discord API Base URL
 const API_BASE = "https://discord.com/api/v10";
-const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|tiff?)$/i;
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 
 // In-memory cache of recent messages per channel
@@ -26,59 +35,6 @@ const messages_cache = new Map<string, Array<Record<string, unknown>>>();
 
 // Cached bot user ID
 let cached_bot_user_id: string | undefined;
-
-function bIsHttpUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function bAttachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
-  const content_type = attachment["content_type"];
-  if (typeof content_type === "string" && content_type.startsWith("image/")) {
-    return true;
-  }
-
-  const filename = attachment["filename"];
-  if (typeof filename === "string" && IMAGE_FILE_EXT_RE.test(filename)) {
-    return true;
-  }
-
-  const width = attachment["width"];
-  const height = attachment["height"];
-  if (typeof width === "number" && width > 0 && typeof height === "number" && height > 0) {
-    return true;
-  }
-
-  return false;
-}
-
-function aszExtractImageUrlsFromDiscordMessage(message: Record<string, unknown>): string[] {
-  const attachments = message["attachments"];
-  if (!Array.isArray(attachments)) return [];
-
-  const image_urls: string[] = [];
-  for (const raw_attachment of attachments) {
-    if (!raw_attachment || typeof raw_attachment !== "object") continue;
-
-    const attachment = raw_attachment as Record<string, unknown>;
-    if (!bAttachmentLooksLikeImage(attachment)) continue;
-
-    const candidate = typeof attachment["url"] === "string"
-      ? attachment["url"]
-      : (typeof attachment["proxy_url"] === "string" ? attachment["proxy_url"] : undefined);
-    if (!candidate) continue;
-
-    const trimmed = candidate.trim();
-    if (!trimmed || !bIsHttpUrl(trimmed)) continue;
-    image_urls.push(trimmed);
-  }
-
-  return [...new Set(image_urls)];
-}
 
 /**
  * Dependencies required by bot action handlers.
@@ -88,7 +44,9 @@ export interface BotDependencies {
   aiService: AiService;
   rateLimitService: RateLimitService;
   linkOpenService: LinkOpenService;
+  storageService: ContextStorageService;
   webSearchService?: WebSearchService;
+  discordActionService?: DiscordActionService;
 }
 
 /**
@@ -176,6 +134,7 @@ export async function sendMessage(
   config: AppConfig,
   channel_id: string,
   content: string,
+  suppress_mentions = false,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   if (!channel_id) return { ok: false, error: "missing channelId" };
 
@@ -186,7 +145,10 @@ export async function sendMessage(
         Authorization: `Bot ${config.discordToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({
+        content,
+        ...(suppress_mentions ? { allowed_mentions: { parse: [] } } : {}),
+      }),
     });
 
     if (response.ok) {
@@ -317,7 +279,14 @@ export async function handleMessage(
   message: Record<string, unknown>,
   deps: BotDependencies,
 ): Promise<void> {
-  const { config, aiService, rateLimitService, webSearchService, linkOpenService } = deps;
+  const {
+    config,
+    aiService,
+    rateLimitService,
+    webSearchService,
+    linkOpenService,
+    storageService,
+  } = deps;
 
   // Get bot user ID
   const bot_id = await getBotUserId(config);
@@ -353,6 +322,18 @@ export async function handleMessage(
 
   // Handle reset context command
   if (bIsResetCommand(content)) {
+    if (typeof message["guild_id"] === "string") {
+      await deps.discordActionService?.clearPending(message["guild_id"], channel_id, user_id);
+    }
+    const source_timestamp = typeof message["timestamp"] === "string"
+      ? Date.parse(message["timestamp"])
+      : NaN;
+    const reset_at = Number.isFinite(source_timestamp) ? source_timestamp : Date.now();
+    await storageService.setContextReset({
+      channelId: channel_id,
+      messageId: typeof message["id"] === "string" ? message["id"] : "",
+      resetAt: reset_at,
+    });
     messages_cache.delete(channel_id);
     await sendMessage(config, channel_id, "Okay!~ I cleared our chat context.");
     console.log(`Context reset by user ${user_id} in channel ${channel_id}`);
@@ -395,8 +376,12 @@ export async function handleMessage(
   // Record the request (do this before making the API call)
   await rateLimitService.recordUserRequest(user_id);
 
-  // Save recent messages as context
-  await saveContext(config, channel_id, 5, message);
+  // Save only the current uninterrupted conversation as context.
+  const context_reset = await storageService.getContextReset(channel_id);
+  await saveContext(config, channel_id, config.aiContextMaxMessages, message, {
+    inactivityGapMs: config.aiContextInactivityMinutes * 60_000,
+    resetAfterMs: context_reset?.resetAt,
+  });
   const ctx = getContext(channel_id) ?? [];
 
   const ctx_for_ai = [...ctx];
@@ -456,15 +441,33 @@ export async function handleMessage(
     }
   }
 
-  // Generate AI reply
-  const ai_result = await aiService.generateReply(ctx_for_ai);
+  // Tools exist only for explicit human mention handling, never autonomous jobs or opened links.
+  const guild_id = typeof message["guild_id"] === "string" ? message["guild_id"] : "";
+  const message_id = typeof message["id"] === "string" ? message["id"] : "";
+  const allowed_guilds = config.discordActionsGuildIds ?? [];
+  const action_session = config.discordActionsEnabled && deps.discordActionService &&
+      !is_open_command && guild_id && message_id && user_id !== "unknown" &&
+      (!allowed_guilds.length || allowed_guilds.includes(guild_id))
+    ? await deps.discordActionService.createSession({
+      guildId: guild_id,
+      channelId: channel_id,
+      userId: user_id,
+      botId: bot_id,
+      messageId: message_id,
+      content: content ?? "",
+    })
+    : undefined;
+  const ai_result = await aiService.generateReply(ctx_for_ai, action_session);
+  const action_reply = action_session ? formatActionResults(action_session.results) : null;
 
   if (!ai_result.ok) {
     console.error("AI generation failed:", ai_result.error);
+    if (ai_result.tokensUsed) await rateLimitService.recordTokenUsage(ai_result.tokensUsed);
     await sendMessage(
       config,
       channel_id,
-      "Hmm, my brain's a bit fuzzy right now. Try again in a moment~",
+      action_reply ?? "Hmm, my brain's a bit fuzzy right now. Try again in a moment~",
+      Boolean(action_session),
     );
     return;
   }
@@ -473,18 +476,18 @@ export async function handleMessage(
   await rateLimitService.recordTokenUsage(ai_result.tokensUsed);
 
   // Send the AI reply
-  let final_reply = ai_result.text;
+  let final_reply = action_reply ?? ai_result.text;
   if (strip_urls_from_reply) {
     const stripped = szStripUrls(final_reply);
     final_reply = stripped || "I read it! Tell me what part you want me to focus on~";
   }
-  const send_result = await sendMessage(config, channel_id, final_reply);
+  const send_result = await sendMessage(config, channel_id, final_reply, Boolean(action_session));
   if (!send_result.ok) {
     console.error("Failed to send AI reply:", send_result.error);
     return;
   }
 
-  const greeting_gif = szSelectGreetingGifForReply(final_reply);
+  const greeting_gif = action_reply ? null : szSelectGreetingGifForReply(final_reply);
   if (greeting_gif) {
     const gif_send_result = await sendMessage(config, channel_id, greeting_gif);
     if (!gif_send_result.ok) {
@@ -501,11 +504,13 @@ export async function saveContext(
   channel_id: string,
   limit = 5,
   trigger_message?: Record<string, unknown>,
+  options: { inactivityGapMs?: number; resetAfterMs?: number | null } = {},
 ): Promise<void> {
   if (!channel_id) return;
 
   try {
-    const res = await fetch(`${API_BASE}/channels/${channel_id}/messages?limit=${limit}`, {
+    const safe_limit = Math.min(100, Math.max(1, Math.trunc(limit)));
+    const res = await fetch(`${API_BASE}/channels/${channel_id}/messages?limit=${safe_limit}`, {
       headers: {
         Authorization: `Bot ${config.discordToken}`,
         "Content-Type": "application/json",
@@ -517,8 +522,12 @@ export async function saveContext(
       return;
     }
 
-    let msgs = (await res.json()) as Array<Record<string, unknown>>;
-    msgs = msgs.reverse();
+    const data = await res.json();
+    let msgs = Array.isArray(data)
+      ? data.filter((message): message is Record<string, unknown> =>
+        message !== null && typeof message === "object"
+      )
+      : [];
 
     // Ensure the triggering message is included
     if (trigger_message) {
@@ -529,19 +538,12 @@ export async function saveContext(
       msgs.push(trigger_message);
     }
 
-    // Keep only the most recent messages
-    if (msgs.length > limit) {
-      msgs = msgs.slice(msgs.length - limit);
-    }
-
-    const simplified = msgs.map((m) => ({
-      id: m.id,
-      author: (m.author as Record<string, unknown>)?.username ??
-        (m.author as Record<string, unknown>)?.id,
-      content: m.content,
-      imageUrls: aszExtractImageUrlsFromDiscordMessage(m),
-      timestamp: m.timestamp ?? m.created_at ?? null,
-    }));
+    const active_conversation = selectActiveConversation(msgs.map(oMapDiscordMessage), {
+      maxMessages: safe_limit,
+      inactivityGapMs: options.inactivityGapMs ?? config.aiContextInactivityMinutes * 60_000,
+      resetAfterMs: options.resetAfterMs,
+    });
+    const simplified = active_conversation.map(oToAiContextMessage);
 
     messages_cache.set(channel_id, simplified as Array<Record<string, unknown>>);
     console.log(`Saved ${simplified.length} messages to context for channel ${channel_id}`);

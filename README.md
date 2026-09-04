@@ -85,19 +85,23 @@ CHANNEL_ID=your_channel_id_here
 TIME_ZONE=America/Los_Angeles
 GLUE_ALERT_THRESHOLD=7
 LINK_OPEN_ENABLED=true
+AI_CONTEXT_MAX_MESSAGES=40
+AI_CONTEXT_INACTIVITY_MINUTES=20
 
 # Multi-server (optional)
 # CHANNEL_IDS=channel_id_1,channel_id_2
 ```
 
-| Variable               | Required | Description                                                   |
-| ---------------------- | -------- | ------------------------------------------------------------- |
-| `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                        |
-| `CHANNEL_ID`           | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)            |
-| `CHANNEL_IDS`          | Yes*     | Comma-separated channel IDs for multi-server posting          |
-| `TIME_ZONE`            | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
-| `GLUE_ALERT_THRESHOLD` | No       | Days of consecutive "glue" before alert (default: `7`)        |
-| `LINK_OPEN_ENABLED`    | No       | Enable `\open` link command (default: `true`)                 |
+| Variable                        | Required | Description                                                   |
+| ------------------------------- | -------- | ------------------------------------------------------------- |
+| `DISCORD_TOKEN`                 | Yes      | Your Discord bot token                                        |
+| `CHANNEL_ID`                    | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)            |
+| `CHANNEL_IDS`                   | Yes*     | Comma-separated channel IDs for multi-server posting          |
+| `TIME_ZONE`                     | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
+| `GLUE_ALERT_THRESHOLD`          | No       | Days of consecutive "glue" before alert (default: `7`)        |
+| `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
+| `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
+| `AI_CONTEXT_INACTIVITY_MINUTES` | No       | Silence that starts a new context (default: `20`)             |
 
 _Set either `CHANNEL_ID` or `CHANNEL_IDS`._
 
@@ -127,8 +131,100 @@ You should see:
 Mention Haru to chat, or use a command:
 
 - `@Haru hello there`
-- `@Haru \reset` (clear chat context)
+- `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
+
+### Discord events and invitations
+
+Ask Haru directly in a server channel, for example:
+
+- `@Haru create a game night event tomorrow at 8 PM Pacific in General voice, ending at 10 PM.`
+- `@Haru create an event for a meetup at Central Park on September 12 at noon America/Vancouver, ending at 2 PM.`
+- `@Haru create an invite for the game night event, expiring in one day.`
+- `@Haru cancel the game night event.`
+- `@Haru cancel the event https://discord.com/events/SERVER_ID/EVENT_ID`
+
+Haru resolves the channel and local time, creates the event, and returns the actual Discord link.
+When essential details are missing, it asks a short question; mention Haru again with your answer.
+Unfinished requests are kept for 20 minutes and are scoped to the same user, server, and channel.
+`@Haru \reset` also clears your unfinished action request in that channel.
+
+Haru can cancel an existing event that has not started. Give its exact name or event link; if the
+name matches more than one event, she asks you to pick a link. Saying “never mind” or “cancel my
+request” abandons an unfinished request. Cancellation keeps her usual character and reports success
+only when Discord confirms it. Cancelling an event does not revoke its server invitation.
+
+The event's creator needs Create Events or Manage Events; another user needs Manage Events. Haru
+applies these ownership checks independently to you and herself. Discord records events created
+through Haru as hers, so you need Manage Events to ask her to cancel them. Voice events also need
+View Channel and Connect; Stage events need View Channel and Stage moderator permissions. External
+events use server-level permissions. These checks apply independently to you and Haru.
+
+Both the requester and Haru need the appropriate Discord permissions:
+
+| Action         | Permissions                                                              |
+| -------------- | ------------------------------------------------------------------------ |
+| Voice event    | Create Events, View Channel, Connect in the voice channel                |
+| Stage event    | Create Events, View Channel, Manage Channels, Mute Members, Move Members |
+| External event | Create Events at server level; a location and end time are required      |
+| Server invite  | View Channel and Create Invite in the selected channel                   |
+
+Add these permissions to Haru's server role as needed. The initial message/view/embed permissions
+above do not grant event creation. A direct event link works for members with access; an event
+server invite can let new members join. Private-channel events use direct event links. Creating an
+invite does not send DMs, ping members, or RSVP on their behalf.
+
+`DISCORD_ACTIONS_ENABLED` defaults to `true`; set it to `false` to disable these tools.
+`DISCORD_ACTIONS_GUILD_IDS` optionally restricts tools to comma-separated server IDs. An empty list
+allows actions in joined servers, subject to requester and bot permissions. This setting restricts
+event/invite tools, not ordinary chat or scheduled jobs. `TIME_ZONE` supplies the default timezone
+when the user does not name one. Daylight saving gaps and repeated times require clarification.
+
+This version creates individual events and invitations and cancels scheduled events. Ending active
+events, cancelling recurring series or occurrences, other event edits/deletion, and bulk invitations
+are not exposed to the AI. Autonomous chat and opened web pages cannot invoke these tools. Mutation
+attempts are recorded in Deno KV; ambiguous network outcomes are not automatically retried.
+Read-only requests can retry a confirmed rate limit twice, respecting Discord's delay (up to 15
+seconds per wait). If Haru cannot confirm a write, inspect Discord before issuing another request.
+
+### Test event creation in Bot Sandbox
+
+For an interactive local instance in Bot Sandbox's `#general`:
+
+```bash
+deno run --unstable-kv --env-file=.env --allow-env \
+  --allow-net=discord.com,gateway.discord.gg,api.openai.com scripts/run_discord_sandbox.ts
+```
+
+Send `Haru local, create a game night event tomorrow at 8 PM in General voice, ending at 10 PM.`
+Then try `Haru local, cancel the game night event.` Use the same `Haru local,` prefix for
+clarification replies. Do not mention `@Haru`: the prefix isolates local testing when AWS uses the
+same bot identity. The runner accepts human messages only in that exact sandbox channel, uses
+in-memory state and the current test message as context, and does not start scheduled jobs,
+autonomous chat, or the HTTP server. Events and invitations are real; stop with Ctrl-C and remove
+test artifacts when finished. Normal mentions are ignored locally.
+
+The API smoke-test runner (`scripts/test_discord_events.ts`) uses the configured bot token and
+OpenAI key, but never starts the gateway, scheduled jobs, or HTTP server. It checks the exact Bot
+Sandbox server and General channels, uses an in-memory database, and explicitly simulates a request
+from the sandbox owner. It does not post chat messages. This permits API testing even when the bot
+identity is also used in production.
+
+```bash
+# Real AI interpretation and sandbox metadata; event/invite writes are simulated.
+deno run --unstable-kv --env-file=.env --allow-env \
+  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts --dry-run
+
+# Create and verify one real sandbox event and a 60-second, one-use invite, then clean up.
+deno run --unstable-kv --env-file=.env --allow-env \
+  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts
+```
+
+The runner prints the verified times, links, and cleanup results. Add `--keep` to the live command
+to leave the event visible. Only newly created test artifacts are eligible for cleanup; an invite
+that the bot cannot delete expires after 60 seconds. Use the sandbox runner above for interactive
+testing, or use a separate test bot identity with `dev`. The normal `dev` command also starts
+scheduled jobs and can respond in any server the bot can access.
 
 ## Testing the Bot
 

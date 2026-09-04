@@ -81,6 +81,21 @@ Deno.test("recordVote isolates same user across channels", async () => {
   kv.close();
 });
 
+Deno.test("context resets persist independently for each channel", async () => {
+  const { storage, kv } = await createTestStorage();
+  const first = { channelId: TEST_CHANNEL_ID, messageId: "reset-1", resetAt: 1000 };
+  const second = { channelId: OTHER_CHANNEL_ID, messageId: "reset-2", resetAt: 2000 };
+
+  await storage.setContextReset(first);
+  await storage.setContextReset(second);
+
+  assertEquals(await storage.getContextReset(TEST_CHANNEL_ID), first);
+  assertEquals(await storage.getContextReset(OTHER_CHANNEL_ID), second);
+  assertEquals(await storage.getContextReset("unknown"), null);
+
+  kv.close();
+});
+
 // ============================================================================
 // getUserHistory Tests
 // ============================================================================

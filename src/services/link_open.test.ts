@@ -19,6 +19,8 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: false,
     webSearchApiKey: undefined,
     webSearchMaxResults: 3,
@@ -309,9 +311,7 @@ Deno.test("open follows a safe relative redirect and succeeds", async () => {
 
 Deno.test("open handles redirect edge failures", async () => {
   {
-    const mockMissingLocation = mockFetch((_url) =>
-      new Response(null, { status: 301 })
-    );
+    const mockMissingLocation = mockFetch((_url) => new Response(null, { status: 301 }));
     try {
       const service = createLinkOpenService(createMockConfig());
       const result = await service.open("https://safe.example/start");
@@ -418,7 +418,8 @@ Deno.test("open enforces stream body size limit when content-length is absent", 
 
 Deno.test("open decodes numeric entities and truncates long excerpt", async () => {
   const longBody = "word ".repeat(1000);
-  const html = `<html><head><title> A&#66; &#x43; &unknown; </title></head><body>${longBody}</body></html>`;
+  const html =
+    `<html><head><title> A&#66; &#x43; &unknown; </title></head><body>${longBody}</body></html>`;
   const mock = mockFetch((_url) => {
     return new Response(html, {
       status: 200,

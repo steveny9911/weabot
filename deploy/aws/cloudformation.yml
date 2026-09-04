@@ -179,6 +179,8 @@ Resources:
           Environment=AUTONOMOUS_CHAT_COOLDOWN_MINUTES=1
           Environment=AUTONOMOUS_CHAT_REPLY_CHANCE=0.35
           Environment=AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES=40
+          Environment=AI_CONTEXT_MAX_MESSAGES=40
+          Environment=AI_CONTEXT_INACTIVITY_MINUTES=20
           EnvironmentFile=/etc/haru.env
           ExecStart=/usr/local/bin/deno run --unstable-cron --unstable-kv --allow-net --allow-env --allow-read=/var/lib/haru --allow-write=/var/lib/haru main.ts
           Restart=always

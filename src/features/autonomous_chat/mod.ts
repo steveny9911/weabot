@@ -1,20 +1,20 @@
-export interface RecentDiscordMessage {
-  id: string;
-  authorId: string;
-  authorName: string;
-  authorBot: boolean;
-  content: string;
-  timestamp: string;
-  imageUrls: string[];
-}
+import {
+  oToAiContextMessage,
+  type RecentDiscordMessage,
+  selectActiveConversation,
+} from "../chat_context/mod.ts";
+
+export type { RecentDiscordMessage } from "../chat_context/mod.ts";
 
 export interface AutonomousChatOptions {
   botUserId: string;
   nowMs: number;
   minHumanMessages: number;
   activityWindowMs: number;
+  inactivityGapMs: number;
   cooldownMs: number;
   maxContextMessages: number;
+  resetAfterMs?: number | null;
   replyChance: number;
   random: () => number;
 }
@@ -36,36 +36,26 @@ function nTimestampMs(timestamp: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function bHasConversationContent(message: RecentDiscordMessage): boolean {
-  return message.content.trim().length > 0 || message.imageUrls.length > 0;
-}
-
 function bIsHumanMessage(message: RecentDiscordMessage, botUserId: string): boolean {
   return !message.authorBot && message.authorId !== botUserId;
-}
-
-function oToAiContextMessage(message: RecentDiscordMessage): Record<string, unknown> {
-  return {
-    id: message.id,
-    author: message.authorName || message.authorId || "unknown",
-    content: message.content,
-    imageUrls: message.imageUrls,
-    timestamp: message.timestamp,
-  };
 }
 
 export function decideAutonomousChatReply(
   messages: RecentDiscordMessage[],
   options: AutonomousChatOptions,
 ): AutonomousChatDecision {
-  const timestamped: TimestampedRecentMessage[] = messages
+  const active_conversation = selectActiveConversation(messages, {
+    maxMessages: Math.max(1, messages.length),
+    inactivityGapMs: options.inactivityGapMs,
+    resetAfterMs: options.resetAfterMs,
+  });
+  const timestamped: TimestampedRecentMessage[] = active_conversation
     .map((message, index) => {
       const timestamp_ms = nTimestampMs(message.timestamp);
       if (timestamp_ms === null) return null;
       return { message, timestampMs: timestamp_ms, index };
     })
     .filter((item): item is TimestampedRecentMessage => item !== null)
-    .filter(({ message }) => bHasConversationContent(message))
     .sort((a, b) => a.timestampMs - b.timestampMs || a.index - b.index);
 
   if (timestamped.length === 0) {

@@ -10,11 +10,10 @@
 
 import type { CreatePollMessagePayload } from "../types/discord.ts";
 import type { EmbedMessagePayload } from "../features/stats/mod.ts";
-import type { RecentDiscordMessage } from "../features/autonomous_chat/mod.ts";
+import { oMapDiscordMessage, type RecentDiscordMessage } from "../features/chat_context/mod.ts";
 import { fetchWithRetry } from "../utils/retry.ts";
 
 const API_BASE = "https://discord.com/api/v10";
-const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|tiff?)$/i;
 
 /** Generic message payload (polls, embeds, text, etc.) */
 export type MessagePayload =
@@ -68,87 +67,6 @@ export interface DiscordClient {
    * @returns Array of answers with their voters
    */
   getPollVoters(channelId: string, messageId: string): Promise<PollAnswerVoters[]>;
-}
-
-function bIsHttpUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function bAttachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
-  const content_type = attachment["content_type"];
-  if (typeof content_type === "string" && content_type.startsWith("image/")) {
-    return true;
-  }
-
-  const filename = attachment["filename"];
-  if (typeof filename === "string" && IMAGE_FILE_EXT_RE.test(filename)) {
-    return true;
-  }
-
-  const width = attachment["width"];
-  const height = attachment["height"];
-  return typeof width === "number" && width > 0 && typeof height === "number" && height > 0;
-}
-
-function aszExtractImageUrlsFromDiscordMessage(message: Record<string, unknown>): string[] {
-  const attachments = message["attachments"];
-  if (!Array.isArray(attachments)) return [];
-
-  const image_urls: string[] = [];
-  for (const raw_attachment of attachments) {
-    if (!raw_attachment || typeof raw_attachment !== "object") continue;
-
-    const attachment = raw_attachment as Record<string, unknown>;
-    if (!bAttachmentLooksLikeImage(attachment)) continue;
-
-    const candidate = typeof attachment["url"] === "string"
-      ? attachment["url"]
-      : (typeof attachment["proxy_url"] === "string" ? attachment["proxy_url"] : undefined);
-    if (!candidate) continue;
-
-    const trimmed = candidate.trim();
-    if (!trimmed || !bIsHttpUrl(trimmed)) continue;
-    image_urls.push(trimmed);
-  }
-
-  return [...new Set(image_urls)];
-}
-
-function szDiscordAuthorName(author: Record<string, unknown>): string {
-  const global_name = author["global_name"];
-  if (typeof global_name === "string" && global_name.trim()) return global_name;
-
-  const username = author["username"];
-  if (typeof username === "string" && username.trim()) return username;
-
-  const id = author["id"];
-  return typeof id === "string" && id.trim() ? id : "unknown";
-}
-
-function oMapRecentMessage(message: Record<string, unknown>): RecentDiscordMessage {
-  const author = message["author"] && typeof message["author"] === "object"
-    ? message["author"] as Record<string, unknown>
-    : {};
-
-  const id = message["id"];
-  const author_id = author["id"];
-  const content = message["content"];
-  const timestamp = message["timestamp"];
-
-  return {
-    id: typeof id === "string" ? id : "",
-    authorId: typeof author_id === "string" ? author_id : "",
-    authorName: szDiscordAuthorName(author),
-    authorBot: author["bot"] === true,
-    content: typeof content === "string" ? content : "",
-    timestamp: typeof timestamp === "string" ? timestamp : "",
-    imageUrls: aszExtractImageUrlsFromDiscordMessage(message),
-  };
 }
 
 /**
@@ -220,7 +138,7 @@ export function createDiscordClient(token: string): DiscordClient {
         .filter((message): message is Record<string, unknown> =>
           message !== null && typeof message === "object"
         )
-        .map(oMapRecentMessage);
+        .map(oMapDiscordMessage);
     },
 
     async getPollVoters(channelId, messageId) {

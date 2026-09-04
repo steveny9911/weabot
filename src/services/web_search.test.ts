@@ -23,6 +23,8 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 100000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
@@ -230,7 +232,9 @@ Deno.test("web search caps maxResults to [1, 10]", async () => {
   try {
     const service = createWebSearchService(createMockConfig());
     await service.search("deno", 999);
-    const countCap = mock.getLastUrl() ? new URL(mock.getLastUrl() as string).searchParams.get("count") : null;
+    const countCap = mock.getLastUrl()
+      ? new URL(mock.getLastUrl() as string).searchParams.get("count")
+      : null;
     assertEquals(countCap, "10");
 
     await service.search("deno", 0);

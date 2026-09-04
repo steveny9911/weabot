@@ -35,6 +35,7 @@ function decide(
     nowMs: NOW_MS,
     minHumanMessages: 4,
     activityWindowMs: 20 * 60_000,
+    inactivityGapMs: 20 * 60_000,
     cooldownMs: 30 * 60_000,
     maxContextMessages: 40,
     replyChance: 1,
@@ -115,4 +116,34 @@ Deno.test("decideAutonomousChatReply returns capped oldest-to-newest context whe
   assertEquals(decision.shouldReply, true);
   assertEquals(decision.reason, "active conversation eligible");
   assertEquals(decision.contextMessages.map((context) => context.id), ["m3", "m4", "m5"]);
+});
+
+Deno.test("decideAutonomousChatReply excludes messages before an inactivity gap", () => {
+  const decision = decide([
+    message("stale-1", "u1", 45, "old topic"),
+    message("m1", "u1", 8, "one"),
+    message("m2", "u2", 6, "two"),
+    message("m3", "u3", 4, "three"),
+    message("m4", "u4", 2, "four"),
+  ]);
+
+  assertEquals(decision.shouldReply, true);
+  assertEquals(decision.contextMessages.map((context) => context.id), ["m1", "m2", "m3", "m4"]);
+});
+
+Deno.test("decideAutonomousChatReply honors a persisted context reset", () => {
+  const decision = decide(
+    [
+      message("old-1", "u1", 8, "old topic"),
+      message("old-2", "u2", 7, "still old"),
+      message("m1", "u1", 4, "one"),
+      message("m2", "u2", 3, "two"),
+      message("m3", "u3", 2, "three"),
+      message("m4", "u4", 1, "four"),
+    ],
+    { resetAfterMs: NOW_MS - 5 * 60_000 },
+  );
+
+  assertEquals(decision.shouldReply, true);
+  assertEquals(decision.contextMessages.map((context) => context.id), ["m1", "m2", "m3", "m4"]);
 });
