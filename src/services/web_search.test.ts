@@ -23,6 +23,8 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 100000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
@@ -230,7 +232,9 @@ Deno.test("web search caps maxResults to [1, 10]", async () => {
   try {
     const service = createWebSearchService(createMockConfig());
     await service.search("deno", 999);
-    const countCap = mock.getLastUrl() ? new URL(mock.getLastUrl() as string).searchParams.get("count") : null;
+    const countCap = mock.getLastUrl()
+      ? new URL(mock.getLastUrl() as string).searchParams.get("count")
+      : null;
     assertEquals(countCap, "10");
 
     await service.search("deno", 0);
@@ -312,13 +316,13 @@ Deno.test("web search returns error on non-ok response", async () => {
   const original_set_timeout = globalThis.setTimeout;
   const original_clear_timeout = globalThis.clearTimeout;
 
-  globalThis.setTimeout = ((handler: unknown, _timeout?: number, ...args: unknown[]) => {
-    if (typeof handler === "function") {
-      (handler as (...args: unknown[]) => unknown)(...args);
-    }
-    return 0 as unknown as number;
-  }) as typeof setTimeout;
-  globalThis.clearTimeout = ((_id?: number) => {}) as typeof clearTimeout;
+  globalThis.setTimeout = new Proxy(original_set_timeout, {
+    apply(_target, _thisArg, [handler, _timeout, ...args]) {
+      if (typeof handler === "function") handler(...args);
+      return 0;
+    },
+  });
+  globalThis.clearTimeout = new Proxy(original_clear_timeout, { apply() {} });
 
   try {
     const service = createWebSearchService(createMockConfig());

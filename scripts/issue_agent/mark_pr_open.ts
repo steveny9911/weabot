@@ -7,7 +7,9 @@ import {
 } from "./common.ts";
 
 function usage(): never {
-  throw new Error("Usage: deno run ... scripts/issue_agent/mark_pr_open.ts <issue_number> <pr_url>");
+  throw new Error(
+    "Usage: deno run ... scripts/issue_agent/mark_pr_open.ts <issue_number> <pr_url>",
+  );
 }
 
 export async function runMarkPrOpen(cwd = Deno.cwd(), args = Deno.args): Promise<void> {

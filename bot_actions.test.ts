@@ -15,6 +15,7 @@ import type { BudgetResult, RateLimitResult, UsageStats } from "./src/services/r
 import type { LinkOpenError } from "./src/services/link_open.ts";
 import type { SearchResult } from "./src/services/web_search.ts";
 import { aszHaruGreetingGifPool } from "./src/features/reaction_gif.ts";
+import type { ContextResetRecord } from "./src/types/storage.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -29,6 +30,8 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
@@ -164,6 +167,7 @@ function createDeps(
   const link_calls: string[] = [];
   const web_search_calls: string[] = [];
   const recorded_tokens: number[] = [];
+  const context_resets = new Map<string, ContextResetRecord>();
   let request_count = 0;
 
   const deps: BotDependencies = {
@@ -218,6 +222,15 @@ function createDeps(
             },
           },
         );
+      },
+    },
+    storageService: {
+      setContextReset(record: ContextResetRecord): Promise<void> {
+        context_resets.set(record.channelId, record);
+        return Promise.resolve();
+      },
+      getContextReset(channelId: string): Promise<ContextResetRecord | null> {
+        return Promise.resolve(context_resets.get(channelId) ?? null);
       },
     },
     webSearchService: {
@@ -651,7 +664,7 @@ Deno.test("saveContext handles trigger inclusion, proxy_url image extraction, an
   }
 });
 
-Deno.test("saveContext sets null timestamp when source message has no timestamp fields", async () => {
+Deno.test("saveContext excludes source messages without usable timestamps", async () => {
   const channel_id = "channel-no-timestamp";
   const mock = mockFetchMessages([{
     id: "m-no-ts",
@@ -662,8 +675,7 @@ Deno.test("saveContext sets null timestamp when source message has no timestamp 
   try {
     await saveContext(createMockConfig(), channel_id, 5);
     const ctx = getContext(channel_id) ?? [];
-    assertEquals(ctx.length, 1);
-    assertEquals(ctx[0]["timestamp"], null);
+    assertEquals(ctx, []);
   } finally {
     mock.restore();
   }
@@ -773,8 +785,8 @@ Deno.test("handleMessage exits when message payload is missing", async () => {
   }
 });
 
-Deno.test("handleMessage handles reset command and clears cached context", async () => {
-  const config = createMockConfig();
+Deno.test("handleMessage persists reset and does not reload pre-reset Discord history", async () => {
+  const config = createMockConfig({ webSearchEnabled: false });
   const preload_fetch = mockFetchMessages([{
     id: "ctx-1",
     content: "cached line",
@@ -788,7 +800,28 @@ Deno.test("handleMessage handles reset command and clears cached context", async
     preload_fetch.restore();
   }
 
-  const fetch_mock = mockDiscordApiFetch();
+  const fetch_mock = mockDiscordApiFetch({
+    recentMessages: [
+      {
+        id: "msg-after-reset",
+        content: "<@12345> what do you remember?",
+        author: { id: "user-1", username: "alice", bot: false },
+        timestamp: "2026-03-01T12:01:00.000Z",
+      },
+      {
+        id: "msg-trigger",
+        content: "<@12345> \\reset",
+        author: { id: "user-1", username: "alice", bot: false },
+        timestamp: "2026-03-01T12:00:00.000Z",
+      },
+      {
+        id: "old-before-reset",
+        content: "this must stay forgotten",
+        author: { id: "user-2", username: "bob", bot: false },
+        timestamp: "2026-03-01T11:59:00.000Z",
+      },
+    ],
+  });
   try {
     const ctx = createDeps(config);
     const reset_message = {
@@ -798,8 +831,23 @@ Deno.test("handleMessage handles reset command and clears cached context", async
     await handleMessage(reset_message, ctx.deps);
 
     assertEquals(getContext("chan-reset"), undefined);
-    assertEquals(fetch_mock.postedMessages.length, 1);
+    assertEquals(await ctx.deps.storageService.getContextReset("chan-reset"), {
+      channelId: "chan-reset",
+      messageId: "msg-trigger",
+      resetAt: Date.parse("2026-03-01T12:00:00.000Z"),
+    });
     assertStringIncludes(fetch_mock.postedMessages[0], "cleared our chat context");
+
+    await handleMessage({
+      ...createMentionMessage("<@12345> what do you remember?"),
+      id: "msg-after-reset",
+      channel_id: "chan-reset",
+      timestamp: "2026-03-01T12:01:00.000Z",
+    }, ctx.deps);
+
+    assertEquals(ctx.aiCalls.length, 1);
+    assertEquals(ctx.aiCalls[0].map((entry) => entry["id"]), ["msg-after-reset"]);
+    assertEquals(fetch_mock.postedMessages.length, 2);
   } finally {
     fetch_mock.restore();
   }

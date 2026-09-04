@@ -28,6 +28,10 @@ export interface AppConfig {
   aiMaxInputChars: number;
   /** Enable UwU-style text transformations (default: true) */
   aiEnableUwu: boolean;
+  /** Max messages retained from the current uninterrupted conversation (default: 40) */
+  aiContextMaxMessages: number;
+  /** Minutes of silence that starts a new conversation context (default: 20) */
+  aiContextInactivityMinutes: number;
 
   // Web Search
   /** Master switch for web search (default: false) */
@@ -40,6 +44,11 @@ export interface AppConfig {
   // Link Open
   /** Master switch for explicit link opening command (default: true) */
   linkOpenEnabled: boolean;
+
+  /** Explicit Discord event/invite tools (default: true). */
+  discordActionsEnabled?: boolean;
+  /** Optional server allowlist for event/invite actions; empty allows all joined servers. */
+  discordActionsGuildIds?: string[];
 
   // Autonomous Chat
   /** Allow Haru to speak without a direct mention during active conversations (default: false) */
@@ -70,6 +79,11 @@ function getEnvOrThrow(key: string): string {
     throw new Error(`FATAL: Missing required environment variable: ${key}`);
   }
   return value;
+}
+
+function nPositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**
@@ -127,6 +141,14 @@ export function loadConfig(): AppConfig {
     aiDailyTokenBudget: parseInt(Deno.env.get("AI_DAILY_TOKEN_BUDGET") ?? "10000000", 10),
     aiMaxInputChars: parseInt(Deno.env.get("AI_MAX_INPUT_CHARS") ?? "0", 10),
     aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
+    aiContextMaxMessages: Math.min(
+      100,
+      nPositiveInteger(Deno.env.get("AI_CONTEXT_MAX_MESSAGES"), 40),
+    ),
+    aiContextInactivityMinutes: nPositiveInteger(
+      Deno.env.get("AI_CONTEXT_INACTIVITY_MINUTES"),
+      20,
+    ),
 
     // Web Search
     webSearchEnabled: web_search_enabled,
@@ -135,6 +157,11 @@ export function loadConfig(): AppConfig {
 
     // Link Open
     linkOpenEnabled: link_open_enabled,
+
+    discordActionsEnabled:
+      (Deno.env.get("DISCORD_ACTIONS_ENABLED") ?? "true").toLowerCase() === "true",
+    discordActionsGuildIds: (Deno.env.get("DISCORD_ACTIONS_GUILD_IDS") ?? "")
+      .split(",").map((id) => id.trim()).filter(Boolean),
 
     // Autonomous Chat
     autonomousChatEnabled: (Deno.env.get("AUTONOMOUS_CHAT_ENABLED") ?? "false").toLowerCase() ===

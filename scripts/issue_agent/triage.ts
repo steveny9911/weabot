@@ -1,16 +1,16 @@
 import {
+  type AgentDecision,
   buildMarker,
   commentOnIssue,
   ensureAgentLabels,
   findLatestDecisionComment,
   getCurrentGhLogin,
+  type GhIssue,
   issueHasLabel,
   issueUpdatedAfter,
   listOpenIssues,
   setIssueStateLabel,
   viewIssue,
-  type AgentDecision,
-  type GhIssue,
 } from "./common.ts";
 
 type TriageReason =
@@ -180,7 +180,9 @@ function formatDecisionComment(result: TriageResult): string {
   ].join("\n");
 }
 
-function toStateLabel(decision: AgentDecision): "agent:accepted" | "agent:needs-info" | "agent:rejected" {
+function toStateLabel(
+  decision: AgentDecision,
+): "agent:accepted" | "agent:needs-info" | "agent:rejected" {
   if (decision === "accepted") return "agent:accepted";
   if (decision === "needs-info") return "agent:needs-info";
   return "agent:rejected";
@@ -218,7 +220,8 @@ export async function runTriage(cwd = Deno.cwd()): Promise<void> {
     )?.name;
 
     const comment_body = formatDecisionComment(result);
-    const decision_changed = !latest || latest.decision !== result.decision || latest.reason !== result.reason;
+    const decision_changed = !latest || latest.decision !== result.decision ||
+      latest.reason !== result.reason;
 
     if (decision_changed || issueUpdatedAfter(issue.updatedAt, latest?.at ?? "")) {
       await commentOnIssue(issue.number, comment_body, cwd);

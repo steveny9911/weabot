@@ -2,9 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
 
 jobs:
   lint-and-test:
@@ -25,7 +24,7 @@ jobs:
         run: deno lint
 
       - name: Type check
-        run: deno check main.ts src/**/*.ts
+        run: deno task check
 
       - name: Run tests
         run: deno test --unstable-kv --allow-env

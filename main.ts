@@ -1,5 +1,7 @@
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/services/discord.ts";
+import { createDiscordEventsClient } from "./src/services/discord_events.ts";
+import { createDiscordActionService } from "./src/features/discord_actions/mod.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
 import { createWebSearchService } from "./src/services/web_search.ts";
@@ -35,7 +37,13 @@ const bot_deps: BotDependencies = {
   aiService: ai_service,
   rateLimitService: rate_limit,
   linkOpenService: link_open,
+  storageService: storage,
   webSearchService: web_search,
+  discordActionService: createDiscordActionService(
+    createDiscordEventsClient(config.discordToken),
+    kv,
+    config.timeZone,
+  ),
 };
 
 // Set up the date formatter with configured timezone
@@ -64,6 +72,9 @@ console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()
 const max_input_label = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
 console.log(`   Max Input Chars: ${max_input_label}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
+console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
+console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);
+console.log(`   Discord Event/Invite Actions: ${config.discordActionsEnabled}`);
 if (!config.openaiApiKey) {
   console.log("   ⚠️  OPENAI_API_KEY not set - AI chat disabled");
 }

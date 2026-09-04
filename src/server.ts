@@ -228,7 +228,6 @@ export function createServer(
       }
     }
 
-
     // =========================================================================
     // DATA ENDPOINTS - View/modify data without posting to Discord
     // =========================================================================
@@ -351,7 +350,6 @@ export function createServer(
         return new Response(`❌ Error: ${error}`, { status: 500 });
       }
     }
-
 
     // =========================================================================
     // AI USAGE MONITORING

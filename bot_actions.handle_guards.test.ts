@@ -17,6 +17,8 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
@@ -70,6 +72,14 @@ Deno.test("handleMessage exits when bot id cannot be fetched", async () => {
           ok: false as const,
           error: "fetch_failed" as const,
         });
+      },
+    },
+    storageService: {
+      setContextReset(_record) {
+        return Promise.resolve();
+      },
+      getContextReset(_channelId) {
+        return Promise.resolve(null);
       },
     },
     webSearchService: {

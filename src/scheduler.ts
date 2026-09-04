@@ -250,13 +250,16 @@ export function registerCronJobs(
           channelId,
           config.autonomousChatMaxContextMessages,
         );
+        const context_reset = await storage.getContextReset(channelId);
         const decision = decideAutonomousChatReply(recent_messages, {
           botUserId: bot_user_id,
           nowMs: Date.now(),
           minHumanMessages: config.autonomousChatMinHumanMessages,
           activityWindowMs: config.autonomousChatActivityWindowMinutes * 60_000,
+          inactivityGapMs: config.aiContextInactivityMinutes * 60_000,
           cooldownMs: config.autonomousChatCooldownMinutes * 60_000,
           maxContextMessages: config.autonomousChatMaxContextMessages,
+          resetAfterMs: context_reset?.resetAt,
           replyChance: config.autonomousChatReplyChance,
           random: Math.random,
         });

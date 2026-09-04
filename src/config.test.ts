@@ -25,10 +25,14 @@ function withEnv(
     "AI_DAILY_TOKEN_BUDGET",
     "AI_MAX_INPUT_CHARS",
     "ENABLE_UWU",
+    "AI_CONTEXT_MAX_MESSAGES",
+    "AI_CONTEXT_INACTIVITY_MINUTES",
     "WEB_SEARCH_ENABLED",
     "BRAVE_SEARCH_API_KEY",
     "WEB_SEARCH_MAX_RESULTS",
     "LINK_OPEN_ENABLED",
+    "DISCORD_ACTIONS_ENABLED",
+    "DISCORD_ACTIONS_GUILD_IDS",
     "AUTONOMOUS_CHAT_ENABLED",
     "AUTONOMOUS_CHAT_CHANNEL_IDS",
     "AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES",
@@ -202,6 +206,8 @@ Deno.test("loadConfig returns complete config with all values", () => {
       AI_DAILY_TOKEN_BUDGET: "50000",
       AI_MAX_INPUT_CHARS: "300",
       ENABLE_UWU: "false",
+      AI_CONTEXT_MAX_MESSAGES: "75",
+      AI_CONTEXT_INACTIVITY_MINUTES: "15",
       WEB_SEARCH_ENABLED: "true",
       BRAVE_SEARCH_API_KEY: "brave-key",
       WEB_SEARCH_MAX_RESULTS: "5",
@@ -228,10 +234,14 @@ Deno.test("loadConfig returns complete config with all values", () => {
         aiDailyTokenBudget: 50000,
         aiMaxInputChars: 300,
         aiEnableUwu: false,
+        aiContextMaxMessages: 75,
+        aiContextInactivityMinutes: 15,
         webSearchEnabled: true,
         webSearchApiKey: "brave-key",
         webSearchMaxResults: 5,
         linkOpenEnabled: false,
+        discordActionsEnabled: true,
+        discordActionsGuildIds: [],
         autonomousChatEnabled: true,
         autonomousChatChannelIds: ["auto-1", "auto-2"],
         autonomousChatMinHumanMessages: 6,
@@ -242,6 +252,19 @@ Deno.test("loadConfig returns complete config with all values", () => {
       });
     },
   );
+});
+
+Deno.test("Discord actions can be disabled or restricted to selected servers", () => {
+  withEnv({
+    DISCORD_TOKEN: "token",
+    CHANNEL_ID: "123",
+    DISCORD_ACTIONS_ENABLED: "false",
+    DISCORD_ACTIONS_GUILD_IDS: " sandbox, another, ",
+  }, () => {
+    const config = loadConfig();
+    assertEquals(config.discordActionsEnabled, false);
+    assertEquals(config.discordActionsGuildIds, ["sandbox", "another"]);
+  });
 });
 
 Deno.test("loadConfig uses AI defaults when not set", () => {
@@ -258,6 +281,8 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.aiDailyTokenBudget, 10000000); // 10M tokens, user has OpenAI spending limits
       assertEquals(config.aiMaxInputChars, 0); // disabled by default
       assertEquals(config.aiEnableUwu, true);
+      assertEquals(config.aiContextMaxMessages, 40);
+      assertEquals(config.aiContextInactivityMinutes, 20);
       assertEquals(config.channelIds, ["channel"]);
       assertEquals(config.webSearchEnabled, false);
       assertEquals(config.webSearchApiKey, undefined);

@@ -6,7 +6,7 @@
  */
 
 import type { Mood } from "../types/bot.ts";
-import type { DailyStats, PollRecord, VoteRecord } from "../types/storage.ts";
+import type { ContextResetRecord, DailyStats, PollRecord, VoteRecord } from "../types/storage.ts";
 
 /** Storage service interface for dependency injection */
 export interface StorageService {
@@ -45,7 +45,18 @@ export interface StorageService {
 
   /** Mark a poll as collected */
   markPollCollected(messageId: string): Promise<void>;
+
+  /** Persist the latest context reset for one Discord channel or thread. */
+  setContextReset(record: ContextResetRecord): Promise<void>;
+
+  /** Read the latest context reset for one Discord channel or thread. */
+  getContextReset(channelId: string): Promise<ContextResetRecord | null>;
 }
+
+export type ContextStorageService = Pick<
+  StorageService,
+  "setContextReset" | "getContextReset"
+>;
 
 /**
  * Creates a storage service backed by Deno KV.
@@ -225,6 +236,15 @@ export function createStorageService(kv: Deno.Kv): StorageService {
         await kv.set(["pending_polls", messageId], updated);
         console.log(`[STORAGE] Marked poll ${messageId} as collected`);
       }
+    },
+
+    async setContextReset(record) {
+      await kv.set(["context_resets", record.channelId], record);
+    },
+
+    async getContextReset(channelId) {
+      const entry = await kv.get<ContextResetRecord>(["context_resets", channelId]);
+      return entry.value;
     },
   };
 }

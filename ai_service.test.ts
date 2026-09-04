@@ -22,6 +22,8 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: false,
     webSearchApiKey: undefined,
     webSearchMaxResults: 3,
@@ -299,6 +301,40 @@ Deno.test("generateReply includes image URLs as input_image blocks", async () =>
       image_parts[1]["image_url"],
       "https://media.discordapp.net/attachments/3/4/dog.jpg",
     );
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("generateReply includes explicit Discord reply references in text and images", async () => {
+  const mock = mockFetch({ output_text: "I remember", usage: { total_tokens: 25 } });
+
+  try {
+    const service = createAiService(createMockConfig());
+    await service.generateReply([{
+      author: "alice",
+      content: "this one",
+      repliedTo: {
+        author: "bob",
+        content: "the old topic",
+        imageUrls: ["https://cdn.discordapp.com/old-topic.png"],
+      },
+    }]);
+
+    const request = mock.getLastRequest();
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const content_parts = input?.[0]?.content ?? [];
+    const text_part = content_parts.find((part) => part["type"] === "input_text");
+    const image_parts = content_parts.filter((part) => part["type"] === "input_image");
+
+    assertStringIncludes(
+      String(text_part?.["text"]),
+      "alice (replying to bob: the old topic [attached 1 image]): this one",
+    );
+    assertEquals(image_parts, [{
+      type: "input_image",
+      image_url: "https://cdn.discordapp.com/old-topic.png",
+    }]);
   } finally {
     mock.restore();
   }
