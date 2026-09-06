@@ -4,7 +4,7 @@
  * Tests the Deno KV storage operations using an in-memory database.
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { createStorageService, type StorageService } from "./storage.ts";
 import type { PollRecord } from "../types/storage.ts";
 
@@ -525,3 +525,34 @@ Deno.test("markPollCollected updates existing poll and leaves missing poll uncha
 
   kv.close();
 });
+
+for (const failure of ["unsuccessful commit", "rejected commit"] as const) {
+  Deno.test(`recordVote keeps both indexes unchanged after ${failure} and supports retry`, async () => {
+    using kv = await Deno.openKv(":memory:");
+    const storage = createStorageService(kv);
+    const atomic = kv.atomic.bind(kv);
+    let failing = true;
+    kv.atomic = () => {
+      const operation = atomic();
+      if (failing) {
+        operation.commit = () =>
+          failure === "rejected commit"
+            ? Promise.reject(new Error("Injected disk failure"))
+            : Promise.resolve({ ok: false });
+      }
+      return operation;
+    };
+
+    await assertRejects(() =>
+      storage.recordVote(TEST_CHANNEL_ID, "user", "Alice", "ok", "2026-09-01")
+    );
+    assertEquals(await storage.getVotesForDate(TEST_CHANNEL_ID, "2026-09-01"), []);
+    assertEquals(await storage.getUserHistory(TEST_CHANNEL_ID, "user"), []);
+
+    failing = false;
+    await storage.recordVote(TEST_CHANNEL_ID, "user", "Alice", "ok", "2026-09-01");
+    const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2026-09-01");
+    assertEquals(votes.length, 1);
+    assertEquals(await storage.getUserHistory(TEST_CHANNEL_ID, "user"), votes);
+  });
+}

@@ -26,5 +26,5 @@ jobs:
       - name: Type check
         run: deno task check
 
-      - name: Run tests (including KV concurrency and autonomous budget regressions)
-        run: deno task test
+      - name: Run all tests, including concurrency and poll collection regressions
+        run: deno task test --reporter=pretty

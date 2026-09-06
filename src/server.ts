@@ -8,6 +8,7 @@
 import type { AppConfig } from "./config.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { StorageService } from "./services/storage.ts";
+import { collectExpiredPolls } from "./services/poll_collection.ts";
 import type { RateLimitService } from "./services/rate_limit.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
@@ -31,7 +32,18 @@ export function createServer(
   dateFormatter: Intl.DateTimeFormat,
   rateLimit?: RateLimitService,
 ) {
-  return Deno.serve(async (req) => {
+  return Deno.serve(createRequestHandler(config, discord, storage, dateFormatter, rateLimit));
+}
+
+/** HTTP handler separated from listener startup for deterministic route tests. */
+export function createRequestHandler(
+  config: AppConfig,
+  discord: DiscordClient,
+  storage: StorageService,
+  dateFormatter: Intl.DateTimeFormat,
+  rateLimit?: RateLimitService,
+): (req: Request) => Promise<Response> {
+  return async (req) => {
     const url = new URL(req.url);
 
     // =========================================================================
@@ -177,50 +189,26 @@ export function createServer(
       console.log("[SERVER] Triggering poll result collection...");
 
       try {
-        const expiredPolls = await storage.getExpiredPolls();
-
-        if (expiredPolls.length === 0) {
+        const { collected, failed } = await collectExpiredPolls(discord, storage);
+        if (collected.length === 0 && failed.length === 0) {
           return new Response("ℹ️ No expired polls to collect");
         }
-
-        const moodMap: Record<string, Mood> = {
-          umazing: "umazing",
-          ok: "ok",
-          glue: "glue",
-        };
-
-        let totalVotes = 0;
-        const results: string[] = [];
-
-        for (const poll of expiredPolls) {
-          const answers = await discord.getPollVoters(poll.channelId, poll.messageId);
-          let pollVotes = 0;
-
-          for (const answer of answers) {
-            const mood = moodMap[answer.answerText.toLowerCase()];
-            if (!mood) continue;
-
-            for (const voter of answer.voters) {
-              await storage.recordVote(
-                poll.channelId,
-                voter.odUserId,
-                voter.odUserName,
-                mood,
-                poll.date,
-              );
-              pollVotes++;
-            }
-          }
-
-          await storage.markPollCollected(poll.messageId);
-          results.push(`Poll ${poll.date}: ${pollVotes} votes`);
-          totalVotes += pollVotes;
-        }
-
+        const totalVotes = collected.reduce((total, result) => total + result.votes, 0);
+        const results = [
+          ...collected.map(({ poll, votes }) =>
+            `Poll ${poll.messageId} (${poll.date}): ${votes} votes`
+          ),
+          ...failed.map(({ poll }) =>
+            `Poll ${poll.messageId} (${poll.date}): failed; pending retry`
+          ),
+        ];
         return new Response(
-          `✅ Collected ${totalVotes} votes from ${expiredPolls.length} poll(s)\n\n${
+          `${
+            failed.length ? "❌" : "✅"
+          } Collected ${totalVotes} votes from ${collected.length} poll(s); ${failed.length} failed\n\n${
             results.join("\n")
           }`,
+          { status: failed.length ? 500 : 200 },
         );
       } catch (error) {
         console.error("[SERVER] Error collecting polls:", error);
@@ -482,5 +470,5 @@ AI & MONITORING
 `,
       { status: 200 },
     );
-  });
+  };
 }
