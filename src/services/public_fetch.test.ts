@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { BlockedDestinationError, createPublicFetch, resolveAddresses } from "./public_fetch.ts";
 import { createLinkOpenService } from "./link_open.ts";
 import type { AppConfig } from "../config.ts";
@@ -196,13 +196,15 @@ Deno.test("DNS resolver requires both families, tolerates only missing records, 
   const calls: string[] = [];
   try {
     Deno.resolveDns = ((_host: string, type: string, options?: Deno.ResolveDnsOptions) => {
-      assertEquals(options?.signal, controller.signal);
+      assert(options?.signal instanceof AbortSignal);
+      assertEquals(options.signal.aborted, false);
       calls.push(type);
       if (type === "AAAA") return Promise.reject(new Deno.errors.NotFound());
       return Promise.resolve([publicV4]);
     }) as typeof Deno.resolveDns;
     assertEquals(await resolveAddresses("public.example", controller.signal), [publicV4]);
     assertEquals(calls.sort(), ["A", "AAAA"]);
+    assertEquals(controller.signal.aborted, false);
     Deno.resolveDns = (() => Promise.reject(new Deno.errors.TimedOut())) as typeof Deno.resolveDns;
     await assertRejects(() => resolveAddresses("public.example"), Deno.errors.TimedOut);
   } finally {
@@ -263,4 +265,88 @@ Deno.test("allowed redirects still yield HTML context through the protected tran
     page: { domain: "second.example", title: "Working", excerpt: "Public links work." },
   });
   assertEquals(requests, ["/start", "/page"]);
+});
+
+Deno.test("DNS family failure cancels and settles the pending sibling before returning", async (t) => {
+  for (const failedFamily of ["A", "AAAA"]) {
+    await t.step(failedFamily, async () => {
+      const original = Deno.resolveDns;
+      const caller = new AbortController();
+      const pending = Promise.withResolvers<string[]>();
+      let siblingSettled = false;
+      let siblingSignal: AbortSignal | undefined;
+      try {
+        Deno.resolveDns = ((_host: string, type: string, options?: Deno.ResolveDnsOptions) => {
+          if (type === failedFamily) return Promise.reject(new Error("resolver failure"));
+          siblingSignal = options?.signal;
+          siblingSignal?.addEventListener("abort", () => pending.reject(siblingSignal?.reason), {
+            once: true,
+          });
+          return pending.promise.finally(() => {
+            siblingSettled = true;
+          });
+        }) as typeof Deno.resolveDns;
+        await assertRejects(
+          () => resolveAddresses("public.example", caller.signal),
+          Error,
+          "resolver failure",
+        );
+        assertEquals(siblingSignal?.aborted, true);
+        assertEquals(siblingSettled, true);
+        assertEquals(caller.signal.aborted, false, "lookup failure must not abort its caller");
+      } finally {
+        pending.resolve([]);
+        Deno.resolveDns = original;
+      }
+    });
+  }
+});
+
+Deno.test("DNS caller cancellation aborts and settles both pending address families", async () => {
+  const original = Deno.resolveDns;
+  const caller = new AbortController();
+  const reason = new DOMException("Deadline expired", "AbortError");
+  const signals: AbortSignal[] = [];
+  const pending: ReturnType<typeof Promise.withResolvers<string[]>>[] = [];
+  let settled = 0;
+  try {
+    Deno.resolveDns = ((_host: string, _type: string, options?: Deno.ResolveDnsOptions) => {
+      assert(options?.signal);
+      const signal = options.signal;
+      signals.push(signal);
+      const lookup = Promise.withResolvers<string[]>();
+      pending.push(lookup);
+      signal.addEventListener("abort", () => lookup.reject(signal.reason), { once: true });
+      return lookup.promise.finally(() => {
+        settled++;
+      });
+    }) as typeof Deno.resolveDns;
+    const result = resolveAddresses("public.example", caller.signal);
+    caller.abort(reason);
+    const error = await assertRejects(() => result, DOMException, "Deadline expired");
+    assertEquals(error, reason);
+    assertEquals(signals.length, 2);
+    assert(signals.every((signal) => signal.aborted && signal.reason === reason));
+    assertEquals(settled, 2);
+  } finally {
+    for (const lookup of pending) lookup.resolve([]);
+    Deno.resolveDns = original;
+  }
+});
+
+Deno.test("DNS resolver starts no queries when its caller is already aborted", async () => {
+  const original = Deno.resolveDns;
+  const caller = new AbortController();
+  caller.abort();
+  let queries = 0;
+  try {
+    Deno.resolveDns = (() => {
+      queries++;
+      return Promise.resolve([]);
+    }) as typeof Deno.resolveDns;
+    await assertRejects(() => resolveAddresses("public.example", caller.signal), DOMException);
+    assertEquals(queries, 0);
+  } finally {
+    Deno.resolveDns = original;
+  }
 });

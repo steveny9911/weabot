@@ -171,15 +171,29 @@ export type PinnedRequest = (
 
 /** Resolve both families before connecting; an incomplete lookup fails closed. */
 export async function resolveAddresses(hostname: string, signal?: AbortSignal): Promise<string[]> {
-  const answers = await Promise.all(["A", "AAAA"].map(async (type) => {
+  signal?.throwIfAborted();
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  const lookups = ["A", "AAAA"].map(async (type) => {
     try {
-      return await Deno.resolveDns(hostname, type as "A" | "AAAA", { signal });
+      return await Deno.resolveDns(hostname, type as "A" | "AAAA", {
+        signal: controller.signal,
+      });
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) return [];
       throw error;
     }
-  }));
-  return answers.flat();
+  });
+  try {
+    return (await Promise.all(lookups)).flat();
+  } finally {
+    // Promise.all rejects before a sibling lookup finishes. Cancel and settle
+    // both DNS operations before the caller clears its overall deadline.
+    signal?.removeEventListener("abort", abort);
+    controller.abort();
+    await Promise.allSettled(lookups);
+  }
 }
 
 /** Low-level transport: callers must validate address before calling this.
