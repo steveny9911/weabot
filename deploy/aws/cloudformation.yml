@@ -30,9 +30,18 @@ Parameters:
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+  ExistingAmiId:
+    Type: String
+    Default: ""
+    Description: Existing instance AMI to preserve during updates; empty uses LatestAmiId
+    AllowedPattern: "^$|^ami-([0-9a-f]{8}|[0-9a-f]{17})$"
+    ConstraintDescription: Leave empty or provide an AMI ID with 8 or 17 lowercase hex characters.
   DenoVersion:
     Type: String
     Default: 2.6.0
+
+Conditions:
+  HasExistingAmiId: !Not [!Equals [!Ref ExistingAmiId, ""]]
 
 Resources:
   BackupBucket:
@@ -122,8 +131,10 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       IamInstanceProfile: !Ref InstanceProfile
-      ImageId: !Ref LatestAmiId
+      ImageId: !If [HasExistingAmiId, !Ref ExistingAmiId, !Ref LatestAmiId]
       InstanceType: !Ref InstanceType
+      CreditSpecification:
+        CPUCredits: standard
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
