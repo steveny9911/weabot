@@ -453,7 +453,11 @@ Suggested recurring loop:
 
 The production deployment uses a small ARM EC2 instance in the account's default VPC. It has no
 inbound ports, is administered through AWS Systems Manager, restarts Haru after process or health
-check failures, and backs up Deno KV to a private versioned S3 bucket each day.
+check failures, and backs up Deno KV to a private versioned S3 bucket each day. The instance uses
+Standard CPU credits to avoid surplus CPU credit charges. Bursts spend earned credits; sustained CPU
+work slows toward the instance's baseline as credits run low, which can increase response and
+deployment times. See
+[AWS Standard mode](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-standard-mode.html).
 
 Prerequisites:
 
@@ -468,12 +472,28 @@ AWS_PROFILE=mochi-admin ./scripts/deploy_aws.sh \
   --migrate-kv /path/to/deno/location_data/project/kv.sqlite3
 ```
 
+For infrastructure updates that should preserve the running instance, set the CloudFormation
+`ExistingAmiId` parameter to that instance's current EC2 `ImageId`. The default empty value
+continues to use the latest Amazon Linux ARM AMI through `LatestAmiId` for new stacks. Because the
+public SSM parameter can resolve to a newer AMI during an update, leaving the override empty can
+cause an unrelated infrastructure change to replace the instance.
+
+The deployment helper does not discover or set `ExistingAmiId`. Before using it to update an
+existing unpinned stack, create an infrastructure change set with the current AMI override and
+preserve the other stack parameters. Inspect the change set to confirm the instance will not be
+replaced, then apply it. Keep the AMI override on later updates; change or clear it only for an
+intentional AMI upgrade.
+
 Useful operations:
 
 ```bash
 # Show the instance ID and backup bucket
 aws cloudformation describe-stacks --profile mochi-admin --region us-west-2 \
   --stack-name haru-bot --query 'Stacks[0].Outputs'
+
+# Read the AMI to use as ExistingAmiId when preserving this instance
+aws ec2 describe-instances --profile mochi-admin --region us-west-2 \
+  --instance-ids INSTANCE_ID --query 'Reservations[0].Instances[0].ImageId' --output text
 
 # Open a shell without SSH or an inbound firewall rule
 aws ssm start-session --profile mochi-admin --region us-west-2 --target INSTANCE_ID
