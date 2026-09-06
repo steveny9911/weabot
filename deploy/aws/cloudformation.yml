@@ -124,6 +124,8 @@ Resources:
       IamInstanceProfile: !Ref InstanceProfile
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
+      CreditSpecification:
+        CPUCredits: standard
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
