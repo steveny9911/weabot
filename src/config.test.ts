@@ -15,6 +15,7 @@ function withEnv(
   const allKeys = new Set([
     ...Object.keys(envVars),
     "DISCORD_TOKEN",
+    "ADMIN_HTTP_TOKEN",
     "CHANNEL_ID",
     "CHANNEL_IDS",
     "TIME_ZONE",
@@ -224,6 +225,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
       const config = loadConfig();
       assertEquals(config, {
         discordToken: "secret-token",
+        adminHttpToken: undefined,
         channelId: "123456789",
         channelIds: ["123456789"],
         timeZone: "Asia/Tokyo",
@@ -411,4 +413,16 @@ Deno.test("loadConfig defaults invalid AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
       assertEquals(config.autonomousChatReplyChance, 0.35);
     },
   );
+});
+
+Deno.test("HTTP administration is disabled by default and accepts an explicit token", () => {
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123" }, () => {
+    assertEquals(loadConfig().adminHttpToken, undefined);
+  });
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "  " }, () => {
+    assertEquals(loadConfig().adminHttpToken, undefined);
+  });
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "secret" }, () => {
+    assertEquals(loadConfig().adminHttpToken, "secret");
+  });
 });

@@ -7,19 +7,18 @@
  */
 
 import type { AppConfig } from "../config.ts";
+import {
+  bIsBlockedHost,
+  BlockedDestinationError,
+  createPublicFetch,
+  type LinkFetch,
+  szNormalizeHost,
+} from "./public_fetch.ts";
 
 const MAX_REDIRECTS = 3;
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_HTML_BYTES = 1024 * 1024; // 1 MB
 const MAX_EXCERPT_CHARS = 3500;
-
-const METADATA_HOSTS = new Set([
-  "metadata",
-  "metadata.google.internal",
-  "instance-data",
-  "instance-data.ec2.internal",
-  "metadata.azure.internal",
-]);
 
 export interface LinkPageContext {
   domain: string;
@@ -42,156 +41,6 @@ export interface LinkOpenService {
   open(
     url: string,
   ): Promise<{ ok: true; page: LinkPageContext } | { ok: false; error: LinkOpenError }>;
-}
-
-function szNormalizeHost(hostname: string): string {
-  let normalized = hostname.trim().toLowerCase().replace(/\.+$/, "");
-  if (normalized.startsWith("[") && normalized.endsWith("]")) {
-    normalized = normalized.slice(1, -1);
-  }
-  return normalized;
-}
-
-function aiParseIpv4(hostname: string): number[] | null {
-  if (!/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return null;
-  const parts = hostname.split(".");
-  if (parts.length !== 4) return null;
-
-  const out: number[] = [];
-  for (const p of parts) {
-    if (!/^\d+$/.test(p)) return null;
-    const n = Number.parseInt(p, 10);
-    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
-    out.push(n);
-  }
-  return out;
-}
-
-function bIsBlockedIpv4(octets: number[]): boolean {
-  const [a, b, c] = octets;
-
-  if (a === 0) return true; // 0.0.0.0/8
-  if (a === 10) return true; // 10.0.0.0/8
-  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10
-  if (a === 127) return true; // 127.0.0.0/8
-  if (a === 169 && b === 254) return true; // 169.254.0.0/16
-  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-  if (a === 192 && b === 168) return true; // 192.168.0.0/16
-  if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24
-  if (a === 192 && b === 0 && c === 2) return true; // 192.0.2.0/24
-  if (a === 192 && b === 88 && c === 99) return true; // 192.88.99.0/24
-  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
-  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24
-  if (a === 203 && b === 0 && c === 113) return true; // 203.0.113.0/24
-  if (a >= 224) return true; // multicast + reserved
-
-  return false;
-}
-
-function aiParseIpv6(hostname: string): number[] | null {
-  let host = hostname.toLowerCase();
-  const zone_idx = host.indexOf("%");
-  if (zone_idx >= 0) host = host.slice(0, zone_idx);
-  if (!host.includes(":")) return null;
-
-  // Convert trailing IPv4 into 2 hextets if present.
-  if (host.includes(".")) {
-    const last_colon = host.lastIndexOf(":");
-    if (last_colon < 0) return null;
-    const ipv4_tail = host.slice(last_colon + 1);
-    const octets = aiParseIpv4(ipv4_tail);
-    if (!octets) return null;
-    const h1 = ((octets[0] << 8) | octets[1]).toString(16);
-    const h2 = ((octets[2] << 8) | octets[3]).toString(16);
-    host = `${host.slice(0, last_colon)}:${h1}:${h2}`;
-  }
-
-  const halves = host.split("::");
-  if (halves.length > 2) return null;
-
-  const left_raw = halves[0] ? halves[0].split(":").filter(Boolean) : [];
-  const right_raw = halves.length === 2 && halves[1] ? halves[1].split(":").filter(Boolean) : [];
-
-  const parse_h16 = (s: string): number | null => {
-    if (!/^[0-9a-f]{1,4}$/.test(s)) return null;
-    return Number.parseInt(s, 16);
-  };
-
-  const left: number[] = [];
-  for (const seg of left_raw) {
-    const n = parse_h16(seg);
-    if (n === null) return null;
-    left.push(n);
-  }
-
-  const right: number[] = [];
-  for (const seg of right_raw) {
-    const n = parse_h16(seg);
-    if (n === null) return null;
-    right.push(n);
-  }
-
-  let hextets: number[] = [];
-  if (halves.length === 1) {
-    if (left.length !== 8) return null;
-    hextets = left;
-  } else {
-    const zeros = 8 - (left.length + right.length);
-    if (zeros < 1) return null;
-    hextets = [...left, ...Array(zeros).fill(0), ...right];
-  }
-
-  if (hextets.length !== 8) return null;
-
-  const bytes: number[] = [];
-  for (const h of hextets) {
-    bytes.push((h >> 8) & 0xff, h & 0xff);
-  }
-  return bytes;
-}
-
-function bIsBlockedIpv6(bytes: number[]): boolean {
-  const is_all_zero = bytes.every((b) => b === 0);
-  if (is_all_zero) return true; // ::
-
-  const is_loopback = bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1;
-  if (is_loopback) return true; // ::1
-
-  if ((bytes[0] & 0xfe) === 0xfc) return true; // fc00::/7
-  if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80) return true; // fe80::/10
-  if (bytes[0] === 0xff) return true; // ff00::/8
-
-  // 2001:db8::/32 documentation range
-  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) {
-    return true;
-  }
-
-  // IPv4-mapped IPv6 ::ffff:a.b.c.d
-  const is_ipv4_mapped = bytes.slice(0, 10).every((b) => b === 0) &&
-    bytes[10] === 0xff &&
-    bytes[11] === 0xff;
-  if (is_ipv4_mapped) {
-    const mapped = bytes.slice(12, 16);
-    return bIsBlockedIpv4(mapped);
-  }
-
-  return false;
-}
-
-function bIsBlockedHost(url: URL): boolean {
-  const host = szNormalizeHost(url.hostname);
-  if (!host) return true;
-
-  if (host === "localhost" || host.endsWith(".local")) return true;
-  if (METADATA_HOSTS.has(host)) return true;
-
-  const ipv4 = aiParseIpv4(host);
-  if (ipv4) return bIsBlockedIpv4(ipv4);
-
-  const ipv6 = aiParseIpv6(host);
-  if (ipv6) return bIsBlockedIpv6(ipv6);
-
-  return false;
 }
 
 function szDecodeHtmlEntities(text: string): string {
@@ -287,7 +136,11 @@ function bIsRedirectStatus(status: number): boolean {
 /**
  * Create link open service.
  */
-export function createLinkOpenService(_config: AppConfig): LinkOpenService {
+export function createLinkOpenService(
+  _config: AppConfig,
+  dependencies: { fetch?: LinkFetch } = {},
+): LinkOpenService {
+  const fetchPage = dependencies.fetch ?? createPublicFetch();
   return {
     async open(url: string) {
       let current: URL;
@@ -313,7 +166,7 @@ export function createLinkOpenService(_config: AppConfig): LinkOpenService {
 
         let response: Response;
         try {
-          response = await fetch(current.toString(), {
+          response = await fetchPage(current.toString(), {
             method: "GET",
             redirect: "manual",
             signal: controller.signal,
@@ -323,6 +176,9 @@ export function createLinkOpenService(_config: AppConfig): LinkOpenService {
           });
         } catch (err) {
           clearTimeout(timer);
+          if (err instanceof BlockedDestinationError) {
+            return { ok: false, error: redirects ? "redirect_blocked" : "blocked_host" };
+          }
           if (err instanceof DOMException && err.name === "AbortError") {
             return { ok: false, error: "timeout" };
           }

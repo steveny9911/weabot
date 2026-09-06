@@ -251,26 +251,36 @@ scheduled jobs and can respond in any server the bot can access.
 
 ## Testing the Bot
 
-Weabot provides HTTP endpoints for testing without waiting for scheduled jobs.
+Weabot provides HTTP endpoints for testing without waiting for scheduled jobs. All endpoints except
+`GET /health` are disabled by default. To enable them locally, set `ADMIN_HTTP_TOKEN` to a random
+secret in your environment before starting Haru. Send it as `Authorization: Bearer <token>` on every
+admin request. State-changing endpoints require POST. Keep this variable unset in production unless
+you explicitly need administration. Do not put the token in a URL.
+
+Link opening resolves and checks both address families on every redirect, then connects directly to
+one validated public IP. The original hostname remains the HTTP Host and verified TLS identity.
+Private/reserved addresses, mixed public/private DNS answers, and URL credentials are rejected.
+`deno task test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI
+runs these checks on both the production Deno 2.6.0 runtime and the current Deno 2.x release.
 
 ### Available Endpoints
 
 **Trigger Endpoints** (post to Discord):
 
-| Endpoint                       | Description           |
-| ------------------------------ | --------------------- |
-| `GET /trigger_poll`            | Post a mood poll      |
-| `GET /trigger_stats?days=7`    | Post stats embed      |
-| `GET /trigger_alert?name=Test` | Post a wellness alert |
+| Endpoint                        | Description           |
+| ------------------------------- | --------------------- |
+| `POST /trigger_poll`            | Post a mood poll      |
+| `POST /trigger_stats?days=7`    | Post stats embed      |
+| `POST /trigger_alert?name=Test` | Post a wellness alert |
 
 **Data Endpoints** (view/modify data):
 
-| Endpoint                      | Description                |
-| ----------------------------- | -------------------------- |
-| `GET /vote?user=ID&mood=MOOD` | Record a test vote         |
-| `GET /stats?days=7`           | View stats as JSON         |
-| `GET /check-alerts`           | Check who's at risk        |
-| `GET /user-history?user=ID`   | View a user's vote history |
+| Endpoint                       | Description                |
+| ------------------------------ | -------------------------- |
+| `POST /vote?user=ID&mood=MOOD` | Record a test vote         |
+| `GET /stats?days=7`            | View stats as JSON         |
+| `GET /check-alerts`            | Check who's at risk        |
+| `GET /user-history?user=ID`    | View a user's vote history |
 
 **Other**:
 
@@ -282,38 +292,39 @@ Weabot provides HTTP endpoints for testing without waiting for scheduled jobs.
 
 1. **Start the bot**:
    ```bash
+   export ADMIN_HTTP_TOKEN="$(openssl rand -hex 32)"
    deno task dev
    ```
 
 2. **Test the poll**:
    ```bash
-   curl http://localhost:8000/trigger_poll
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_poll
    ```
    Check your Discord channel – a poll should appear!
 
 3. **Test the stats embed**:
    ```bash
-   curl http://localhost:8000/trigger_stats
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_stats
    ```
 
 4. **Test the wellness alert**:
    ```bash
    # Post a sample alert (customize name and days)
-   curl "http://localhost:8000/trigger_alert?name=TestUser&days=7"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/trigger_alert?name=TestUser&days=7"
    ```
 
 5. **Simulate votes** (for testing real alerts):
    ```bash
    # Record some votes to populate data
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-05"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=umazing&date=2025-12-06"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=ok&date=2025-12-07"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-05"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/vote?user=test123&name=TestUser&mood=umazing&date=2025-12-06"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/vote?user=test123&name=TestUser&mood=ok&date=2025-12-07"
 
    # View stats as JSON
-   curl http://localhost:8000/stats?days=7
+   curl -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/stats?days=7
 
    # Check who's at risk
-   curl http://localhost:8000/check-alerts
+   curl -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/check-alerts
    ```
 
 ---

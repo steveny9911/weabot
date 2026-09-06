@@ -3,7 +3,13 @@
  */
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { createLinkOpenService } from "./link_open.ts";
+import { createLinkOpenService as createService } from "./link_open.ts";
+import { type LinkFetch } from "./public_fetch.ts";
+
+let fetchPage: LinkFetch | undefined;
+function createLinkOpenService(config: AppConfig) {
+  return createService(config, { fetch: fetchPage });
+}
 import type { AppConfig } from "../config.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -39,16 +45,16 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 function mockFetch(
   handler: (url: string, init?: RequestInit) => Promise<Response> | Response,
 ): { restore: () => void } {
-  const originalFetch = globalThis.fetch;
+  const originalFetch = fetchPage;
 
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
+  fetchPage = (input: string, init?: RequestInit) => {
+    const url = input;
     return Promise.resolve(handler(url, init));
-  }) as typeof fetch;
+  };
 
   return {
     restore: () => {
-      globalThis.fetch = originalFetch;
+      fetchPage = originalFetch;
     },
   };
 }

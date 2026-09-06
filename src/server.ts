@@ -5,6 +5,7 @@
  * stats viewing, vote recording, and alert checking.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "./config.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { StorageService } from "./services/storage.ts";
@@ -16,34 +17,23 @@ import { DEFAULT_MOOD_CONFIG, type Mood } from "./types/bot.ts";
 import type { PollRecord } from "./types/storage.ts";
 
 /**
- * Creates and starts the HTTP server.
+ * Creates the HTTP request handler with health and authenticated administration.
  *
  * @param config - Application configuration
  * @param discord - Discord API client
  * @param storage - Storage service for vote persistence
  * @param dateFormatter - Date formatter for poll questions
  * @param rateLimit - Rate limit service for AI usage tracking (optional)
- * @returns The Deno server instance
+ * @returns The handler used by the production server and isolated tests
  */
-export function createServer(
-  config: AppConfig,
-  discord: DiscordClient,
-  storage: StorageService,
-  dateFormatter: Intl.DateTimeFormat,
-  rateLimit?: RateLimitService,
-) {
-  return Deno.serve(createRequestHandler(config, discord, storage, dateFormatter, rateLimit));
-}
-
-/** HTTP handler separated from listener startup for deterministic route tests. */
 export function createRequestHandler(
   config: AppConfig,
   discord: DiscordClient,
   storage: StorageService,
   dateFormatter: Intl.DateTimeFormat,
   rateLimit?: RateLimitService,
-): (req: Request) => Promise<Response> {
-  return async (req) => {
+) {
+  return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
 
     // =========================================================================
@@ -51,6 +41,28 @@ export function createRequestHandler(
     // =========================================================================
     if (url.pathname === "/health") {
       return new Response("OK", { status: 200 });
+    }
+
+    // Health is the only unauthenticated route. Administrative routes are
+    // disabled everywhere until an operator explicitly configures a token.
+    if (!config.adminHttpToken) return new Response("Not found", { status: 404 });
+    const expected = new TextEncoder().encode(`Bearer ${config.adminHttpToken}`);
+    const supplied = new TextEncoder().encode(req.headers.get("authorization") ?? "");
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const writes = new Set([
+      "/trigger",
+      "/trigger_poll",
+      "/trigger_stats",
+      "/trigger_alert",
+      "/trigger_collect",
+      "/vote",
+      "/add-pending-poll",
+    ]);
+    const method = writes.has(url.pathname) ? "POST" : "GET";
+    if (req.method !== method) {
+      return new Response("Method not allowed", { status: 405, headers: { Allow: method } });
     }
 
     // =========================================================================
@@ -471,4 +483,15 @@ AI & MONITORING
       { status: 200 },
     );
   };
+}
+
+/** Start the production HTTP server with the same policy used by handler tests. */
+export function createServer(
+  config: AppConfig,
+  discord: DiscordClient,
+  storage: StorageService,
+  dateFormatter: Intl.DateTimeFormat,
+  rateLimit?: RateLimitService,
+) {
+  return Deno.serve(createRequestHandler(config, discord, storage, dateFormatter, rateLimit));
 }

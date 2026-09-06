@@ -2,7 +2,8 @@
   "version": "5",
   "specifiers": {
     "jsr:@std/assert@1": "1.0.16",
-    "jsr:@std/internal@^1.0.12": "1.0.12"
+    "jsr:@std/internal@^1.0.12": "1.0.12",
+    "npm:undici@7.29.1": "7.29.1"
   },
   "jsr": {
     "@std/assert@1.0.16": {
@@ -13,6 +14,11 @@
     },
     "@std/internal@1.0.12": {
       "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
+    }
+  },
+  "npm": {
+    "undici@7.29.1": {
+      "integrity": "sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q=="
     }
   },
   "workspace": {
