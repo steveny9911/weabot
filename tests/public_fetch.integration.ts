@@ -144,3 +144,102 @@ Deno.test("pinned request abort closes a connection waiting for headers", async 
     await server.shutdown();
   }
 });
+
+Deno.test("pinned HTTP and HTTPS body cancellation release a stalled connection", async (t) => {
+  for (const secure of [false, true]) {
+    await t.step(secure ? "HTTPS" : "HTTP", async () => {
+      const server = Deno.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        ...(secure ? { cert, key } : {}),
+        onListen() {},
+      }, () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("first"));
+            },
+          }),
+        ));
+      try {
+        const response = await requestPinned(
+          new URL(`${secure ? "https" : "http"}://public.example:${server.addr.port}/`),
+          "127.0.0.1",
+          undefined,
+          ca,
+        );
+        const reader = response.body!.getReader();
+        assertEquals(new TextDecoder().decode((await reader.read()).value), "first");
+        await reader.cancel();
+        reader.releaseLock();
+      } finally {
+        await server.shutdown();
+      }
+    });
+  }
+});
+
+Deno.test("pinned HTTP and HTTPS abort reject a pending body read without uncaught errors", async (t) => {
+  for (const secure of [false, true]) {
+    await t.step(secure ? "HTTPS" : "HTTP", async () => {
+      const abort = new AbortController();
+      const server = Deno.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        ...(secure ? { cert, key } : {}),
+        onListen() {},
+      }, () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("first"));
+            },
+          }),
+        ));
+      try {
+        const response = await requestPinned(
+          new URL(`${secure ? "https" : "http"}://public.example:${server.addr.port}/`),
+          "127.0.0.1",
+          abort.signal,
+          ca,
+        );
+        const reader = response.body!.getReader();
+        await reader.read();
+        const pending = reader.read();
+        abort.abort();
+        await assertRejects(() => pending);
+        reader.releaseLock();
+      } finally {
+        await server.shutdown();
+      }
+    });
+  }
+});
+
+Deno.test("pinned transport reports corrupt or unsupported compression and closes resources", async (t) => {
+  for (const encoding of ["gzip", "deflate", "unsupported"]) {
+    await t.step(encoding, async () => {
+      const abort = new AbortController();
+      const deadline = setTimeout(() => abort.abort(), 1000);
+      const server = Deno.serve(
+        { hostname: "127.0.0.1", port: 0, onListen() {} },
+        () =>
+          new Response(new Uint8Array([1, 2, 3]), { headers: { "content-encoding": encoding } }),
+      );
+      try {
+        await assertRejects(async () => {
+          const response = await requestPinned(
+            new URL(`http://public.example:${server.addr.port}/`),
+            "127.0.0.1",
+            abort.signal,
+          );
+          await response.text();
+        });
+        assertEquals(abort.signal.aborted, false, "Invalid bodies must fail before the deadline");
+      } finally {
+        clearTimeout(deadline);
+        await server.shutdown();
+      }
+    });
+  }
+});

@@ -1,9 +1,8 @@
 /** Public-only link transport. DNS answers are checked once and the connection
  * uses a numeric address, preserving the original HTTP Host and TLS identity. */
-import { Agent as HttpAgent, request as requestHttp } from "node:http";
-import { Agent as HttpsAgent, request as requestHttps } from "node:https";
-import { createConnection, isIP } from "node:net";
-import { Readable } from "node:stream";
+import { isIP } from "node:net";
+import { Agent, buildConnector } from "npm:undici@7.29.1";
+import type { Readable } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 const METADATA_HOSTS = new Set([
@@ -187,89 +186,128 @@ export async function resolveAddresses(hostname: string, signal?: AbortSignal): 
  * Exported separately so CI can prove numeric pinning and TLS verification on
  * isolated loopback fixtures without weakening production destination policy.
  */
-export function requestPinned(
+export async function requestPinned(
   url: URL,
   address: string,
   signal?: AbortSignal,
   ca?: string,
 ): Promise<Response> {
-  if (!isIP(address)) return Promise.reject(new BlockedDestinationError());
+  if (!isIP(address)) throw new BlockedDestinationError();
   signal?.throwIfAborted();
-  const secure = url.protocol === "https:";
   const hostname = szNormalizeHost(url.hostname);
-  const port = Number(url.port || (secure ? 443 : 80));
-  const agent = secure
-    ? new HttpsAgent({ keepAlive: false, ca })
-    : new HttpAgent({ keepAlive: false });
-  // Deno 2.6 upgrades HTTPS agent sockets to TLS using the request URL's
-  // hostname. Pin the TCP factory, not the URL, so certificate verification
-  // and SNI retain the intended identity. Runtime CI verifies this contract.
-  agent.createConnection = () => createConnection({ host: address, port });
-  return new Promise((resolve, reject) => {
-    const request = (secure ? requestHttps : requestHttp)({
-      protocol: url.protocol,
-      hostname,
-      port,
+  // Use Undici's maintained TCP/TLS connector and parser on both supported Deno
+  // runtimes. Deno 2.6's node:http parser has a process-fatal pending-read abort
+  // bug; newer Deno also changed how HTTPS agent sockets are upgraded to TLS.
+  const connect = buildConnector({ rejectUnauthorized: true, ca, timeout: 0 });
+  const dispatcher = new Agent({
+    // link_open owns the request deadline; disabling Undici's separate timers
+    // also avoids leaving its shared timer running after a request completes.
+    headersTimeout: 0,
+    bodyTimeout: 0,
+    pipelining: 0,
+    connect(options, callback) {
+      // Only the socket destination changes. The URL/Host and TLS servername
+      // retain the original identity. No hostname is resolved a second time.
+      connect({ ...options, hostname: address, servername: hostname }, callback);
+    },
+  });
+  let source: Readable | undefined;
+  let closing: Promise<void> | undefined;
+  const close = () => {
+    signal?.removeEventListener("abort", abort);
+    return closing ??= dispatcher.destroy().catch(() => {});
+  };
+  const abort = () => {
+    source?.destroy(new DOMException("Aborted", "AbortError"));
+    void close();
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const response = await dispatcher.request({
+      origin: url.origin,
       path: url.pathname + url.search,
       method: "GET",
-      // A fresh connection per hop prevents pooled sockets bypassing validation.
-      agent,
-      servername: secure ? hostname : undefined,
-      rejectUnauthorized: true,
       signal,
       headers: {
-        Host: url.host,
         Accept: "text/html,application/xhtml+xml",
         "Accept-Encoding": "gzip, deflate, br",
-        Connection: "close",
       },
-    }, (incoming) => {
-      const headers = new Headers();
-      for (let i = 0; i < incoming.rawHeaders.length; i += 2) {
-        headers.append(incoming.rawHeaders[i], incoming.rawHeaders[i + 1]);
+    });
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(response.headers)) {
+      if (Array.isArray(value)) { for (const entry of value) headers.append(key, entry); }
+      else if (value !== undefined) headers.set(key, value);
+    }
+    source = response.body;
+    // BodyReadable emits AbortError when destroyed before it is consumed. A
+    // permanent listener makes every early-discard path safe; the iterator below
+    // separately observes errors while the caller is consuming the response.
+    source.on("error", () => {});
+    if ([204, 205, 304].includes(response.statusCode)) {
+      source.destroy();
+      await close();
+      return new Response(null, { status: response.statusCode, headers });
+    }
+    const encoding = headers.get("content-encoding")?.trim().toLowerCase();
+    if (encoding && encoding !== "identity") {
+      const decoder = encoding === "gzip"
+        ? createGunzip()
+        : encoding === "deflate"
+        ? createInflate()
+        : encoding === "br"
+        ? createBrotliDecompress()
+        : undefined;
+      if (!decoder) {
+        source.destroy();
+        throw new Error("Unsupported content encoding");
       }
-      let source: Readable = incoming;
-      const encoding = headers.get("content-encoding")?.trim().toLowerCase();
-      if (encoding && encoding !== "identity") {
-        const decoder = encoding === "gzip"
-          ? createGunzip()
-          : encoding === "deflate"
-          ? createInflate()
-          : encoding === "br"
-          ? createBrotliDecompress()
-          : undefined;
-        if (!decoder) {
-          incoming.destroy();
-          reject(new Error("Unsupported content encoding"));
-          return;
+      response.body.on("error", (error) => decoder.destroy(error));
+      decoder.on("close", () => response.body.destroy());
+      decoder.on("error", () => {});
+      source = response.body.pipe(decoder);
+      // Decode before applying the caller's byte limit, including gzip bombs.
+      headers.delete("content-encoding");
+      headers.delete("content-length");
+    }
+    // Readable.toWeb in Deno 2.6 can enqueue after cancellation. The guarded
+    // iterator bridge stops delivery before destroying a body with pending IO.
+    const iterator = source[Symbol.asyncIterator]();
+    let finished = false;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const chunk = await iterator.next();
+          if (finished) return;
+          if (chunk.done) {
+            finished = true;
+            controller.close();
+            await close();
+          } else {
+            controller.enqueue(chunk.value);
+          }
+        } catch (error) {
+          if (!finished) {
+            finished = true;
+            controller.error(error);
+          }
+          await close();
         }
-        incoming.on("error", (error) => decoder.destroy(error));
-        decoder.on("close", () => incoming.destroy());
-        source = incoming.pipe(decoder);
-        headers.delete("content-encoding");
-        // The link reader limits decoded bytes, including compressed payloads.
-        headers.delete("content-length");
-      }
-      const status = incoming.statusCode ?? 500;
-      // Response forbids bodies for these statuses.
-      if (status === 204 || status === 205 || status === 304) {
-        incoming.destroy();
-        resolve(new Response(null, { status, headers }));
-        return;
-      }
-      resolve(
-        new Response(Readable.toWeb(source) as ReadableStream<Uint8Array>, {
-          status,
-          headers,
-        }),
-      );
+      },
+      async cancel(reason) {
+        finished = true;
+        try {
+          source?.destroy();
+          await iterator.return?.(reason);
+        } finally {
+          await close();
+        }
+      },
     });
-    request.on("error", (error) => {
-      // Node uses Error with code ABORT_ERR; retain the link service contract.
-      reject(signal?.aborted ? new DOMException("Aborted", "AbortError") : error);
-    });
-    request.end();
-  });
+    return new Response(body, { status: response.statusCode, headers });
+  } catch (error) {
+    await close();
+    throw signal?.aborted ? new DOMException("Aborted", "AbortError") : error;
+  }
 }
 
 /** Every invocation validates all DNS answers and pins the actual connection.
