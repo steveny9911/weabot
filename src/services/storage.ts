@@ -80,11 +80,12 @@ export function createStorageService(kv: Deno.Kv): StorageService {
         timestamp: Date.now(),
       };
 
-      // Store by date and user (for daily lookups)
-      await kv.set(["votes", channelId, date, userId], record);
-
-      // Store in user's history (for consecutive checks)
-      await kv.set(["user_votes", channelId, userId, date], record);
+      // Keep both indexes consistent. Stable keys make collection retries idempotent.
+      const result = await kv.atomic()
+        .set(["votes", channelId, date, userId], record)
+        .set(["user_votes", channelId, userId, date], record)
+        .commit();
+      if (!result.ok) throw new Error("Could not persist vote and user history");
     },
 
     async getUserHistory(channelId, userId, limit = 30) {

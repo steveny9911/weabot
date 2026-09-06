@@ -61,10 +61,11 @@ export interface DiscordClient {
   getRecentMessages(channelId: string, limit: number): Promise<RecentDiscordMessage[]>;
 
   /**
-   * Gets voters for all answers in a poll
+   * Gets every voter for every answer in a finalized poll
    * @param channelId - The channel containing the poll
    * @param messageId - The message ID of the poll
-   * @returns Array of answers with their voters
+   * @returns Complete answers with their voters, including zero-vote answers
+   * @throws If the poll is unfinished, malformed, inaccessible, or incompletely retrieved
    */
   getPollVoters(channelId: string, messageId: string): Promise<PollAnswerVoters[]>;
 }
@@ -142,61 +143,128 @@ export function createDiscordClient(token: string): DiscordClient {
     },
 
     async getPollVoters(channelId, messageId) {
-      // First, get the message to find poll answers
-      const msgResponse = await fetchWithRetry(
+      const context = `poll ${messageId} in channel ${channelId}`;
+      const message = await getPollJson(
         `${API_BASE}/channels/${channelId}/messages/${messageId}`,
-        { headers },
+        headers,
+        context,
       );
-
-      if (!msgResponse.ok) {
-        console.error(`[DISCORD] Failed to get poll message: ${msgResponse.status}`);
-        return [];
+      const poll = asRecord(message.poll);
+      if (!poll || !Array.isArray(poll.answers) || poll.answers.length === 0) {
+        throw new Error(`[DISCORD] Invalid answers for ${context}`);
       }
 
-      const message = await msgResponse.json();
-      const poll = message.poll;
+      const answerIds = new Set<number>();
+      const answers = poll.answers.map((value: unknown) => {
+        const answer = asRecord(value);
+        const id = answer?.answer_id;
+        const media = asRecord(answer?.poll_media);
+        if (
+          typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 ||
+          answerIds.has(id) || !media ||
+          (media.text != null && typeof media.text !== "string")
+        ) {
+          throw new Error(`[DISCORD] Invalid or duplicate answer for ${context}`);
+        }
+        answerIds.add(id);
+        return { id, text: typeof media.text === "string" ? media.text : `Answer ${id}` };
+      });
 
-      if (!poll || !poll.answers) {
-        console.error("[DISCORD] Message is not a poll or has no answers");
-        return [];
+      // Finished polls always include results. Only the finalized tally is exact.
+      // https://docs.discord.com/developers/resources/poll#poll-results-object
+      const tally = asRecord(poll.results);
+      if (tally?.is_finalized !== true || !Array.isArray(tally.answer_counts)) {
+        throw new Error(`[DISCORD] Missing or unfinalized results for ${context}; retry later`);
+      }
+      const counts = new Map<number, number>();
+      for (const value of tally.answer_counts) {
+        const count = asRecord(value);
+        if (
+          typeof count?.id !== "number" || !answerIds.has(count.id) || counts.has(count.id) ||
+          typeof count.count !== "number" || !Number.isSafeInteger(count.count) || count.count < 0
+        ) {
+          throw new Error(`[DISCORD] Invalid answer counts for ${context}`);
+        }
+        counts.set(count.id, count.count);
       }
 
       const results: PollAnswerVoters[] = [];
-
-      // Fetch voters for each answer
-      for (const answer of poll.answers) {
-        const answerId = answer.answer_id;
-        const answerText = answer.poll_media?.text ?? `Answer ${answerId}`;
-
-        // Discord API: GET /channels/{channel.id}/polls/{message.id}/answers/{answer.id}
-        const votersResponse = await fetchWithRetry(
-          `${API_BASE}/channels/${channelId}/polls/${messageId}/answers/${answerId}`,
-          { headers },
-        );
-
-        if (!votersResponse.ok) {
-          console.error(
-            `[DISCORD] Failed to get voters for answer ${answerId}: ${votersResponse.status}`,
+      for (const answer of answers) {
+        const answerContext = `${context}, answer ${answer.id}`;
+        // Absent answers in a finalized tally have zero votes, per Discord's API contract.
+        const expectedCount = counts.get(answer.id) ?? 0;
+        const voters: PollVoter[] = [];
+        const seen = new Set<string>();
+        let after = 0n;
+        while (true) {
+          const url = new URL(
+            `${API_BASE}/channels/${channelId}/polls/${messageId}/answers/${answer.id}`,
           );
-          continue;
+          url.searchParams.set("limit", "100");
+          if (after > 0n) url.searchParams.set("after", after.toString());
+          const data = await getPollJson(url.toString(), headers, answerContext);
+          if (!Array.isArray(data.users) || data.users.length > 100) {
+            throw new Error(`[DISCORD] Invalid voters for ${answerContext}`);
+          }
+
+          let nextAfter = after;
+          for (const value of data.users) {
+            const user = asRecord(value);
+            if (
+              typeof user?.id !== "string" || !/^[1-9]\d*$/.test(user.id) ||
+              BigInt(user.id) <= after || seen.has(user.id) ||
+              (user.username != null && typeof user.username !== "string") ||
+              (user.global_name != null && typeof user.global_name !== "string")
+            ) {
+              throw new Error(`[DISCORD] Invalid or repeated voter for ${answerContext}`);
+            }
+            seen.add(user.id);
+            const id = BigInt(user.id);
+            if (id > nextAfter) nextAfter = id;
+            voters.push({
+              odUserId: user.id,
+              odUserName: (user.global_name ?? user.username ?? user.id) as string,
+            });
+          }
+          if (voters.length > expectedCount) {
+            throw new Error(`[DISCORD] Voter count exceeds finalized tally for ${answerContext}`);
+          }
+          if (data.users.length < 100) break;
+          after = nextAfter;
         }
-
-        const votersData = await votersResponse.json();
-        const voters: PollVoter[] = (votersData.users ?? []).map(
-          (user: { id: string; username?: string; global_name?: string }) => ({
-            odUserId: user.id,
-            odUserName: user.global_name ?? user.username ?? user.id,
-          }),
-        );
-
-        results.push({
-          answerId,
-          answerText,
-          voters,
-        });
+        if (voters.length !== expectedCount) {
+          throw new Error(
+            `[DISCORD] Incomplete voters for ${answerContext}: expected ${expectedCount}, got ${voters.length}`,
+          );
+        }
+        results.push({ answerId: answer.id, answerText: answer.text, voters });
       }
-
       return results;
     },
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+async function getPollJson(
+  url: string,
+  headers: Record<string, string>,
+  context: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetchWithRetry(url, { headers });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = asRecord(await response.json());
+    if (!data) throw new Error("Expected an object response");
+    return data;
+  } catch (error) {
+    throw new Error(`[DISCORD] Failed to retrieve ${context}`, { cause: error });
+  }
 }

@@ -12,8 +12,8 @@ import type { AiService } from "../ai_service.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { RateLimitService } from "./services/rate_limit.ts";
 import type { StorageService } from "./services/storage.ts";
+import { collectExpiredPolls } from "./services/poll_collection.ts";
 import type { PollRecord } from "./types/storage.ts";
-import type { Mood } from "./types/bot.ts";
 import { getBotUserId } from "../bot_actions.ts";
 import { decideAutonomousChatReply } from "./features/autonomous_chat/mod.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
@@ -165,57 +165,10 @@ export function registerCronJobs(
     console.log("[CRON] Checking for expired polls to collect...");
 
     try {
-      const expiredPolls = await storage.getExpiredPolls();
-
-      if (expiredPolls.length === 0) {
-        console.log("[CRON] No expired polls to collect");
-        return;
-      }
-
-      console.log(`[CRON] Found ${expiredPolls.length} expired poll(s) to collect`);
-
-      for (const poll of expiredPolls) {
-        try {
-          console.log(`[CRON] Collecting results for poll ${poll.messageId} (${poll.date})`);
-
-          // Fetch voters for each answer
-          const answers = await discord.getPollVoters(poll.channelId, poll.messageId);
-
-          // Map answer text to mood
-          const moodMap: Record<string, Mood> = {
-            umazing: "umazing",
-            ok: "ok",
-            glue: "glue",
-          };
-
-          let totalVotes = 0;
-
-          for (const answer of answers) {
-            const mood = moodMap[answer.answerText.toLowerCase()];
-            if (!mood) {
-              console.log(`[CRON] Unknown answer text: ${answer.answerText}`);
-              continue;
-            }
-
-            for (const voter of answer.voters) {
-              await storage.recordVote(
-                poll.channelId,
-                voter.odUserId,
-                voter.odUserName,
-                mood,
-                poll.date,
-              );
-              totalVotes++;
-            }
-          }
-
-          // Mark poll as collected
-          await storage.markPollCollected(poll.messageId);
-          console.log(`[CRON] Collected ${totalVotes} vote(s) from poll ${poll.messageId}`);
-        } catch (pollError) {
-          console.error(`[CRON] Error collecting poll ${poll.messageId}:`, pollError);
-        }
-      }
+      const result = await collectExpiredPolls(discord, storage);
+      console.log(
+        `[CRON] Poll collection: ${result.collected.length} collected, ${result.failed.length} pending retry`,
+      );
     } catch (error) {
       console.error("[CRON] Error in poll collection:", error);
     }
