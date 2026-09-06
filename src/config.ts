@@ -22,7 +22,7 @@ export interface AppConfig {
   openaiApiKey: string | undefined;
   /** Max AI requests per user per minute (default: 2) */
   aiRateLimitPerUser: number;
-  /** Max tokens to use per day across all users (default: 10M, user has OpenAI spending limits) */
+  /** Soft daily threshold on reported tokens; in-flight requests may exceed it (default: 10M) */
   aiDailyTokenBudget: number;
   /** Max characters per input message before truncation; set to 0 to disable (default: 0) */
   aiMaxInputChars: number;

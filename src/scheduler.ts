@@ -269,24 +269,25 @@ export function registerCronJobs(
           continue;
         }
 
-        const budget_result = await rateLimit.checkDailyBudget();
+        const budget_result = await rateLimit.admitRequest("autonomous-chat", {
+          enforceUserLimit: false,
+        });
         if (!budget_result.allowed) {
           console.log("[CRON] Autonomous chat skipped because daily token budget is exhausted");
           continue;
         }
 
-        await rateLimit.recordUserRequest("autonomous-chat");
         const ai_result = await aiService.generateReply([
           ...decision.contextMessages,
           { author: "system", content: AUTONOMOUS_CHAT_GUIDANCE },
         ]);
 
+        if (ai_result.tokensUsed) await rateLimit.recordTokenUsage(ai_result.tokensUsed);
         if (!ai_result.ok) {
           console.error(`[CRON] Autonomous chat AI failed in ${channelId}: ${ai_result.error}`);
           continue;
         }
 
-        await rateLimit.recordTokenUsage(ai_result.tokensUsed);
         const response = await discord.postMessage(channelId, { content: ai_result.text });
 
         if (response.ok) {

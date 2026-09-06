@@ -11,6 +11,7 @@ import {
 import type { AiResult } from "./ai_service.ts";
 import type { BotDependencies } from "./bot_actions.ts";
 import type { AppConfig } from "./src/config.ts";
+import { createRateLimitService } from "./src/services/rate_limit.ts";
 import type { BudgetResult, RateLimitResult, UsageStats } from "./src/services/rate_limit.ts";
 import type { LinkOpenError } from "./src/services/link_open.ts";
 import type { SearchResult } from "./src/services/web_search.ts";
@@ -179,6 +180,15 @@ function createDeps(
       },
     },
     rateLimitService: {
+      async admitRequest(userId) {
+        const rate = await this.checkUserRateLimit(userId);
+        if (!rate.allowed) return { ...rate, allowed: false, reason: "user_limit" };
+        if (!(await this.checkDailyBudget()).allowed) {
+          return { ...rate, allowed: false, reason: "daily_budget" };
+        }
+        await this.recordUserRequest(userId);
+        return { ...rate, allowed: true };
+      },
       checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
         return Promise.resolve(
           overrides.rateLimitResult ?? {
@@ -1087,5 +1097,39 @@ Deno.test("getBotUserId static import still returns a cached id", async () => {
     assertEquals(typeof result, "string");
   } finally {
     fetch_mock.restore();
+  }
+});
+
+Deno.test("handleMessage admits exactly one concurrent mention for one remaining allowance", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const config = createMockConfig({ aiRateLimitPerUser: 1 });
+    const fixture = createDeps(config);
+    fixture.deps.rateLimitService = createRateLimitService(
+      kv,
+      config,
+      () => Date.parse("2026-09-05T12:34:00Z"),
+    );
+    await Promise.all(
+      Array.from(
+        { length: 12 },
+        () => handleMessage(createMentionMessage("<@12345> hello"), fixture.deps),
+      ),
+    );
+    assertEquals(fixture.aiCalls.length, 1);
+    assertEquals(
+      fetchMock.postedMessages.filter((message) => message.includes("speedy")).length,
+      11,
+    );
+    assertEquals(fetchMock.postedMessages.filter((message) => message === "AI reply").length, 1);
+    assertEquals(await fixture.deps.rateLimitService.getUsageStats(), {
+      dailyTokensUsed: 9,
+      dailyTokenBudget: config.aiDailyTokenBudget,
+      requestsToday: 1,
+    });
+  } finally {
+    fetchMock.restore();
+    kv.close();
   }
 });

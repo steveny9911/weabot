@@ -46,6 +46,7 @@ Deno.test("handleMessage exits when bot id cannot be fetched", async () => {
       },
     },
     rateLimitService: {
+      admitRequest: () => Promise.resolve({ allowed: true, remaining: 1, resetInMs: 1000 }),
       checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
         return Promise.resolve({ allowed: true, remaining: 1, resetInMs: 1000 });
       },
