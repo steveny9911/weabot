@@ -2,12 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, feat/aws-hosting]
   pull_request:
 
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        deno: [v2.6.0, v2.x]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -15,7 +18,7 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
-          deno-version: v2.x
+          deno-version: ${{ matrix.deno }}
 
       - name: Verify formatting
         run: deno fmt --check
@@ -28,3 +31,6 @@ jobs:
 
       - name: Run all tests, including concurrency and poll collection regressions
         run: deno task test --reporter=pretty
+
+      - name: Verify pinned HTTP and TLS transport on loopback fixtures
+        run: deno task test:transport

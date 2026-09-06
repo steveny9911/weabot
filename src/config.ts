@@ -9,6 +9,8 @@
 /** Application configuration interface */
 export interface AppConfig {
   discordToken: string;
+  /** HTTP administration is disabled unless this bearer token is configured. */
+  adminHttpToken?: string;
   channelId: string;
   channelIds: string[];
   timeZone: string;
@@ -129,6 +131,7 @@ export function loadConfig(): AppConfig {
 
   return {
     discordToken: getEnvOrThrow("DISCORD_TOKEN"),
+    adminHttpToken: Deno.env.get("ADMIN_HTTP_TOKEN")?.trim() || undefined,
     channelId: channel_ids_unique[0],
     channelIds: channel_ids_unique,
     timeZone: Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles",
