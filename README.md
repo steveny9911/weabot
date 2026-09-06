@@ -134,6 +134,27 @@ Mention Haru to chat, or use a command:
 - `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
 
+### AI usage limits
+
+`AI_RATE_LIMIT_PER_USER` counts admitted mention requests per user in fixed UTC minute buckets.
+Admission atomically checks and consumes the allowance, so concurrent mentions share the same limit.
+Rejected requests do not consume an allowance. Accepted requests count even if fetching context or
+links, generating a reply, or sending to Discord subsequently fails.
+
+`AI_DAILY_TOKEN_BUDGET` is a **soft threshold** on reported tokens across mentions and autonomous
+chat. Admission stops once recorded usage reaches it. Already admitted requests can finish above the
+threshold; there are no token reservations or strict limits on in-flight usage. For example, two
+requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget by
+199. Use provider spending controls if a strict spending limit is required.
+
+Reported tokens, including usage returned with failed generations, are recorded atomically. Tokens
+are charged to the UTC day when the response is recorded; requests count on their admission day.
+Requests spanning midnight may therefore appear in different daily request and token buckets.
+Autonomous chat uses the same budget check and request accounting, but remains exempt from the human
+per-user limit. Existing numeric KV counters remain compatible, with user buckets retained for two
+minutes and daily counters for 48 hours. A repeatedly conflicting transaction fails explicitly after
+bounded retries, so it never authorizes uncounted work.
+
 ### Discord events and invitations
 
 Ask Haru directly in a server channel, for example:

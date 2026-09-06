@@ -81,6 +81,7 @@ async function fixture(
       },
     },
     rateLimitService: {
+      admitRequest: () => Promise.resolve({ allowed: true, remaining: 1, resetInMs: 1000 }),
       checkUserRateLimit: () => Promise.resolve({ allowed: true, remaining: 1, resetInMs: 0 }),
       checkDailyBudget: () =>
         Promise.resolve({ allowed: true, tokensUsed: 0, tokensRemaining: 10000 }),

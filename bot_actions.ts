@@ -353,9 +353,9 @@ export async function handleMessage(
     return;
   }
 
-  // Check per-user rate limit
-  const rate_limit_result = await rateLimitService.checkUserRateLimit(user_id);
-  if (!rate_limit_result.allowed) {
+  // Checking and consuming the allowance must be one atomic operation.
+  const rate_limit_result = await rateLimitService.admitRequest(user_id);
+  if (!rate_limit_result.allowed && rate_limit_result.reason === "user_limit") {
     const reset_time = szFormatTime(rate_limit_result.resetInMs);
     await sendMessage(
       config,
@@ -366,9 +366,7 @@ export async function handleMessage(
     return;
   }
 
-  // Check daily token budget
-  const budget_result = await rateLimitService.checkDailyBudget();
-  if (!budget_result.allowed) {
+  if (!rate_limit_result.allowed) {
     await sendMessage(
       config,
       channel_id,
@@ -377,9 +375,6 @@ export async function handleMessage(
     console.log("Daily token budget exhausted");
     return;
   }
-
-  // Record the request (do this before making the API call)
-  await rateLimitService.recordUserRequest(user_id);
 
   // Save only the current uninterrupted conversation as context.
   const context_reset = await storageService.getContextReset(channel_id);
