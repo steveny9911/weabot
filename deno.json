@@ -15,7 +15,7 @@
     "agent:next-issue": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/next_issue.ts",
     "agent:mark-pr-open": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/mark_pr_open.ts",
     "agent:run-once": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/run_once.ts",
-    "test:transport": "deno test --allow-env --allow-net=127.0.0.1,public.example,wrong.example tests/public_fetch.integration.ts"
+    "test:transport": "deno test --allow-env --allow-net=127.0.0.1,public.example,wrong.example tests/public_fetch.integration.ts tests/link_open.integration.ts"
   },
   "fmt": {
     "useTabs": false,

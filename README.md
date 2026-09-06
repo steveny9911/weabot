@@ -259,7 +259,11 @@ you explicitly need administration. Do not put the token in a URL.
 
 Link opening resolves and checks both address families on every redirect, then connects directly to
 one validated public IP. The original hostname remains the HTTP Host and verified TLS identity.
-Private/reserved addresses, mixed public/private DNS answers, and URL credentials are rejected.
+Private/reserved addresses, mixed public/private DNS answers, and URL credentials are rejected. A
+single 8-second deadline covers DNS, connection setup, up to three redirects, response body reads,
+and decompression. Redirects and slowly arriving chunks do not reset the deadline. The 1 MiB body
+limit applies to decoded bytes. Abandoned bodies are canceled, readers released, and the deadline
+timer cleared on every exit; download and decoding errors return structured failures.
 `deno task test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI
 runs these checks on both the production Deno 2.6.0 runtime and the current Deno 2.x release.
 
