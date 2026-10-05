@@ -303,7 +303,7 @@ Deno.test("saveContext stores image attachment URLs in context", async () => {
   }
 });
 
-Deno.test("saveContext treats image by filename/size hints even without content_type", async () => {
+Deno.test("saveContext uses image filenames without trusting dimension-only hints", async () => {
   const channel_id = "channel-images-2";
   const config = createMockConfig();
   const mock = mockFetchMessages([
@@ -334,7 +334,6 @@ Deno.test("saveContext treats image by filename/size hints even without content_
     assertEquals(ctx.length, 1);
     assertEquals(ctx[0]["imageUrls"], [
       "https://media.discordapp.net/attachments/3/4/dog.jpg",
-      "https://cdn.discordapp.com/attachments/3/4/not-image.bin",
     ]);
   } finally {
     mock.restore();

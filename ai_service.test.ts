@@ -7,6 +7,11 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { createAiService, generateReplyFromMessages } from "./ai_service.ts";
 import type { AppConfig } from "./src/config.ts";
+import {
+  oMapDiscordMessage,
+  oToAiContextMessage,
+  selectActiveConversation,
+} from "./src/features/chat_context/mod.ts";
 
 // Helper to create a mock config
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -676,6 +681,52 @@ Deno.test("generateReply caps image inputs to six unique URLs and ignores non-st
       image_parts[5]["image_url"],
       "https://example.com/6.png",
     );
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("a reply to a video cannot poison subsequent text-only AI requests", async () => {
+  const mock = mockFetch({ output_text: "Still here!", usage: { total_tokens: 12 } });
+  const messages = [
+    {
+      id: "first-mention",
+      content: "Do not drink that",
+      timestamp: "2026-10-05T12:00:00Z",
+      author: { username: "Alice" },
+      referenced_message: {
+        content: "The pond",
+        author: { username: "Bob" },
+        attachments: [{
+          url: "https://cdn.example.com/pond.mov",
+          filename: "pond.mov",
+          content_type: "video/quicktime",
+          width: 640,
+          height: 360,
+        }],
+      },
+    },
+    {
+      id: "follow-up",
+      content: "Are you okay?",
+      timestamp: "2026-10-05T12:00:20Z",
+      author: { username: "Alice" },
+    },
+  ];
+
+  try {
+    const context = selectActiveConversation(messages.map(oMapDiscordMessage), {
+      maxMessages: 40,
+      inactivityGapMs: 20 * 60_000,
+    }).map(oToAiContextMessage);
+    const result = await createAiService(createMockConfig()).generateReply(context);
+    assertEquals(result.ok, true);
+    const input = mock.getLastRequest()?.body.input as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    assertEquals(input[0].content.filter((part) => part.type === "input_image"), []);
+    assertStringIncludes(String(input[0].content[0].text), "replying to Bob: The pond");
+    assertStringIncludes(String(input[0].content[0].text), "Are you okay?");
   } finally {
     mock.restore();
   }

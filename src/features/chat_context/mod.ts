@@ -24,7 +24,8 @@ interface TimestampedMessage {
   index: number;
 }
 
-const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|tiff?)$/i;
+const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp)$/i;
+const IMAGE_CONTENT_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 function bIsHttpUrl(url: string): boolean {
   try {
@@ -36,15 +37,23 @@ function bIsHttpUrl(url: string): boolean {
 }
 
 function bAttachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
-  const content_type = attachment["content_type"];
-  if (typeof content_type === "string" && content_type.startsWith("image/")) return true;
+  const raw_content_type = attachment["content_type"];
+  const content_type = typeof raw_content_type === "string"
+    ? raw_content_type.split(";", 1)[0].trim().toLowerCase()
+    : "";
+  if (content_type && content_type !== "application/octet-stream") {
+    return IMAGE_CONTENT_TYPES.has(content_type);
+  }
 
   const filename = attachment["filename"];
-  if (typeof filename === "string" && IMAGE_FILE_EXT_RE.test(filename)) return true;
+  if (typeof filename === "string" && filename.trim()) {
+    return IMAGE_FILE_EXT_RE.test(filename.trim());
+  }
 
-  const width = attachment["width"];
-  const height = attachment["height"];
-  return typeof width === "number" && width > 0 && typeof height === "number" && height > 0;
+  // Videos also have width and height. Require an image format, not dimensions.
+  const url = attachment["url"] ?? attachment["proxy_url"];
+  if (typeof url !== "string" || !bIsHttpUrl(url)) return false;
+  return IMAGE_FILE_EXT_RE.test(new URL(url).pathname);
 }
 
 function aszExtractImageUrls(message: Record<string, unknown>): string[] {
