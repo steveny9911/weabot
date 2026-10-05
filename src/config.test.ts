@@ -22,6 +22,8 @@ function withEnv(
     "GLUE_ALERT_THRESHOLD",
     "AI_ENABLED",
     "OPENAI_API_KEY",
+    "OPENAI_ADMIN_KEY",
+    "USAGE_OPENAI_PROJECT_ID",
     "AI_RATE_LIMIT_PER_USER",
     "AI_DAILY_TOKEN_BUDGET",
     "AI_MAX_INPUT_CHARS",
@@ -232,6 +234,8 @@ Deno.test("loadConfig returns complete config with all values", () => {
         glueAlertThreshold: 5,
         aiEnabled: true,
         openaiApiKey: "sk-test-key",
+        openaiAdminKey: undefined,
+        usageOpenaiProjectId: undefined,
         aiRateLimitPerUser: 10,
         aiDailyTokenBudget: 50000,
         aiMaxInputChars: 300,
@@ -424,5 +428,30 @@ Deno.test("HTTP administration is disabled by default and accepts an explicit to
   });
   withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "secret" }, () => {
     assertEquals(loadConfig().adminHttpToken, "secret");
+  });
+});
+
+Deno.test("usage billing configuration is separate from the chat key and trims blank values", () => {
+  withEnv({
+    DISCORD_TOKEN: "token",
+    CHANNEL_ID: "channel",
+    OPENAI_API_KEY: "chat-key",
+    OPENAI_ADMIN_KEY: " admin-key ",
+    USAGE_OPENAI_PROJECT_ID: " proj-test ",
+  }, () => {
+    const config = loadConfig();
+    assertEquals(config.openaiAdminKey, "admin-key");
+    assertEquals(config.usageOpenaiProjectId, "proj-test");
+    assertEquals(config.openaiApiKey, "chat-key");
+  });
+  withEnv({
+    DISCORD_TOKEN: "token",
+    CHANNEL_ID: "channel",
+    OPENAI_ADMIN_KEY: " ",
+    USAGE_OPENAI_PROJECT_ID: " ",
+  }, () => {
+    const config = loadConfig();
+    assertEquals(config.openaiAdminKey, undefined);
+    assertEquals(config.usageOpenaiProjectId, undefined);
   });
 });

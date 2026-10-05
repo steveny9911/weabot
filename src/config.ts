@@ -35,6 +35,11 @@ export interface AppConfig {
   /** Minutes of silence that starts a new conversation context (default: 20) */
   aiContextInactivityMinutes: number;
 
+  /** Organization admin key for billing/usage reads; separate from the chat key. */
+  openaiAdminKey?: string;
+  /** Optional project filter applied to both OpenAI costs and token totals. */
+  usageOpenaiProjectId?: string;
+
   // Web Search
   /** Master switch for web search (default: false) */
   webSearchEnabled: boolean;
@@ -152,6 +157,9 @@ export function loadConfig(): AppConfig {
       Deno.env.get("AI_CONTEXT_INACTIVITY_MINUTES"),
       20,
     ),
+
+    openaiAdminKey: Deno.env.get("OPENAI_ADMIN_KEY")?.trim() || undefined,
+    usageOpenaiProjectId: Deno.env.get("USAGE_OPENAI_PROJECT_ID")?.trim() || undefined,
 
     // Web Search
     webSearchEnabled: web_search_enabled,

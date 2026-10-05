@@ -131,6 +131,7 @@ You should see:
 Mention Haru to chat, or use a command:
 
 - `@Haru hello there`
+- `@Haru \usage` (month-to-date costs and token totals)
 - `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
 
@@ -248,6 +249,58 @@ to leave the event visible. Only newly created test artifacts are eligible for c
 that the bot cannot delete expires after 60 seconds. Use the sandbox runner above for interactive
 testing, or use a separate test bot identity with `dev`. The normal `dev` command also starts
 scheduled jobs and can respond in any server the bot can access.
+
+### Month-to-date usage
+
+Mention Haru with `\usage` in a configured bot channel. The command returns a compact report:
+
+```text
+📊 Usage — October 2026 (month to date)
+2026-10-01 → 2026-10-06 13:45 UTC
+
+AWS cost: $12.35
+OpenAI API cost: $3.50
+
+Input tokens: 1,234,567
+Cache tokens: 123,000
+Output tokens: 8,000
+
+AWS account • OpenAI organization
+Cache tokens are included in input tokens. Provider totals may lag; AWS costs are estimated.
+```
+
+The example values are illustrative. The UTC billing month starts at midnight on the first and
+includes provider-reported usage through today. AWS uses account-wide **UnblendedCost**, with an
+exclusive end date of tomorrow; OpenAI uses its Costs and Completions Usage endpoints through the
+report timestamp (including Responses API model usage). These totals include usage outside Haru in
+the selected account/organization. OpenAI costs include all API products, while the three token
+counts cover model completions usage. Cached tokens are a subset of input tokens; do not add them
+again.
+
+Configure `OPENAI_ADMIN_KEY` with an organization admin key that can read usage and costs; the
+normal `OPENAI_API_KEY` chat key is separate. Optionally set `USAGE_OPENAI_PROJECT_ID` to Haru's
+project ID (applied to both OpenAI costs and tokens); the report then labels the scope as "OpenAI
+project". Keep the admin key in the same secret environment storage as other bot credentials.
+
+AWS authentication uses `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional
+`AWS_SESSION_TOKEN`, or the EC2 instance role via IMDSv2. It does not use local AWS profiles for
+credentials. Enable Cost Explorer in the AWS account and grant `ce:GetCostAndUsage`; the
+CloudFormation template includes that read permission for the instance role. Apply the
+infrastructure update using the existing-instance AMI override described below before expecting
+production AWS totals.
+
+Results are cached for five minutes, concurrent requests share a query, and a new UTC month forces a
+refresh. Provider requests have a fifteen-second deadline. Missing credentials, permission errors,
+or provider failures show **Unavailable** for affected values instead of a misleading zero. Valid
+empty results show zero. The command works with AI disabled or its daily budget exhausted and does
+not spend model tokens or change chat context. Its report is visible to members of the channel. AWS
+Cost Explorer API requests may incur charges; caching limits repeated queries.
+
+Sources:
+[OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage),
+[AWS GetCostAndUsage](https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html).
+
+---
 
 ## Testing the Bot
 

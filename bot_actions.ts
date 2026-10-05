@@ -5,6 +5,8 @@
  * Uses dependency injection for testability and rate limiting.
  */
 
+import type { UsageService } from "./src/services/usage.ts";
+import { formatUsageMessage } from "./src/features/usage/message.ts";
 import type { AppConfig } from "./src/config.ts";
 import type { AiService } from "./ai_service.ts";
 import {
@@ -41,6 +43,7 @@ let cached_bot_user_id: string | undefined;
  */
 export interface BotDependencies {
   config: AppConfig;
+  usageService?: UsageService;
   aiService: AiService;
   rateLimitService: RateLimitService;
   linkOpenService: LinkOpenService;
@@ -317,6 +320,25 @@ export async function handleMessage(
 
   const user_id = (author?.["id"] as string) ?? "unknown";
   const content = message["content"] as string | undefined;
+  // Billing commands do not generate AI replies, spend tokens, or mutate context.
+  const cleaned = content?.replace(/<@!?\d+>/g, " ").trim();
+  if (/^\\usage$/i.test(cleaned ?? "")) {
+    if (!config.channelIds.includes(channel_id)) {
+      await sendMessage(config, channel_id, "Usage is available in configured bot channels only.");
+      return;
+    }
+    try {
+      const report = await deps.usageService?.getMonthToDate();
+      await sendMessage(
+        config,
+        channel_id,
+        report ? formatUsageMessage(report) : "Usage reporting is unavailable right now.",
+      );
+    } catch {
+      await sendMessage(config, channel_id, "Usage reporting is unavailable right now.");
+    }
+    return;
+  }
   const is_open_command = bIsOpenCommand(content);
   const open_command = is_open_command ? szParseOpenCommand(content) : null;
 

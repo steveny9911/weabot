@@ -106,6 +106,10 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - ce:GetCostAndUsage
+                Resource: "*"
+              - Effect: Allow
+                Action:
                   - ssm:GetParameter
                 Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${EnvParameterName}
               - Effect: Allow
