@@ -229,3 +229,47 @@ Deno.test("a failed later OpenAI page discards earlier partial totals", async ()
   assertEquals(report.openaiCost.ok, false);
   assertEquals(report.tokens.ok, false);
 });
+
+Deno.test("real AWS client signs and reads costs without system or filesystem permissions", async () => {
+  const keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"];
+  const previous = keys.map((key) => Deno.env.get(key));
+  Deno.env.set(keys[0], "AKIDEXAMPLE");
+  Deno.env.set(keys[1], "dummy-secret");
+  Deno.env.delete(keys[2]);
+  let requests = 0;
+  try {
+    const report = await createUsageService({} as AppConfig, {
+      now: () => date,
+      awsRequestHandler: {
+        handle(request: { hostname: string; headers: Record<string, string>; body?: unknown }) {
+          requests++;
+          assertEquals(request.hostname, "ce.us-east-1.amazonaws.com");
+          assertStringIncludes(request.headers.authorization, "AWS4-HMAC-SHA256");
+          assertStringIncludes(request.headers.authorization, "/us-east-1/ce/aws4_request");
+          assertEquals(request.headers["x-amz-target"], "AWSInsightsIndexService.GetCostAndUsage");
+          const body = request.body instanceof Uint8Array
+            ? new TextDecoder().decode(request.body)
+            : String(request.body);
+          assertEquals(JSON.parse(body).TimePeriod, {
+            Start: "2026-10-01",
+            End: "2026-10-07",
+          });
+          return Promise.resolve({
+            response: {
+              statusCode: 200,
+              headers: { "content-type": "application/x-amz-json-1.1" },
+              body: new TextEncoder().encode(JSON.stringify(awsResult)),
+            },
+          });
+        },
+      },
+    }).getMonthToDate();
+    assertEquals(requests, 1);
+    assertEquals(report.awsCost, { ok: true, value: { amount: 12.345, currency: "USD" } });
+  } finally {
+    keys.forEach((key, i) => {
+      if (previous[i] === undefined) Deno.env.delete(key);
+      else Deno.env.set(key, previous[i]!);
+    });
+  }
+});

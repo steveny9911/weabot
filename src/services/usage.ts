@@ -1,6 +1,7 @@
 /** Provider-reported month-to-date billing and model token usage. */
 import {
   CostExplorerClient,
+  type CostExplorerClientConfig,
   GetCostAndUsageCommand,
   type GetCostAndUsageCommandInput,
   type GetCostAndUsageCommandOutput,
@@ -32,6 +33,7 @@ export interface UsageService {
 interface UsageDependencies {
   now?: () => Date;
   fetch?: typeof fetch;
+  awsRequestHandler?: CostExplorerClientConfig["requestHandler"];
   awsSend?: (
     input: GetCostAndUsageCommandInput,
     signal: AbortSignal,
@@ -82,6 +84,9 @@ export function createUsageService(
   const client = new CostExplorerClient({
     region: "us-east-1",
     maxAttempts: 2,
+    // The SDK's default agent reads node:os.release(), requiring Deno --allow-sys.
+    defaultUserAgentProvider: () => Promise.resolve([["weabot", "1"]]),
+    requestHandler: deps.awsRequestHandler,
     credentials: () => {
       const accessKeyId = Deno.env.get("AWS_ACCESS_KEY_ID");
       const secretAccessKey = Deno.env.get("AWS_SECRET_ACCESS_KEY");
