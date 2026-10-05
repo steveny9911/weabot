@@ -1,5 +1,7 @@
 {
   "imports": {
+    "@aws-sdk/client-cost-explorer": "npm:@aws-sdk/client-cost-explorer@3.1146.0",
+    "@smithy/credential-provider-imds": "npm:@smithy/credential-provider-imds@4.5.2",
     "@std/assert": "jsr:@std/assert@1"
   },
   "tasks": {

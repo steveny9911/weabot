@@ -7,7 +7,7 @@ on:
 
 jobs:
   validate-infrastructure:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
           cfn-lint --info --non-zero-exit-code error --regions us-west-2 --template deploy/aws/cloudformation.yml --parameters ExistingAmiId=ami-0123456789abcdef0 RepositoryRef=ci-validation VpcId=vpc-0123456789abcdef0 SubnetId=subnet-0123456789abcdef0
 
   lint-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
         deno: [v2.6.0, v2.x]

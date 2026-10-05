@@ -1132,3 +1132,87 @@ Deno.test("handleMessage admits exactly one concurrent mention for one remaining
     kv.close();
   }
 });
+
+Deno.test("usage command bypasses AI budgets and does not mutate conversation context", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(createMockConfig({ aiEnabled: false }), {
+    rateLimitResult: { allowed: false, remaining: 0, resetInMs: 1000 },
+    budgetResult: { allowed: false, tokensRemaining: 0 },
+  });
+  let reads = 0;
+  state.deps.usageService = {
+    getMonthToDate() {
+      reads++;
+      return Promise.resolve({
+        start: "2026-10-01T00:00:00Z",
+        asOf: "2026-10-06T00:00:00Z",
+        openaiScope: "organization",
+        awsCost: { ok: true, value: { amount: 1, currency: "USD" } },
+        openaiCost: { ok: true, value: { amount: 2, currency: "USD" } },
+        tokens: { ok: true, value: { input: 100, cached: 20, output: 10 } },
+      });
+    },
+  };
+  const context = getContext("chan-1");
+  try {
+    await handleMessage(createMentionMessage(" <@!12345> \\UsAgE "), state.deps);
+    assertEquals(reads, 1);
+    assertEquals(state.aiCalls.length, 0);
+    assertEquals(state.requestCount, 0);
+    assertEquals(state.recordedTokens, []);
+    assertEquals(getContext("chan-1"), context);
+    assertStringIncludes(mock.postedMessages[0], "**AWS cost:** $1.00");
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("usage requires a mention and configured channel and ignores bots", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(createMockConfig({ aiEnabled: false }));
+  let reads = 0;
+  state.deps.usageService = {
+    getMonthToDate() {
+      reads++;
+      throw new Error("unexpected");
+    },
+  };
+  try {
+    await handleMessage({ ...createMentionMessage("\\usage"), mentions: [] }, state.deps);
+    await handleMessage(
+      { ...createMentionMessage("<@12345> \\usage"), author: { bot: true } },
+      state.deps,
+    );
+    await handleMessage(
+      { ...createMentionMessage("<@12345> \\usage"), channel_id: "other" },
+      state.deps,
+    );
+    await handleMessage(createMentionMessage("<@12345> \\usage-extra"), state.deps);
+    await handleMessage(createMentionMessage("<@12345> discuss \\usage"), state.deps);
+    assertEquals(reads, 0);
+    assertEquals(mock.postedMessages, ["Usage is available in configured bot channels only."]);
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("usage handles unavailable service and unexpected service failures", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(createMockConfig());
+  try {
+    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
+    state.deps.usageService = {
+      getMonthToDate() {
+        throw new Error("secret");
+      },
+    };
+    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
+    assertEquals(mock.postedMessages, [
+      "Usage reporting is unavailable right now.",
+      "Usage reporting is unavailable right now.",
+    ]);
+    assertEquals(state.aiCalls.length, 0);
+  } finally {
+    mock.restore();
+  }
+});

@@ -1,3 +1,4 @@
+import { createUsageService } from "./src/services/usage.ts";
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/services/discord.ts";
 import { createDiscordEventsClient } from "./src/services/discord_events.ts";
@@ -34,6 +35,7 @@ const link_open = createLinkOpenService(config);
 // Bundle dependencies for bot actions
 const bot_deps: BotDependencies = {
   config,
+  usageService: createUsageService(config),
   aiService: ai_service,
   rateLimitService: rate_limit,
   linkOpenService: link_open,
