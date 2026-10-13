@@ -6,7 +6,13 @@
  */
 
 import type { Mood } from "../types/bot.ts";
-import type { ContextResetRecord, DailyStats, PollRecord, VoteRecord } from "../types/storage.ts";
+import type {
+  AutonomousParticipationRecord,
+  ContextResetRecord,
+  DailyStats,
+  PollRecord,
+  VoteRecord,
+} from "../types/storage.ts";
 
 /** Storage service interface for dependency injection */
 export interface StorageService {
@@ -51,12 +57,46 @@ export interface StorageService {
 
   /** Read the latest context reset for one Discord channel or thread. */
   getContextReset(channelId: string): Promise<ContextResetRecord | null>;
+
+  /** Read the latest autonomous attempt for one Discord channel or thread. */
+  getAutonomousParticipation(channelId: string): Promise<AutonomousParticipationRecord | null>;
+
+  /** Atomically consume a new human message watermark and the channel cooldown. */
+  claimAutonomousParticipation(
+    record: AutonomousParticipationRecord,
+    cooldownMs: number,
+  ): Promise<boolean>;
+
+  /** Extend cooldown from completion without replacing a newer message claim. */
+  finishAutonomousParticipation(
+    channelId: string,
+    latestHumanMessageId: string,
+    finishedAt: number,
+  ): Promise<void>;
 }
 
 export type ContextStorageService = Pick<
   StorageService,
   "setContextReset" | "getContextReset"
 >;
+
+const MAX_PARTICIPATION_COMMIT_ATTEMPTS = 10;
+
+/** Fail closed when equal timestamps cannot establish a newer Discord message. */
+export function isNewerHumanMessage(
+  candidate: Pick<AutonomousParticipationRecord, "latestHumanMessageId" | "latestHumanTimestampMs">,
+  previous: Pick<AutonomousParticipationRecord, "latestHumanMessageId" | "latestHumanTimestampMs">,
+): boolean {
+  if (candidate.latestHumanMessageId === previous.latestHumanMessageId) return false;
+  if (candidate.latestHumanTimestampMs !== previous.latestHumanTimestampMs) {
+    return candidate.latestHumanTimestampMs > previous.latestHumanTimestampMs;
+  }
+  if (
+    !/^\d+$/.test(candidate.latestHumanMessageId) ||
+    !/^\d+$/.test(previous.latestHumanMessageId)
+  ) return false;
+  return BigInt(candidate.latestHumanMessageId) > BigInt(previous.latestHumanMessageId);
+}
 
 /**
  * Creates a storage service backed by Deno KV.
@@ -246,6 +286,53 @@ export function createStorageService(kv: Deno.Kv): StorageService {
     async getContextReset(channelId) {
       const entry = await kv.get<ContextResetRecord>(["context_resets", channelId]);
       return entry.value;
+    },
+
+    async getAutonomousParticipation(channelId) {
+      const entry = await kv.get<AutonomousParticipationRecord>([
+        "autonomous_participation",
+        channelId,
+      ]);
+      return entry.value;
+    },
+
+    async claimAutonomousParticipation(record, cooldownMs) {
+      if (
+        !record.channelId || !record.latestHumanMessageId ||
+        !Number.isSafeInteger(record.attemptedAt) || record.attemptedAt < 0 ||
+        !Number.isSafeInteger(record.latestHumanTimestampMs) || record.latestHumanTimestampMs < 0 ||
+        !Number.isFinite(cooldownMs) || cooldownMs < 0
+      ) throw new RangeError("Invalid autonomous participation attempt");
+
+      const key = ["autonomous_participation", record.channelId];
+      for (let attempt = 0; attempt < MAX_PARTICIPATION_COMMIT_ATTEMPTS; attempt++) {
+        const entry = await kv.get<AutonomousParticipationRecord>(key);
+        if (
+          entry.value &&
+          (!isNewerHumanMessage(record, entry.value) ||
+            record.attemptedAt - entry.value.attemptedAt < cooldownMs)
+        ) return false;
+        const result = await kv.atomic().check(entry).set(key, record).commit();
+        if (result.ok) return true;
+      }
+      throw new Error("Autonomous participation transaction failed after repeated conflicts");
+    },
+
+    async finishAutonomousParticipation(channelId, latestHumanMessageId, finishedAt) {
+      if (!Number.isSafeInteger(finishedAt) || finishedAt < 0) {
+        throw new RangeError("Invalid autonomous participation completion time");
+      }
+      const key = ["autonomous_participation", channelId];
+      for (let attempt = 0; attempt < MAX_PARTICIPATION_COMMIT_ATTEMPTS; attempt++) {
+        const entry = await kv.get<AutonomousParticipationRecord>(key);
+        if (!entry.value || entry.value.latestHumanMessageId !== latestHumanMessageId) return;
+        const attemptedAt = Math.max(entry.value.attemptedAt, finishedAt);
+        if (attemptedAt === entry.value.attemptedAt) return;
+        const result = await kv.atomic().check(entry)
+          .set(key, { ...entry.value, attemptedAt }).commit();
+        if (result.ok) return;
+      }
+      throw new Error("Autonomous participation completion failed after repeated conflicts");
     },
   };
 }

@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { createDiscordClient } from "./discord.ts";
 
 function mockFetch(
@@ -17,6 +17,84 @@ function mockFetch(
     },
   };
 }
+
+Deno.test("addReaction encodes its route and sends an authorized bodyless PUT", async () => {
+  let requests = 0;
+  const fetch_mock = mockFetch((url, init) => {
+    requests++;
+    assertEquals(
+      url,
+      "https://discord.com/api/v10/channels/channel%2Fone/messages/message%3Ftwo/reactions/%E2%9D%A4%EF%B8%8F/@me",
+    );
+    assertEquals(init?.method, "PUT");
+    assertEquals((init?.headers as Record<string, string>).Authorization, "Bot test-token");
+    assertEquals(init?.body, undefined);
+    assertEquals(init?.redirect, "error");
+    assert(init?.signal instanceof AbortSignal);
+    assertEquals(init.signal.aborted, false);
+    return new Response(null, { status: 204 });
+  });
+
+  try {
+    const response = await createDiscordClient("test-token").addReaction(
+      "channel/one",
+      "message?two",
+      "❤️",
+    );
+    assertEquals(response.status, 204);
+    assertEquals(requests, 1);
+  } finally {
+    fetch_mock.restore();
+  }
+});
+
+for (
+  const [name, status, code] of [
+    ["missing permissions", 403, 50013],
+    ["unknown emoji", 404, 10014],
+    ["rate limit", 429, 0],
+    ["server error", 500, 0],
+  ] as const
+) {
+  Deno.test(`addReaction returns ${name} without retrying or sending fallback text`, async () => {
+    let requests = 0;
+    const expected = Response.json({ code }, { status });
+    const fetch_mock = mockFetch((_url, init) => {
+      requests++;
+      assertEquals(init?.method, "PUT");
+      return expected;
+    });
+
+    try {
+      const response = await createDiscordClient("token").addReaction("channel", "message", "😂");
+      assertEquals(response, expected);
+      assertEquals(response.status, status);
+      assertEquals(await response.json(), { code });
+      assertEquals(requests, 1);
+    } finally {
+      fetch_mock.restore();
+    }
+  });
+}
+
+Deno.test("addReaction propagates network failure without retrying", async () => {
+  let requests = 0;
+  const fetch_mock = mockFetch(() => {
+    requests++;
+    throw new TypeError("connection failed");
+  });
+
+  try {
+    await assertRejects(
+      () => createDiscordClient("token").addReaction("channel", "message", "😂"),
+      TypeError,
+      "connection failed",
+    );
+    assertEquals(requests, 1);
+  } finally {
+    fetch_mock.restore();
+  }
+});
 
 Deno.test("getRecentMessages clamps limit and maps Discord message payloads", async () => {
   let requested_url = "";

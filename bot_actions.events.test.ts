@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { type BotDependencies, handleMessage } from "./bot_actions.ts";
 import type { AppConfig } from "./src/config.ts";
 import type { AiReplyOptions } from "./ai_service.ts";
@@ -66,6 +66,7 @@ async function fixture(
     config: config(),
     aiService: {
       generateReply(_messages, suppliedOptions) {
+        assert(!suppliedOptions || !("mode" in suppliedOptions));
         options.push(suppliedOptions);
         return Promise.resolve({ ok: true, text: "Ordinary reply", tokensUsed: 12 });
       },

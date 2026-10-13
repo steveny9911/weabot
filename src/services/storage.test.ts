@@ -6,7 +6,7 @@
 
 import { assertEquals, assertRejects } from "@std/assert";
 import { createStorageService, type StorageService } from "./storage.ts";
-import type { PollRecord } from "../types/storage.ts";
+import type { AutonomousParticipationRecord, PollRecord } from "../types/storage.ts";
 
 const TEST_CHANNEL_ID = "chan-1";
 const OTHER_CHANNEL_ID = "chan-2";
@@ -94,6 +94,313 @@ Deno.test("context resets persist independently for each channel", async () => {
   assertEquals(await storage.getContextReset("unknown"), null);
 
   kv.close();
+});
+
+function createParticipation(
+  overrides: Partial<AutonomousParticipationRecord> = {},
+): AutonomousParticipationRecord {
+  return {
+    channelId: TEST_CHANNEL_ID,
+    latestHumanMessageId: "1234567890123456789",
+    latestHumanTimestampMs: 1000,
+    attemptedAt: 2000,
+    ...overrides,
+  };
+}
+
+Deno.test("autonomous participation claims exactly once across concurrent services", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const first = createStorageService(kv);
+  const second = createStorageService(kv);
+  const record = createParticipation();
+  const claims = await Promise.all(
+    Array.from(
+      { length: 30 },
+      (_, i) => (i % 2 ? first : second).claimAutonomousParticipation(record, 1000),
+    ),
+  );
+
+  assertEquals(claims.filter(Boolean).length, 1);
+  assertEquals(await first.getAutonomousParticipation(TEST_CHANNEL_ID), record);
+});
+
+Deno.test("autonomous participation persists across service recreation and isolates channels", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const first = createStorageService(kv);
+  const record = createParticipation();
+  assertEquals(await first.getAutonomousParticipation(TEST_CHANNEL_ID), null);
+  assertEquals(await first.claimAutonomousParticipation(record, 1000), true);
+
+  const restarted = createStorageService(kv);
+  assertEquals(await restarted.getAutonomousParticipation(TEST_CHANNEL_ID), record);
+  assertEquals(
+    await restarted.claimAutonomousParticipation({ ...record, attemptedAt: 10_000 }, 1000),
+    false,
+  );
+  const otherChannel = { ...record, channelId: OTHER_CHANNEL_ID };
+  assertEquals(await restarted.claimAutonomousParticipation(otherChannel, 1000), true);
+  assertEquals(await restarted.getAutonomousParticipation(OTHER_CHANNEL_ID), otherChannel);
+  assertEquals(await restarted.getAutonomousParticipation("unknown"), null);
+});
+
+Deno.test("autonomous participation rejects cooldown attempts without advancing the watermark", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  const next = createParticipation({
+    latestHumanMessageId: "1234567890123456790",
+    latestHumanTimestampMs: 1500,
+    attemptedAt: 2999,
+  });
+  assertEquals(await storage.claimAutonomousParticipation(first, 1000), true);
+  assertEquals(await storage.claimAutonomousParticipation(next, 1000), false);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
+  const atCooldownBoundary = { ...next, attemptedAt: 3000 };
+  assertEquals(await storage.claimAutonomousParticipation(atCooldownBoundary, 1000), true);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), atCooldownBoundary);
+
+  const records = Array.fromAsync(kv.list({ prefix: ["autonomous_participation"] }));
+  assertEquals((await records).length, 1);
+});
+
+Deno.test("autonomous participation rejects same messages, older context and reversed clocks", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
+  for (
+    const candidate of [
+      { ...first, attemptedAt: 10_000 },
+      { ...first, latestHumanTimestampMs: 1500, attemptedAt: 10_000 },
+      {
+        ...first,
+        latestHumanMessageId: "1234567890123456790",
+        latestHumanTimestampMs: 999,
+        attemptedAt: 10_000,
+      },
+      {
+        ...first,
+        latestHumanMessageId: "1234567890123456790",
+        latestHumanTimestampMs: 1500,
+        attemptedAt: 1999,
+      },
+    ]
+  ) assertEquals(await storage.claimAutonomousParticipation(candidate, 0), false);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
+});
+
+Deno.test("autonomous participation orders equal timestamps by exact numeric snowflake", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
+  assertEquals(
+    await storage.claimAutonomousParticipation({
+      ...first,
+      latestHumanMessageId: "1234567890123456788",
+      attemptedAt: 3000,
+    }, 0),
+    false,
+  );
+  const newer = { ...first, latestHumanMessageId: "1234567890123456790", attemptedAt: 3000 };
+  assertEquals(await storage.claimAutonomousParticipation(newer, 0), true);
+  assertEquals(await storage.claimAutonomousParticipation(first, 0), false);
+});
+
+Deno.test("autonomous participation fails closed for equal timestamps with unordered IDs", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation({ latestHumanMessageId: "message-a" });
+  assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
+  assertEquals(
+    await storage.claimAutonomousParticipation({
+      ...first,
+      latestHumanMessageId: "message-b",
+      attemptedAt: 3000,
+    }, 0),
+    false,
+  );
+  assertEquals(
+    await storage.claimAutonomousParticipation({
+      ...first,
+      latestHumanMessageId: "message-b",
+      latestHumanTimestampMs: 1001,
+      attemptedAt: 3000,
+    }, 0),
+    true,
+  );
+});
+
+Deno.test("autonomous participation retries a CAS conflict and fails after bounded conflicts", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const atomic = kv.atomic.bind(kv);
+  let conflictsRemaining = 1;
+  let attempts = 0;
+  kv.atomic = () => {
+    attempts++;
+    const operation = atomic();
+    if (conflictsRemaining-- > 0) operation.commit = () => Promise.resolve({ ok: false });
+    return operation;
+  };
+
+  const first = createParticipation();
+  assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
+  assertEquals(attempts, 2);
+  conflictsRemaining = 100;
+  attempts = 0;
+  await assertRejects(
+    () =>
+      storage.claimAutonomousParticipation({
+        ...first,
+        latestHumanMessageId: "1234567890123456790",
+        latestHumanTimestampMs: 1001,
+        attemptedAt: 3000,
+      }, 0),
+    Error,
+    "Autonomous participation transaction failed after repeated conflicts",
+  );
+  assertEquals(attempts, 10);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
+});
+
+Deno.test("autonomous participation rejects invalid times before writing", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const record = createParticipation();
+  for (const cooldown of [-1, NaN, Infinity]) {
+    await assertRejects(() => storage.claimAutonomousParticipation(record, cooldown), RangeError);
+  }
+  for (
+    const invalid of [
+      { ...record, channelId: "" },
+      { ...record, latestHumanMessageId: "" },
+      { ...record, attemptedAt: NaN },
+      { ...record, latestHumanTimestampMs: -1 },
+    ]
+  ) await assertRejects(() => storage.claimAutonomousParticipation(invalid, 0), RangeError);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), null);
+});
+
+Deno.test("autonomous participation cooldown extends from generation completion", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation({ attemptedAt: 0 });
+  assertEquals(await storage.claimAutonomousParticipation(first, 60_000), true);
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 59_000);
+  const next = createParticipation({
+    latestHumanMessageId: "1234567890123456790",
+    latestHumanTimestampMs: 60_000,
+    attemptedAt: 60_000,
+  });
+  assertEquals(await storage.claimAutonomousParticipation(next, 60_000), false);
+  assertEquals(
+    await storage.claimAutonomousParticipation({ ...next, attemptedAt: 119_000 }, 60_000),
+    true,
+  );
+});
+
+Deno.test("autonomous participation completion never decreases time or changes another channel", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  const other = createParticipation({ channelId: OTHER_CHANNEL_ID });
+  await storage.claimAutonomousParticipation(first, 0);
+  await storage.claimAutonomousParticipation(other, 0);
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 4000);
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 3000);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), {
+    ...first,
+    attemptedAt: 4000,
+  });
+  assertEquals(await storage.getAutonomousParticipation(OTHER_CHANNEL_ID), other);
+});
+
+Deno.test("autonomous participation completion ignores absent and newer claims", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 10_000);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), null);
+  const newer = createParticipation({ latestHumanMessageId: "1234567890123456790" });
+  await storage.claimAutonomousParticipation(newer, 0);
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 10_000);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), newer);
+});
+
+Deno.test("autonomous participation completion cannot overwrite a claim that races with its read", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  await storage.claimAutonomousParticipation(first, 0);
+  const newer = createParticipation({
+    latestHumanMessageId: "1234567890123456790",
+    latestHumanTimestampMs: 3000,
+    attemptedAt: 4000,
+  });
+  const atomic = kv.atomic.bind(kv);
+  let replaced = false;
+  kv.atomic = () => {
+    const operation = atomic();
+    const commit = operation.commit.bind(operation);
+    operation.commit = async () => {
+      if (!replaced) {
+        replaced = true;
+        await kv.set(["autonomous_participation", TEST_CHANNEL_ID], newer);
+      }
+      return await commit();
+    };
+    return operation;
+  };
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 10_000);
+  assertEquals(replaced, true);
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), newer);
+});
+
+Deno.test("autonomous participation completion retries conflicts and fails after bounded retries", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  await storage.claimAutonomousParticipation(first, 0);
+  const atomic = kv.atomic.bind(kv);
+  let conflictsRemaining = 1;
+  let attempts = 0;
+  kv.atomic = () => {
+    attempts++;
+    const operation = atomic();
+    if (conflictsRemaining-- > 0) operation.commit = () => Promise.resolve({ ok: false });
+    return operation;
+  };
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 4000);
+  assertEquals(attempts, 2);
+  conflictsRemaining = 100;
+  attempts = 0;
+  await assertRejects(
+    () => storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 5000),
+    Error,
+    "Autonomous participation completion failed after repeated conflicts",
+  );
+  assertEquals(attempts, 10);
+  assertEquals((await storage.getAutonomousParticipation(TEST_CHANNEL_ID))?.attemptedAt, 4000);
+});
+
+Deno.test("autonomous participation completion rejects invalid times before writing", async () => {
+  using kv = await Deno.openKv(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  await storage.claimAutonomousParticipation(first, 0);
+  for (const finishedAt of [-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    await assertRejects(
+      () =>
+        storage.finishAutonomousParticipation(
+          TEST_CHANNEL_ID,
+          first.latestHumanMessageId,
+          finishedAt,
+        ),
+      RangeError,
+    );
+  }
+  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
 });
 
 // ============================================================================
