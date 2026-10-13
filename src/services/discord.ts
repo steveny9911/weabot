@@ -5,7 +5,8 @@
  * This keeps HTTP details out of the business logic and enables
  * dependency injection for testing (pass a mock client instead).
  *
- * Includes automatic retry with exponential backoff for reliability.
+ * Reads and messages use automatic retry with exponential backoff.
+ * Reactions make one bounded request so an uncertain failure does not cause retries.
  */
 
 import type { CreatePollMessagePayload } from "../types/discord.ts";
@@ -14,6 +15,7 @@ import { oMapDiscordMessage, type RecentDiscordMessage } from "../features/chat_
 import { fetchWithRetry } from "../utils/retry.ts";
 
 const API_BASE = "https://discord.com/api/v10";
+const REACTION_TIMEOUT_MS = 15_000;
 
 /** Generic message payload (polls, embeds, text, etc.) */
 export type MessagePayload =
@@ -43,6 +45,14 @@ export interface DiscordClient {
    * @returns The raw fetch Response for error handling
    */
   postMessage(channelId: string, payload: MessagePayload): Promise<Response>;
+
+  /**
+   * Adds the bot's emoji reaction to an existing message.
+   * Requires Read Message History and, for a new emoji, Add Reactions.
+   * Makes one request; callers handle errors without falling back to a text message.
+   * @returns The raw fetch Response (204 on success)
+   */
+  addReaction(channelId: string, messageId: string, emoji: string): Promise<Response>;
 
   /**
    * Sends a direct message to a user
@@ -92,6 +102,26 @@ export function createDiscordClient(token: string): DiscordClient {
         },
       );
       return response;
+    },
+
+    async addReaction(channelId, messageId, emoji) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REACTION_TIMEOUT_MS);
+      try {
+        return await fetch(
+          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${
+            encodeURIComponent(messageId)
+          }/reactions/${encodeURIComponent(emoji)}/@me`,
+          {
+            method: "PUT",
+            headers,
+            signal: controller.signal,
+            redirect: "error",
+          },
+        );
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     async sendDM(userId, payload) {

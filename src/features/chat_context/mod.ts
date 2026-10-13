@@ -9,6 +9,8 @@ export interface DiscordMessageReference {
 
 export interface RecentDiscordMessage extends DiscordMessageReference {
   authorBot: boolean;
+  /** Discord's reaction summary reports whether the current bot already reacted. */
+  hasOwnReaction?: boolean;
   referencedMessage?: DiscordMessageReference;
 }
 
@@ -118,7 +120,14 @@ export function oMapDiscordMessage(message: Record<string, unknown>): RecentDisc
 
   return {
     ...oMapReference(message),
-    authorBot: author["bot"] === true,
+    authorBot: author["bot"] === true || typeof message["webhook_id"] === "string",
+    ...(Array.isArray(message["reactions"]) &&
+        message["reactions"].some((reaction) =>
+          reaction !== null && typeof reaction === "object" &&
+          (reaction.me === true || reaction.me_burst === true)
+        )
+      ? { hasOwnReaction: true }
+      : {}),
     ...(referenced_message ? { referencedMessage: referenced_message } : {}),
   };
 }
@@ -147,7 +156,17 @@ export function selectActiveConversation(
     .filter((item): item is TimestampedMessage => item !== null)
     .filter(({ message }) => bHasConversationContent(message))
     .filter(({ timestampMs }) => reset_after_ms === null || timestampMs > reset_after_ms)
-    .sort((a, b) => a.timestampMs - b.timestampMs || a.index - b.index);
+    .sort((a, b) => {
+      const timeDifference = a.timestampMs - b.timestampMs;
+      if (timeDifference !== 0) return timeDifference;
+      // Discord returns newest first; snowflakes disambiguate millisecond ties.
+      if (/^\d+$/.test(a.message.id) && /^\d+$/.test(b.message.id)) {
+        const idA = BigInt(a.message.id);
+        const idB = BigInt(b.message.id);
+        return idA < idB ? -1 : idA > idB ? 1 : 0;
+      }
+      return a.index - b.index;
+    });
 
   if (timestamped.length === 0) return [];
 

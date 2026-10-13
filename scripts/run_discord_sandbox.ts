@@ -66,7 +66,9 @@ async function main(): Promise<void> {
   const localAi: AiService = {
     ...realAi,
     generateReply(_messages, options) {
-      if (!options?.currentUserMessage) throw new Error("Expected a local action session.");
+      if (!options || "mode" in options || !options.currentUserMessage) {
+        throw new Error("Expected a local action session.");
+      }
       // The action session includes the real current request and any pending
       // clarification. Never forward unrelated fetched chat history or images.
       return realAi.generateReply([], {

@@ -147,3 +147,80 @@ Deno.test("decideAutonomousChatReply honors a persisted context reset", () => {
   assertEquals(decision.shouldReply, true);
   assertEquals(decision.contextMessages.map((context) => context.id), ["m1", "m2", "m3", "m4"]);
 });
+
+Deno.test("autonomous participation shares cooldown with reactions and needs fresh humans", () => {
+  const messages = [
+    message("m1", "u1", 4),
+    message("m2", "u2", 3),
+    message("m3", "u3", 2),
+    message("m4", "u4", 1),
+  ];
+  const previous = {
+    channelId: "channel",
+    latestHumanMessageId: "m4",
+    latestHumanTimestampMs: NOW_MS - 60_000,
+    attemptedAt: NOW_MS - 60_000,
+  };
+  assertEquals(
+    decide(messages, { lastParticipation: previous }).reason,
+    "participation cooldown active",
+  );
+  assertEquals(
+    decide(messages, {
+      lastParticipation: { ...previous, attemptedAt: NOW_MS - 40 * 60_000 },
+    }).reason,
+    "conversation already considered",
+  );
+});
+
+Deno.test("autonomous reaction targets are fresh humans visible in context without our reaction", () => {
+  const decision = decide([
+    message("old", "u1", 8),
+    message("m1", "u1", 4),
+    message("m2", "u2", 3, "meme", { hasOwnReaction: true }),
+    message("other-bot", "bot2", 2.5, "ping", { authorBot: true }),
+    message("m3", "u3", 2),
+    message("m4", "u4", 1),
+  ], {
+    maxContextMessages: 5,
+    lastParticipation: {
+      channelId: "channel",
+      latestHumanMessageId: "old",
+      latestHumanTimestampMs: NOW_MS - 8 * 60_000,
+      attemptedAt: NOW_MS - 40 * 60_000,
+    },
+  });
+  assertEquals(decision.shouldReply, true);
+  assertEquals(decision.latestHumanMessage?.id, "m4");
+  assertEquals(decision.reactionMessageIds, ["m1", "m3", "m4"]);
+});
+
+Deno.test("bot messages and reactions never supply required human activity", () => {
+  const decision = decide([
+    message("m1", "u1", 4, "meme", { hasOwnReaction: true }),
+    message("m2", "haru", 3, "hi", { authorBot: true }),
+    message("m3", "bot2", 2, "hi", { authorBot: true }),
+    message("m4", "bot3", 1, "hi", { authorBot: true }),
+  ]);
+  assertEquals(decision.shouldReply, false);
+  assertEquals(decision.reason, "only 1 recent human message(s)");
+});
+
+Deno.test("same-millisecond snowflakes preserve the newest human watermark and target", () => {
+  const messages = [
+    message("200", "u2", 1),
+    message("100", "u1", 1),
+  ];
+  const decision = decide(messages, {
+    minHumanMessages: 1,
+    lastParticipation: {
+      channelId: "channel",
+      latestHumanMessageId: "100",
+      latestHumanTimestampMs: NOW_MS - 60_000,
+      attemptedAt: NOW_MS - 40 * 60_000,
+    },
+  });
+  assertEquals(decision.shouldReply, true);
+  assertEquals(decision.latestHumanMessage?.id, "200");
+  assertEquals(decision.reactionMessageIds, ["200"]);
+});

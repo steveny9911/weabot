@@ -8,6 +8,21 @@ import {
 
 const START_MS = Date.parse("2026-08-27T12:00:00.000Z");
 
+Deno.test("Discord mapping ignores webhook activity and preserves our reaction summary", () => {
+  const mapped = oMapDiscordMessage({
+    id: "meme",
+    content: "lol",
+    timestamp: "2026-08-27T12:00:00.000Z",
+    author: { id: "webhook", username: "mirror" },
+    webhook_id: "webhook",
+    reactions: [{ emoji: { name: "😂" }, me: true }],
+  });
+  assertEquals(mapped.authorBot, true);
+  assertEquals(mapped.hasOwnReaction, true);
+  assertEquals(oToAiContextMessage(mapped).hasOwnReaction, undefined);
+  assertEquals(oMapDiscordMessage({ reactions: [null, { me: false }] }).hasOwnReaction, undefined);
+});
+
 function message(id: string, minute: number): RecentDiscordMessage {
   return {
     id,

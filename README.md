@@ -135,6 +135,32 @@ Mention Haru to chat, or use a command:
 - `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
 
+### Activity-triggered participation
+
+When autonomous chat is enabled, Haru can choose a useful brief reply, one emoji reaction to a
+recent human message, or silence. A meme can get a simple acknowledgment without another chat
+message. Direct mentions and commands still use the normal reply path.
+
+The existing human activity threshold, random admission chance, token budget, configured channels,
+and cooldown apply to all autonomous participation. The latest considered human message and attempt
+time are persisted per channel in Deno KV, so replies, reactions, silence, errors, and restarts
+cannot repeatedly process the same conversation. Reaction targets exclude bots, webhooks, older
+handled messages, and messages Haru already reacted to. Emoji choices use a small Unicode set;
+server custom emojis are not required. Reaction gateway events do not trigger chat.
+
+Haru needs View Channel and Read Message History in the configured channels, plus Add Reactions to
+introduce an emoji reaction. Missing permissions, deleted messages, unavailable emojis, rate limits,
+and ambiguous network failures quietly skip the reaction with a local diagnostic and no fallback
+message. Permissions are never changed automatically. `AUTONOMOUS_CHAT_REPLY_CHANCE` retains its
+name and now controls admission to choose any of the three actions.
+
+For a real AI smoke test using synthetic conversations and no Discord writes:
+
+```bash
+deno run --env-file=.env --allow-env --allow-net=api.openai.com \
+  scripts/test_autonomous_participation.ts
+```
+
 ### AI usage limits
 
 `AI_RATE_LIMIT_PER_USER` counts admitted mention requests per user in fixed UTC minute buckets.
