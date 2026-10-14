@@ -60,6 +60,10 @@ interface Fixture {
 interface FixtureOptions {
   settings?: Partial<AppConfig>;
   reaction?: (reaction: Reaction) => Promise<Response>;
+  getReactionContext?: NonNullable<
+    import("./services/discord.ts").DiscordClient["getReactionContext"]
+  >;
+  getMessage?: NonNullable<import("./services/discord.ts").DiscordClient["getMessage"]>;
   getRecentMessages?: (channelId: string) => Promise<RecentDiscordMessage[]>;
 }
 
@@ -91,6 +95,8 @@ async function withAutonomousJob(
   const originalCron = Deno.cron;
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
+  const originalRandom = Math.random;
+  Math.random = () => 0;
   let now = Date.parse("2026-09-05T12:34:00Z");
   const jobs = new Map<string, () => Promise<void>>();
   Deno.cron = ((name, _schedule, handler) => {
@@ -123,6 +129,8 @@ async function withAutonomousJob(
       registerCronJobs(
         settings,
         {
+          ...(options.getReactionContext ? { getReactionContext: options.getReactionContext } : {}),
+          ...(options.getMessage ? { getMessage: options.getMessage } : {}),
           postMessage(_channel, payload) {
             assert("content" in payload);
             posts.push(payload.content);
@@ -174,6 +182,7 @@ async function withAutonomousJob(
     Deno.cron = originalCron;
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
+    Math.random = originalRandom;
     kv.close();
   }
 }
@@ -494,7 +503,11 @@ Deno.test("autonomous reaction cooldown starts after slow Discord delivery finis
       ok: true,
       text: "",
       tokensUsed: 10,
-      participation: { action: "react", messageId: options.allowedMessageIds[0], emoji: "😂" },
+      participation: {
+        action: "react",
+        messageId: options.allowedMessageIds[0],
+        emoji: options.reactionChoices!.find((c) => c.intent === "amusement")!.emoji,
+      },
     });
   }, async (fixture) => {
     advance = fixture.advance;
@@ -521,5 +534,116 @@ Deno.test("autonomous reaction cooldown starts after slow Discord delivery finis
       }
       return new Response(null, { status: 204 });
     },
+  });
+});
+
+Deno.test("missing channel reaction permission prevents a write", () =>
+  withAutonomousJob(react, async (f) => {
+    await f.run();
+    assertEquals(f.reactions, []);
+    assertEquals(f.posts, []);
+  }, {
+    getReactionContext: (channelId) =>
+      Promise.resolve({
+        channelId,
+        guildId: "unknown",
+        canReact: false,
+        memberRoles: [],
+        emojis: [],
+      }),
+  }));
+Deno.test("a deleted or edited target is rejected immediately before delivery", async () => {
+  for (
+    const changed of [null, {
+      id: "message",
+      authorId: "human",
+      authorName: "Alice",
+      authorBot: false,
+      content: "An edited insult",
+      timestamp: "2026-09-05T12:33:59Z",
+      imageUrls: [],
+    }]
+  ) {
+    await withAutonomousJob(react, async (f) => {
+      await f.run();
+      assertEquals(f.reactions, []);
+      assertEquals(f.posts, []);
+    }, { getMessage: () => Promise.resolve(changed) });
+  }
+});
+Deno.test("new human activity arriving during generation cancels the stale reaction", () =>
+  withAutonomousJob(({ messages }) => {
+    assertEquals(messages.length, 1);
+    return Promise.resolve(react);
+  }, async (f) => {
+    // Change the second read, not the initial snapshot.
+    await f.run();
+    assertEquals(f.reactions, []);
+  }, {
+    getRecentMessages: (() => {
+      let count = 0;
+      return () =>
+        Promise.resolve([{
+          id: ++count === 1 ? "message" : "new-message",
+          authorId: "human",
+          authorName: "Alice",
+          authorBot: false,
+          content: "A new joke",
+          timestamp: new Date(Date.now() - 1000).toISOString(),
+          imageUrls: [],
+        }]);
+    })(),
+  }));
+Deno.test("loss of emoji availability after generation prevents delivery", () => {
+  let reads = 0;
+  return withAutonomousJob(({ options }) => {
+    assert(options && "mode" in options);
+    const c = options.reactionChoices!.find((c) => c.intent === "dry_amusement")!;
+    return Promise.resolve<AiResult>({
+      ok: true,
+      text: "",
+      tokensUsed: 10,
+      participation: {
+        action: "react",
+        messageId: "message",
+        emoji: c.emoji,
+        intent: c.intent,
+        reason: "shared_joke",
+      },
+    });
+  }, async (f) => {
+    await f.run();
+    assertEquals(f.reactions, []);
+  }, {
+    getReactionContext: (channelId) =>
+      Promise.resolve({
+        channelId,
+        guildId: "589723496473690132",
+        canReact: true,
+        memberRoles: [],
+        emojis: [{
+          id: "1559742515698081933",
+          name: "BocchiSip",
+          roles: [],
+          available: ++reads === 1,
+        }],
+      }),
+  });
+});
+
+Deno.test("a context reset during generation cancels a reaction", () => {
+  let fixture: Fixture;
+  return withAutonomousJob(async () => {
+    await fixture.storage.setContextReset({
+      channelId: "channel",
+      messageId: "reset",
+      resetAt: Date.now(),
+    });
+    return react;
+  }, async (f) => {
+    fixture = f;
+    await f.run();
+    assertEquals(f.reactions, []);
+    assertEquals(f.posts, []);
   });
 });

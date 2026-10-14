@@ -58,17 +58,17 @@ function validateChoice(
   switch (choice.action) {
     case "reply":
       return typeof choice.text === "string" && choice.text.trim().length > 0 &&
-          choice.text.length <= 280 && text === choice.text && Object.keys(choice).length === 2
+          choice.text.length <= 280 && text === choice.text && Object.keys(choice).length === 3
         ? undefined
         : "Reply must contain only a nonempty text contribution of at most 280 characters.";
     case "react":
       return allowedIds.includes(choice.messageId) &&
           AUTONOMOUS_REACTION_EMOJIS.some((emoji) => emoji === choice.emoji) && text === "" &&
-          Object.keys(choice).length === 3
+          Object.keys(choice).length === 5
         ? undefined
         : "Reaction must target an allowed synthetic message with one supported emoji and no text.";
     case "silent":
-      return text === "" && Object.keys(choice).length === 1
+      return text === "" && Object.keys(choice).length === 2
         ? undefined
         : "Silence must contain no text or extra fields.";
     default:

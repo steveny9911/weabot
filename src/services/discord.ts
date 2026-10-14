@@ -12,6 +12,8 @@
 import type { CreatePollMessagePayload } from "../types/discord.ts";
 import type { EmbedMessagePayload } from "../features/stats/mod.ts";
 import { oMapDiscordMessage, type RecentDiscordMessage } from "../features/chat_context/mod.ts";
+import type { ReactionContext } from "../features/reactions/mod.ts";
+import { readReactionContext } from "./reaction_context.ts";
 import { fetchWithRetry } from "../utils/retry.ts";
 
 const API_BASE = "https://discord.com/api/v10";
@@ -21,7 +23,7 @@ const REACTION_TIMEOUT_MS = 15_000;
 export type MessagePayload =
   | CreatePollMessagePayload
   | EmbedMessagePayload
-  | { content: string };
+  | { content: string; allowed_mentions?: { parse: string[] } };
 
 /** A voter from a poll answer */
 export interface PollVoter {
@@ -69,6 +71,10 @@ export interface DiscordClient {
    * @returns Recent messages in Discord API order (newest first)
    */
   getRecentMessages(channelId: string, limit: number): Promise<RecentDiscordMessage[]>;
+
+  /** Optional for minimal injected clients; production always implements both live reads. */
+  getReactionContext?(channelId: string, botUserId: string): Promise<ReactionContext>;
+  getMessage?(channelId: string, messageId: string): Promise<RecentDiscordMessage | null>;
 
   /**
    * Gets every voter for every answer in a finalized poll
@@ -170,6 +176,31 @@ export function createDiscordClient(token: string): DiscordClient {
           message !== null && typeof message === "object"
         )
         .map(oMapDiscordMessage);
+    },
+
+    getReactionContext: (channelId, botId) => readReactionContext(token, channelId, botId),
+
+    async getMessage(channelId, messageId) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REACTION_TIMEOUT_MS);
+      try {
+        const response = await fetchWithRetry(
+          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${
+            encodeURIComponent(messageId)
+          }`,
+          { headers, signal: controller.signal, redirect: "error" },
+        );
+        if (!response.ok) {
+          await response.body?.cancel();
+          return null;
+        }
+        const data = await response.json();
+        return data && typeof data === "object" && data.id === messageId
+          ? oMapDiscordMessage(data)
+          : null;
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     async getPollVoters(channelId, messageId) {

@@ -145,14 +145,58 @@ The existing human activity threshold, random admission chance, token budget, co
 and cooldown apply to all autonomous participation. The latest considered human message and attempt
 time are persisted per channel in Deno KV, so replies, reactions, silence, errors, and restarts
 cannot repeatedly process the same conversation. Reaction targets exclude bots, webhooks, older
-handled messages, and messages Haru already reacted to. Emoji choices use a small Unicode set;
-server custom emojis are not required. Reaction gateway events do not trigger chat.
+handled messages, and messages Haru already reacted to. Nearby messages by one author are
+represented as a turn, with reply relationships intact. Connective fragments and trailing laughter
+do not become anchors for a completed joke. A fresh burst settles for eight seconds before
+consideration.
+
+Haru chooses a meaningful target and intent: amusement, dry amusement, appreciation, celebration,
+concern, or gentle disapproval. She may enjoy reciprocal teasing, but should not reward cruelty or
+laugh at distress. Ambiguous cases favor silence. Pudding and Bot Sandbox have reviewed, guild-local
+IDs for BocchiSip, RyoDisgust, Madge, UwU, shyggers, AYAYA, pog, and KEKW. Meanings describe the
+actual images and constrain sarcastic or mocking uses. Other servers, unavailable emotes, or role
+restrictions use intent-specific Unicode equivalents. No arbitrary emoji-name inference or
+external-server IDs are used. Variation within an intent prefers a different expression from the
+last delivered reaction; this preference persists across restarts. Reaction gateway events do not
+trigger chat.
 
 Haru needs View Channel and Read Message History in the configured channels, plus Add Reactions to
 introduce an emoji reaction. Missing permissions, deleted messages, unavailable emojis, rate limits,
 and ambiguous network failures quietly skip the reaction with a local diagnostic and no fallback
 message. Permissions are never changed automatically. `AUTONOMOUS_CHAT_REPLY_CHANCE` retains its
 name and now controls admission to choose any of the three actions.
+
+The conversation, target, guild permissions, and expression availability are checked again before a
+reaction write. Decision diagnostics contain IDs, bounded intent/reason codes, and delivery status;
+they omit raw chat content. Autonomous replies disable notification mentions.
+
+For model-quality cases covering the split joke, celebration, kindness, cruelty, and distress, with
+no Discord access:
+
+```bash
+deno run --env-file=.env --allow-env --allow-net=api.openai.com \
+  scripts/evaluate_reactions.ts --dry-run
+```
+
+For an explicit live sandbox test, post human-authored messages without an @Haru mention in Bot
+Sandbox **#bitconnect-memes**. Note the ID of the message immediately before the test. The runner
+only reads messages newer than that boundary, uses the production participation path, and starts no
+gateway, scheduler, or server. Test admission is explicitly 100% with a one-human-message threshold;
+production admission settings are unchanged. A preview makes no Discord writes. `--send` opts into
+one reply/reaction/silence decision and persists sandbox duplicate protection in a separate
+temporary KV.
+
+```bash
+deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
+  scripts/test_reactions_sandbox.ts --dry-run --after=BOUNDARY_MESSAGE_ID
+
+deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
+  --allow-read=/tmp --allow-write=/tmp \
+  scripts/test_reactions_sandbox.ts --send --after=BOUNDARY_MESSAGE_ID
+```
+
+The sandbox tool refuses other write destinations, DMs, and older targets. Verify Discord's actual
+reaction and bot-owned emoji ID after a live test; a valid silent choice does not prove transport.
 
 For a real AI smoke test using synthetic conversations and no Discord writes:
 

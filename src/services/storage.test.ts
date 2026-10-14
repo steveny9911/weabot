@@ -863,3 +863,44 @@ for (const failure of ["unsuccessful commit", "rejected commit"] as const) {
     assertEquals(await storage.getUserHistory(TEST_CHANNEL_ID, "user"), votes);
   });
 }
+
+Deno.test("last delivered expression survives claims, silence, and storage recreation", async () => {
+  const kv = await Deno.openKv(":memory:");
+  try {
+    let storage = createStorageService(kv);
+    const first = {
+      channelId: "channel",
+      latestHumanMessageId: "100",
+      latestHumanTimestampMs: 1000,
+      attemptedAt: 2000,
+    };
+    assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
+    await storage.finishAutonomousParticipation("channel", "100", 2000, "UwU:123");
+    storage = createStorageService(kv);
+    assertEquals(
+      (await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji,
+      "UwU:123",
+    );
+    assertEquals(
+      await storage.claimAutonomousParticipation({
+        ...first,
+        latestHumanMessageId: "101",
+        latestHumanTimestampMs: 3000,
+        attemptedAt: 4000,
+      }, 0),
+      true,
+    );
+    await storage.finishAutonomousParticipation("channel", "101", 5000);
+    assertEquals(
+      (await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji,
+      "UwU:123",
+    );
+    await storage.finishAutonomousParticipation("channel", "100", 6000, "Wrong:456");
+    assertEquals(
+      (await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji,
+      "UwU:123",
+    );
+  } finally {
+    kv.close();
+  }
+});

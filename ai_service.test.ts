@@ -4,7 +4,7 @@
  * Uses fetch mocking to verify API payload structure without making real calls.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
   type AiParticipationOptions,
   AUTONOMOUS_REACTION_EMOJIS,
@@ -801,7 +801,15 @@ const participationOptions: AiParticipationOptions = {
 };
 
 function choice(action: string, text = "", messageId = "", emoji = ""): string {
-  return JSON.stringify({ action, text, messageId, emoji });
+  const intent = action === "react"
+    ? emoji === "🎉"
+      ? "celebration"
+      : emoji === "❤️" || emoji === "👍"
+      ? "appreciation"
+      : "amusement"
+    : "";
+  const reason = action === "react" ? "acknowledgment" : "no_contribution";
+  return JSON.stringify({ action, text, messageId, emoji, intent, reason });
 }
 
 Deno.test("autonomous participation uses developer guidance, context IDs, strict JSON, and no tools", async () => {
@@ -837,8 +845,35 @@ Deno.test("autonomous participation uses developer guidance, context IDs, strict
             text: { type: "string" },
             messageId: { type: "string" },
             emoji: { type: "string" },
+            intent: {
+              type: "string",
+              enum: [
+                "",
+                "amusement",
+                "dry_amusement",
+                "appreciation",
+                "celebration",
+                "concern",
+                "disapproval",
+              ],
+            },
+            reason: {
+              type: "string",
+              enum: [
+                "shared_joke",
+                "acknowledgment",
+                "achievement",
+                "kindness",
+                "concern",
+                "unkindness",
+                "useful_answer",
+                "no_contribution",
+                "incomplete",
+                "ambiguous",
+              ],
+            },
           },
-          required: ["action", "text", "messageId", "emoji"],
+          required: ["action", "text", "messageId", "emoji", "intent", "reason"],
           additionalProperties: false,
         },
       },
@@ -850,7 +885,7 @@ Deno.test("autonomous participation uses developer guidance, context IDs, strict
     assertStringIncludes(guidance, participationOptions.instructions);
     assertStringIncludes(guidance, "Keep the persona from the saved prompt");
     assertStringIncludes(guidance, '["100","101"]');
-    assertStringIncludes(guidance, JSON.stringify(AUTONOMOUS_REACTION_EMOJIS));
+    for (const emoji of AUTONOMOUS_REACTION_EMOJIS) assertStringIncludes(guidance, emoji);
     const content = input[1].content as Array<Record<string, unknown>>;
     assertStringIncludes(String(content[0].text), "[message ID: 100] alice:");
     assertStringIncludes(String(content[0].text), "[message ID: 101] bob:");
@@ -880,7 +915,7 @@ Deno.test("autonomous reply preserves its text without greeting removal or UwU r
       ok: true,
       text,
       tokensUsed: 30,
-      participation: { action: "reply", text },
+      participation: { action: "reply", text, reason: "no_contribution" },
     });
   } finally {
     mock.restore();
@@ -903,7 +938,17 @@ Deno.test("autonomous reactions accept the fixed Unicode palette and return no f
         ok: true,
         text: "",
         tokensUsed: 25,
-        participation: { action: "react", messageId: "100", emoji },
+        participation: {
+          action: "react",
+          messageId: "100",
+          emoji,
+          intent: emoji === "🎉"
+            ? "celebration"
+            : emoji === "❤️" || emoji === "👍"
+            ? "appreciation"
+            : "amusement",
+          reason: "acknowledgment",
+        },
       });
     } finally {
       mock.restore();
@@ -922,7 +967,7 @@ Deno.test("autonomous silence returns empty text and still records reported toke
       ok: true,
       text: "",
       tokensUsed: 17,
-      participation: { action: "silent" },
+      participation: { action: "silent", reason: "no_contribution" },
     });
   } finally {
     mock.restore();
@@ -941,7 +986,12 @@ Deno.test("autonomous replies enforce the 280-character boundary without truncat
       assertEquals(
         result,
         length === 280
-          ? { ok: true, text, tokensUsed: 29, participation: { action: "reply", text } }
+          ? {
+            ok: true,
+            text,
+            tokensUsed: 29,
+            participation: { action: "reply", text, reason: "no_contribution" },
+          }
           : { ok: true, text: "", tokensUsed: 29, participation: { action: "silent" } },
       );
     } finally {
@@ -1096,5 +1146,46 @@ Deno.test("autonomous HTTP errors retain provider-reported token usage", async (
     }
   } finally {
     mock.restore();
+  }
+});
+
+Deno.test("autonomous custom emotes require the exact supplied intent and expression", async () => {
+  const options = {
+    ...participationOptions,
+    reactionChoices: [{
+      emoji: "BocchiSip:123",
+      intent: "dry_amusement" as const,
+      description: "Quiet sipping at harmless absurdity",
+    }],
+  };
+  for (
+    const [emoji, intent, reason, accepted] of [
+      ["BocchiSip:123", "dry_amusement", "shared_joke", true],
+      ["BocchiSip:999", "dry_amusement", "shared_joke", false],
+      ["BocchiSip:123", "amusement", "shared_joke", false],
+      ["BocchiSip:123", "dry_amusement", "unkindness", false],
+      ["BocchiSip:123", "dry_amusement", "unbounded reason text", false],
+    ] as const
+  ) {
+    const mock = mockFetch({
+      output_text: JSON.stringify({
+        action: "react",
+        text: "",
+        messageId: "100",
+        emoji,
+        intent,
+        reason,
+      }),
+    });
+    try {
+      const result = await createAiService(createMockConfig()).generateReply(
+        participationMessages,
+        options,
+      );
+      assert(result.ok);
+      assertEquals(result.participation?.action, accepted ? "react" : "silent");
+    } finally {
+      mock.restore();
+    }
   }
 });
