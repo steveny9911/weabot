@@ -396,3 +396,35 @@ for (const stage of ["message", "voters"]) {
     }
   });
 }
+
+Deno.test("single-message revalidation rejects wrong IDs and missing messages", async () => {
+  const original = globalThis.fetch;
+  try {
+    const client = createDiscordClient("test-token");
+    globalThis.fetch = () =>
+      Promise.resolve(
+        Response.json({
+          id: "wrong",
+          author: { id: "human" },
+          content: "Changed",
+          timestamp: "2026-10-13T22:06:00Z",
+        }),
+      );
+    assertEquals(await client.getMessage!("channel", "target"), null);
+    globalThis.fetch = () => Promise.resolve(Response.json({ code: 10008 }, { status: 404 }));
+    assertEquals(await client.getMessage!("channel", "target"), null);
+    globalThis.fetch = () =>
+      Promise.resolve(
+        Response.json({
+          id: "target",
+          author: { id: "human" },
+          content: "A joke",
+          timestamp: "2026-10-13T22:06:00Z",
+          reactions: [{ me: true }],
+        }),
+      );
+    assertEquals((await client.getMessage!("channel", "target"))?.hasOwnReaction, true);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

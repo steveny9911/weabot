@@ -72,6 +72,7 @@ export interface StorageService {
     channelId: string,
     latestHumanMessageId: string,
     finishedAt: number,
+    reactionEmoji?: string,
   ): Promise<void>;
 }
 
@@ -312,13 +313,21 @@ export function createStorageService(kv: Deno.Kv): StorageService {
           (!isNewerHumanMessage(record, entry.value) ||
             record.attemptedAt - entry.value.attemptedAt < cooldownMs)
         ) return false;
-        const result = await kv.atomic().check(entry).set(key, record).commit();
+        const preserved = entry.value?.lastReactionEmoji && !record.lastReactionEmoji
+          ? { ...record, lastReactionEmoji: entry.value.lastReactionEmoji }
+          : record;
+        const result = await kv.atomic().check(entry).set(key, preserved).commit();
         if (result.ok) return true;
       }
       throw new Error("Autonomous participation transaction failed after repeated conflicts");
     },
 
-    async finishAutonomousParticipation(channelId, latestHumanMessageId, finishedAt) {
+    async finishAutonomousParticipation(
+      channelId,
+      latestHumanMessageId,
+      finishedAt,
+      reactionEmoji,
+    ) {
       if (!Number.isSafeInteger(finishedAt) || finishedAt < 0) {
         throw new RangeError("Invalid autonomous participation completion time");
       }
@@ -327,9 +336,16 @@ export function createStorageService(kv: Deno.Kv): StorageService {
         const entry = await kv.get<AutonomousParticipationRecord>(key);
         if (!entry.value || entry.value.latestHumanMessageId !== latestHumanMessageId) return;
         const attemptedAt = Math.max(entry.value.attemptedAt, finishedAt);
-        if (attemptedAt === entry.value.attemptedAt) return;
+        if (
+          attemptedAt === entry.value.attemptedAt &&
+          (!reactionEmoji || reactionEmoji === entry.value.lastReactionEmoji)
+        ) return;
         const result = await kv.atomic().check(entry)
-          .set(key, { ...entry.value, attemptedAt }).commit();
+          .set(key, {
+            ...entry.value,
+            attemptedAt,
+            ...(reactionEmoji ? { lastReactionEmoji: reactionEmoji } : {}),
+          }).commit();
         if (result.ok) return;
       }
       throw new Error("Autonomous participation completion failed after repeated conflicts");

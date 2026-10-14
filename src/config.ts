@@ -72,6 +72,8 @@ export interface AppConfig {
   autonomousChatReplyChance: number;
   /** Max recent messages sent to the AI for autonomous replies (default: 40) */
   autonomousChatMaxContextMessages: number;
+  /** Wait briefly for a human message burst to finish before consuming it. */
+  autonomousChatSettleSeconds?: number;
 }
 
 /**
@@ -191,6 +193,7 @@ export function loadConfig(): AppConfig {
       10,
     ),
     autonomousChatReplyChance: Math.min(1, Math.max(0, autonomous_chat_reply_chance)),
+    autonomousChatSettleSeconds: 8,
     autonomousChatMaxContextMessages: parseInt(
       Deno.env.get("AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES") ?? "40",
       10,

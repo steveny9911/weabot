@@ -15,10 +15,7 @@ import type { StorageService } from "./services/storage.ts";
 import { collectExpiredPolls } from "./services/poll_collection.ts";
 import type { PollRecord } from "./types/storage.ts";
 import { getBotUserId } from "../bot_actions.ts";
-import {
-  AUTONOMOUS_CHAT_GUIDANCE,
-  decideAutonomousChatReply,
-} from "./features/autonomous_chat/mod.ts";
+import { participateInChannel } from "./features/autonomous_chat/participate.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
 import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
@@ -200,101 +197,15 @@ export function registerCronJobs(
 
       for (const channelId of config.autonomousChatChannelIds) {
         try {
-          const recent_messages = await discord.getRecentMessages(
-            channelId,
-            config.autonomousChatMaxContextMessages,
-          );
-          const context_reset = await storage.getContextReset(channelId);
-          const last_participation = await storage.getAutonomousParticipation(channelId);
-          const decision = decideAutonomousChatReply(recent_messages, {
-            botUserId: bot_user_id,
-            nowMs: Date.now(),
-            minHumanMessages: config.autonomousChatMinHumanMessages,
-            activityWindowMs: config.autonomousChatActivityWindowMinutes * 60_000,
-            inactivityGapMs: config.aiContextInactivityMinutes * 60_000,
-            cooldownMs: config.autonomousChatCooldownMinutes * 60_000,
-            maxContextMessages: config.autonomousChatMaxContextMessages,
-            resetAfterMs: context_reset?.resetAt,
-            replyChance: config.autonomousChatReplyChance,
-            random: Math.random,
-            lastParticipation: last_participation,
+          const outcome = await participateInChannel(channelId, {
+            config,
+            discord,
+            storage,
+            ai: aiService,
+            rateLimit,
+            botId: bot_user_id,
           });
-
-          if (!decision.shouldReply || !decision.latestHumanMessage) {
-            console.log(`[CRON] Autonomous chat skipped in ${channelId}: ${decision.reason}`);
-            continue;
-          }
-
-          const budget_result = await rateLimit.admitRequest("autonomous-chat", {
-            enforceUserLimit: false,
-          });
-          if (!budget_result.allowed) {
-            console.log("[CRON] Autonomous chat skipped because daily token budget is exhausted");
-            continue;
-          }
-
-          // Persist before generation/writes: silence, failures, and restarts must not
-          // reconsider the same activity or repeatedly try a forbidden reaction.
-          const claimed = await storage.claimAutonomousParticipation({
-            channelId,
-            latestHumanMessageId: decision.latestHumanMessage.id,
-            latestHumanTimestampMs: Date.parse(decision.latestHumanMessage.timestamp),
-            attemptedAt: Date.now(),
-          }, config.autonomousChatCooldownMinutes * 60_000);
-          if (!claimed) continue;
-
-          try {
-            const ai_result = await aiService.generateReply(decision.contextMessages, {
-              mode: "autonomous",
-              instructions: AUTONOMOUS_CHAT_GUIDANCE,
-              allowedMessageIds: decision.reactionMessageIds ?? [],
-            });
-
-            if (ai_result.tokensUsed) await rateLimit.recordTokenUsage(ai_result.tokensUsed);
-            if (!ai_result.ok) {
-              console.error(`[CRON] Autonomous chat AI failed in ${channelId}: ${ai_result.error}`);
-              continue;
-            }
-
-            const participation = ai_result.participation;
-            if (!participation || participation.action === "silent") {
-              console.log(`[CRON] Autonomous chat stayed silent in ${channelId}`);
-              continue;
-            }
-            if (
-              participation.action === "react" &&
-              !decision.reactionMessageIds?.includes(participation.messageId)
-            ) continue;
-
-            let response: Response;
-            try {
-              response = participation.action === "react"
-                ? await discord.addReaction(channelId, participation.messageId, participation.emoji)
-                : await discord.postMessage(channelId, { content: participation.text });
-            } catch {
-              console.warn(
-                `[CRON] Autonomous ${participation.action} could not be confirmed in ${channelId}`,
-              );
-              continue;
-            }
-
-            if (response.ok) {
-              console.log(`[CRON] Autonomous ${participation.action} succeeded in ${channelId}`);
-            } else {
-              await response.body?.cancel();
-              console.warn(
-                `[CRON] Autonomous ${participation.action} skipped in ${channelId}: HTTP ${response.status}`,
-              );
-            }
-          } finally {
-            // Generation and Discord delivery may be slow. Start the full cooldown
-            // at completion, while preserving the earlier durable watermark claim.
-            await storage.finishAutonomousParticipation(
-              channelId,
-              decision.latestHumanMessage.id,
-              Date.now(),
-            );
-          }
+          console.log("[AUTONOMOUS OUTCOME]", JSON.stringify({ channelId, ...outcome }));
         } catch {
           console.warn(`[CRON] Autonomous chat skipped in ${channelId} after a channel error`);
         }

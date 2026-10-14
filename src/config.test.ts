@@ -255,6 +255,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
         autonomousChatCooldownMinutes: 45,
         autonomousChatReplyChance: 0.2,
         autonomousChatMaxContextMessages: 60,
+        autonomousChatSettleSeconds: 8,
       });
     },
   );

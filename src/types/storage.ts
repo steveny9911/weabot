@@ -59,4 +59,5 @@ export interface AutonomousParticipationRecord {
   latestHumanMessageId: string;
   attemptedAt: number;
   latestHumanTimestampMs: number;
+  lastReactionEmoji?: string;
 }
