@@ -182,7 +182,7 @@ export async function viewIssue(issueNumber: number, cwd?: string): Promise<GhIs
 
 export function parseDecisionMarker(body: string): AgentDecisionMarker | null {
   const marker_re =
-    /<!--\s*haru-issue-agent:v1\s+decision=([a-z-]+)(?:\s+reason=([a-z0-9_-]+))?(?:\s+at=([0-9TZ:.\-]+))?\s*-->/i;
+    /<!--\s*haru-issue-agent:v1\s+decision=([a-z-]+)(?:\s+reason=([a-z0-9_-]+))?(?:\s+at=([0-9TZ:.-]+))?\s*-->/i;
   const match = body.match(marker_re);
   if (!match) return null;
 

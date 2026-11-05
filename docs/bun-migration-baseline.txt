@@ -1,0 +1,52 @@
+# Deno baseline for the Bun migration
+# Recorded on master 59535bf with Deno 2.6.0 (deno test --reporter=junit).
+# deno_total = tests + t.step steps as reported by Deno; step_parents = tests that only group steps;
+# bun_expected = deno_total - step_parents (each step becomes its own Bun test).
+
+file                                                       deno_total step_parents bun_expected
+## unit
+ai_service.test.ts                                                 37            0           37
+ai_service.tools.test.ts                                           18            1           17
+bot_actions.events.test.ts                                          7            0            7
+bot_actions.get_bot_user_id.test.ts                                 4            0            4
+bot_actions.handle_guards.test.ts                                   1            0            1
+bot_actions.test.ts                                                36            0           36
+scripts/run_discord_sandbox.test.ts                                 3            0            3
+scripts/test_reactions_sandbox.test.ts                              2            0            2
+src/config.test.ts                                                 22            0           22
+src/features/autonomous_chat/autonomous_chat.test.ts               11            0           11
+src/features/autonomous_chat/turns.test.ts                          5            0            5
+src/features/chat_context/chat_context.test.ts                      7            0            7
+src/features/discord_actions/authorization.test.ts                  7            0            7
+src/features/discord_actions/cancellation.test.ts                  38            1           37
+src/features/discord_actions/mod.test.ts                           35            0           35
+src/features/discord_actions/time.test.ts                           5            0            5
+src/features/poll/poll.test.ts                                      4            0            4
+src/features/reaction_gif.test.ts                                   5            0            5
+src/features/reactions/reactions.test.ts                            5            0            5
+src/features/stats/embed.test.ts                                   18            0           18
+src/scheduler.autonomous.test.ts                                   30            0           30
+src/server.test.ts                                                  4            0            4
+src/services/discord.test.ts                                       44            0           44
+src/services/discord_events.test.ts                                65            6           59
+src/services/link_open.test.ts                                     39            3           36
+src/services/poll_collection.test.ts                               34            0           34
+src/services/public_fetch.test.ts                                  46            2           44
+src/services/rate_limit.test.ts                                    22            0           22
+src/services/reaction_context.test.ts                               2            0            2
+src/services/storage.test.ts                                       47            0           47
+src/services/usage.test.ts                                         10            0           10
+src/services/web_search.test.ts                                    21            0           21
+src/utils/retry.test.ts                                             9            0            9
+TOTAL unit (33 files)                                             643           13          630
+
+## transport
+tests/public_fetch.integration.ts                                  19            4           15
+tests/link_open.integration.ts                                     26            6           20
+TOTAL transport (2 files)                                          45           10           35
+## lint (master 59535bf)
+deno lint (Deno 2.6.0):                         0 problems in 82 files
+bun lint (1.4.4-canary.1+b9f2ec363, defaults):  0 errors, 2 warnings in 82 files
+  - no-useless-escape     scripts/issue_agent/common.ts:185  ("\-" in a character class)
+  - no-useless-assignment src/services/public_fetch.ts:103   (initial [] is always overwritten)
+Both fixed in the baseline commit; bun lint --max-warnings 0 then reports no problems.

@@ -100,7 +100,7 @@ function aiParseIpv6(hostname: string): number[] | null {
     right.push(n);
   }
 
-  let hextets: number[] = [];
+  let hextets: number[];
   if (halves.length === 1) {
     if (left.length !== 8) return null;
     hextets = left;
