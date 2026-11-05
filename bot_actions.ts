@@ -22,21 +22,17 @@ import {
 } from "./src/services/web_search.ts";
 import { szSelectGreetingGifForReply } from "./src/features/reaction_gif.ts";
 import type { ContextStorageService } from "./src/services/storage.ts";
+import { fetchChannelMessages, getBotUserId, sendMessage } from "./src/discord/messages.ts";
 import {
   oMapDiscordMessage,
   oToAiContextMessage,
   selectActiveConversation,
 } from "./src/features/chat_context/mod.ts";
 
-// Discord API Base URL
-const API_BASE = "https://discord.com/api/v10";
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 
 // In-memory cache of recent messages per channel
 const messages_cache = new Map<string, Array<Record<string, unknown>>>();
-
-// Cached bot user ID
-let cached_bot_user_id: string | undefined;
 
 /**
  * Dependencies required by bot action handlers.
@@ -50,78 +46,6 @@ export interface BotDependencies {
   storageService: ContextStorageService;
   webSearchService?: WebSearchService;
   discordActionService?: DiscordActionService;
-}
-
-/**
- * Fetch and cache the bot's user ID from Discord API.
- */
-export async function getBotUserId(config: AppConfig): Promise<string | undefined> {
-  if (cached_bot_user_id) return cached_bot_user_id;
-
-  if (!config.discordToken) {
-    console.error("Cannot fetch bot user id: DISCORD_TOKEN missing");
-    return undefined;
-  }
-
-  try {
-    const res = await fetch(`${API_BASE}/users/@me`, {
-      headers: {
-        Authorization: `Bot ${config.discordToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!res.ok) {
-      console.error("Failed to fetch bot user info:", res.status, res.statusText);
-      return undefined;
-    }
-
-    const data = (await res.json()) as { id: string };
-    cached_bot_user_id = data.id;
-    return cached_bot_user_id;
-  } catch (err) {
-    console.error("Error fetching bot user id:", err);
-    return undefined;
-  }
-}
-
-/**
- * Send a message to a channel.
- */
-export async function sendMessage(
-  config: AppConfig,
-  channel_id: string,
-  content: string,
-  suppress_mentions = false,
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  if (!channel_id) return { ok: false, error: "missing channelId" };
-
-  try {
-    const response = await fetch(`${API_BASE}/channels/${channel_id}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bot ${config.discordToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        content,
-        ...(suppress_mentions ? { allowed_mentions: { parse: [] } } : {}),
-      }),
-    });
-
-    if (response.ok) {
-      console.log("Message posted successfully!");
-      return { ok: true, text: content };
-    } else {
-      const body = await response.text();
-      console.error(`Failed to post message: ${response.status} ${response.statusText}`);
-      console.error(body);
-      return { ok: false, error: `Discord post error ${response.status}: ${body}` };
-    }
-  } catch (error) {
-    console.error("Error posting message:", error);
-    return { ok: false, error: String(error) };
-  }
 }
 
 /**
@@ -477,25 +401,9 @@ export async function saveContext(
 
   try {
     const safe_limit = Math.min(100, Math.max(1, Math.trunc(limit)));
-    const res = await fetch(`${API_BASE}/channels/${channel_id}/messages?limit=${safe_limit}`, {
-      headers: {
-        Authorization: `Bot ${config.discordToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!res.ok) {
-      console.error("Failed to fetch recent messages:", res.status, res.statusText);
-      return;
-    }
-
-    const data = await res.json();
-    let msgs = Array.isArray(data)
-      ? data.filter(
-          (message): message is Record<string, unknown> =>
-            message !== null && typeof message === "object",
-        )
-      : [];
+    const fetched = await fetchChannelMessages(config, channel_id, safe_limit);
+    if (!fetched) return;
+    let msgs = fetched;
 
     // Ensure the triggering message is included
     if (trigger_message) {

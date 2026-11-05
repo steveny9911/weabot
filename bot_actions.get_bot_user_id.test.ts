@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "./test_support/fetch.ts";
-import { getBotUserId } from "./bot_actions.ts";
+import { getBotUserId } from "./src/discord/messages.ts";
 import type { AppConfig } from "./src/config.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {

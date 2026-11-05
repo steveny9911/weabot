@@ -1,13 +1,7 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "./test_support/fetch.ts";
-import {
-  bMessageMentionsBot,
-  getBotUserId,
-  getContext,
-  handleMessage,
-  saveContext,
-  sendMessage,
-} from "./bot_actions.ts";
+import { bMessageMentionsBot, getContext, handleMessage, saveContext } from "./bot_actions.ts";
+import { getBotUserId, sendMessage } from "./src/discord/messages.ts";
 import type { AiResult } from "./ai_service.ts";
 import type { BotDependencies } from "./bot_actions.ts";
 import type { AppConfig } from "./src/config.ts";

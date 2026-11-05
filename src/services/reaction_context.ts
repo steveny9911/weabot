@@ -1,5 +1,6 @@
 /** Read-only, live permission/inventory checks for autonomous reactions. */
 import { type GuildEmoji, type ReactionContext } from "../features/reactions/mod.ts";
+import { DISCORD_API_BASE } from "../discord/api.ts";
 import { createDiscordEventsClient, getChannelPermissions } from "./discord_events.ts";
 
 export async function readReactionContext(
@@ -11,7 +12,7 @@ export async function readReactionContext(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      const r = await fetch(`https://discord.com/api/v10${path}`, {
+      const r = await fetch(`${DISCORD_API_BASE}${path}`, {
         headers: { Authorization: `Bot ${token}` },
         signal: controller.signal,
         redirect: "error",

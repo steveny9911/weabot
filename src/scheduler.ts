@@ -19,7 +19,7 @@ import type { RateLimitService } from "./services/rate_limit.ts";
 import type { StorageService } from "./services/storage.ts";
 import { collectExpiredPolls } from "./services/poll_collection.ts";
 import type { PollRecord } from "./types/storage.ts";
-import { getBotUserId } from "../bot_actions.ts";
+import { getBotUserId } from "./discord/messages.ts";
 import { participateInChannel } from "./features/autonomous_chat/participate.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";

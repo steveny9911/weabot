@@ -2,7 +2,7 @@
 
 import type { Fetcher } from "../types/fetch.ts";
 
-const API_BASE = "https://discord.com/api/v10";
+import { DISCORD_API_BASE as API_BASE } from "../discord/api.ts";
 
 export interface DiscordRole {
   id: string;

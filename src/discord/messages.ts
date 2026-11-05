@@ -1,0 +1,102 @@
+/**
+ * The bot's own Discord REST calls for chat: its user ID, plain text replies and recent channel
+ * history. These calls make one attempt each, without retry, so a reply is never posted twice.
+ */
+import type { AppConfig } from "../config.ts";
+import { botJsonHeaders, DISCORD_API_BASE } from "./api.ts";
+
+// Cached bot user ID
+let cached_bot_user_id: string | undefined;
+
+/**
+ * Fetch and cache the bot's user ID from Discord API.
+ */
+export async function getBotUserId(config: AppConfig): Promise<string | undefined> {
+  if (cached_bot_user_id) return cached_bot_user_id;
+
+  if (!config.discordToken) {
+    console.error("Cannot fetch bot user id: DISCORD_TOKEN missing");
+    return undefined;
+  }
+
+  try {
+    const res = await fetch(`${DISCORD_API_BASE}/users/@me`, {
+      headers: botJsonHeaders(config.discordToken),
+    });
+
+    if (!res.ok) {
+      console.error("Failed to fetch bot user info:", res.status, res.statusText);
+      return undefined;
+    }
+
+    const data = (await res.json()) as { id: string };
+    cached_bot_user_id = data.id;
+    return cached_bot_user_id;
+  } catch (err) {
+    console.error("Error fetching bot user id:", err);
+    return undefined;
+  }
+}
+
+/**
+ * Send a message to a channel.
+ */
+export async function sendMessage(
+  config: AppConfig,
+  channel_id: string,
+  content: string,
+  suppress_mentions = false,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  if (!channel_id) return { ok: false, error: "missing channelId" };
+
+  try {
+    const response = await fetch(`${DISCORD_API_BASE}/channels/${channel_id}/messages`, {
+      method: "POST",
+      headers: botJsonHeaders(config.discordToken),
+      body: JSON.stringify({
+        content,
+        ...(suppress_mentions ? { allowed_mentions: { parse: [] } } : {}),
+      }),
+    });
+
+    if (response.ok) {
+      console.log("Message posted successfully!");
+      return { ok: true, text: content };
+    } else {
+      const body = await response.text();
+      console.error(`Failed to post message: ${response.status} ${response.statusText}`);
+      console.error(body);
+      return { ok: false, error: `Discord post error ${response.status}: ${body}` };
+    }
+  } catch (error) {
+    console.error("Error posting message:", error);
+    return { ok: false, error: String(error) };
+  }
+}
+
+/**
+ * Fetch up to `limit` recent messages (Discord API order, newest first).
+ * Returns null after logging when Discord answers with an error; network errors propagate.
+ */
+export async function fetchChannelMessages(
+  config: AppConfig,
+  channel_id: string,
+  limit: number,
+): Promise<Array<Record<string, unknown>> | null> {
+  const res = await fetch(`${DISCORD_API_BASE}/channels/${channel_id}/messages?limit=${limit}`, {
+    headers: botJsonHeaders(config.discordToken),
+  });
+
+  if (!res.ok) {
+    console.error("Failed to fetch recent messages:", res.status, res.statusText);
+    return null;
+  }
+
+  const data = await res.json();
+  return Array.isArray(data)
+    ? data.filter(
+        (message): message is Record<string, unknown> =>
+          message !== null && typeof message === "object",
+      )
+    : [];
+}

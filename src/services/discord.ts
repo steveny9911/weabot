@@ -16,7 +16,7 @@ import type { ReactionContext } from "../features/reactions/mod.ts";
 import { readReactionContext } from "./reaction_context.ts";
 import { fetchWithRetry } from "../utils/retry.ts";
 
-const API_BASE = "https://discord.com/api/v10";
+import { DISCORD_API_BASE as API_BASE } from "../discord/api.ts";
 const REACTION_TIMEOUT_MS = 15_000;
 
 /** Generic message payload (polls, embeds, text, etc.) */
