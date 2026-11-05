@@ -24,8 +24,7 @@
     "sandbox:events": "bun --env-file=.env scripts/test_discord_events.ts",
     "sandbox:reactions": "bun --env-file=.env scripts/test_reactions_sandbox.ts",
     "sandbox:autonomous": "bun --env-file=.env scripts/test_autonomous_participation.ts",
-    "eval:reactions": "bun --env-file=.env scripts/evaluate_reactions.ts",
-    "migration:gate": "bun scripts/migration/gate.ts"
+    "eval:reactions": "bun --env-file=.env scripts/evaluate_reactions.ts"
   },
   "dependencies": {
     "@aws-sdk/client-cost-explorer": "^3.1146.0",

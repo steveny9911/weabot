@@ -634,7 +634,7 @@ import a module that still uses Deno; shared types and helpers move first.
   the six `agent:*` labels with their fixed color and description, as before).
 - Each sandbox script's preview mode starts and exits without posting.
 
-### Slice 5: Remove Deno and finish
+### Slice 5: Remove Deno and finish (done)
 
 **Changes**
 
@@ -654,11 +654,12 @@ import a module that still uses Deno; shared types and helpers move first.
 - This finds nothing:
 
   ```bash
-  git grep -n -i deno -- ':!docs/' ':!scripts/issue_agent/triage.ts' ':!bot_actions*.test.ts' ':!src/services/web_search.test.ts'
+  git grep -n -i deno -- ':!docs/' ':!scripts/issue_agent/triage.ts' ':!bot_actions*.test.ts' ':!src/services/web_search.test.ts' ':!deploy/' ':!scripts/deploy_aws.sh'
   ```
 
   The exceptions are deliberate: triage still recognizes "deno" in bug reports (behavior change 8),
-  and the test messages ask about Deno as sample user text.
+  the test messages ask about Deno as sample user text, and the deployment files still deploy the
+  Deno version until the deployment follow-up.
 
 - Full suite at the exact expected counts.
 - The slice 3 smoke run is repeated on the final commit.
@@ -944,6 +945,33 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
 - **Left as is:** `Bun.spawn` does not pass the terminal's input to `gh`, where Deno's `Command`
   did; no `gh` call reads input. A missing `gh` reports Bun's `Executable not found in $PATH`
   message.
+
+### Slice 5 (done)
+
+- **Removed:** `deno.json`, `deno.lock`, `.vscode/settings.json` (it held only `deno.enable`), and
+  the migration gate (`scripts/migration/`: `gate.ts`, its test and fixture, `ported.json`).
+  `migration:gate` is gone from `package.json`. The baseline file stays in `docs/` as the record.
+- **CI (Bun job):** `bun install --frozen-lockfile`, `fmt:check`, `lint`, `check`, `test` and
+  `test:transport` as separate steps; the CloudFormation lint job is unchanged. `bun test` discovers
+  every `*.test.ts` file, so the gate's guard against silently ignored file arguments is no longer
+  needed.
+- **Count comparison:** done once on the final tree instead of on every CI run. The per-file
+  expectations from `ported.json` and the baseline (gate test removed) were saved before the gate
+  was deleted and compared with a JUnit report of `bun run test` and `bun run test:transport`: 40
+  files, 713 tests (670 unit, 43 transport), every file matching; the only skip is the allowed IPv6
+  test.
+- **Deployment files:** `deploy/aws/cloudformation.yml` and `scripts/deploy_aws.sh` still deploy
+  Deno and are left unchanged (deployment is out of scope). The Verify `git grep` excludes them; the
+  README marks the AWS section as pending.
+- **README:** Bun prerequisites and `bun install`; `bun run` commands for start, dev, test,
+  transport tests, lint, format and type check; `HARU_DB_PATH`; `.env` loaded only by `start` and
+  `dev` (and the sandbox scripts); a data storage summary; the eight behavior changes; storage
+  wording that named Deno KV; the startup output sample (now "Haru" and the database path).
+- **`bunfig.toml`:** the lint comment no longer mentions Deno.
+- **Smoke run (local, fake token, no Discord access here):** `bun run start` with `HARU_DB_PATH` in
+  a scratch directory: `/health` returns `OK`, `POST /vote` and `/stats` work, the database is at
+  `user_version = 1` with the vote stored, and the six jobs register. **Still to do with a test
+  bot:** the full slice 3 smoke list.
 
 ## Future work
 

@@ -56,5 +56,11 @@ jobs:
       - name: Run linter
         run: bun run lint
 
-      - name: Type check and test ported files, comparing counts with the Deno baseline
-        run: bun run migration:gate
+      - name: Type check
+        run: bun run check
+
+      - name: Run tests
+        run: bun run test
+
+      - name: Run transport tests
+        run: bun run test:transport

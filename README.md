@@ -36,7 +36,7 @@ in a row.
 
 ### Prerequisites
 
-- [Deno](https://deno.land/) v2.x installed
+- [Bun](https://bun.sh/) 1.4.x (the exact version is in `package.json` `packageManager`)
 - A Discord Bot Token ([create one here](https://discord.com/developers/applications))
 - A Discord Server where you have admin permissions
 
@@ -45,6 +45,7 @@ in a row.
 ```bash
 git clone https://github.com/YOUR_USERNAME/weabot.git
 cd weabot
+bun install
 ```
 
 ### 2. Create Your Discord Bot
@@ -87,6 +88,7 @@ GLUE_ALERT_THRESHOLD=7
 LINK_OPEN_ENABLED=true
 AI_CONTEXT_MAX_MESSAGES=40
 AI_CONTEXT_INACTIVITY_MINUTES=20
+HARU_DB_PATH=./data/haru.sqlite3
 
 # Multi-server (optional)
 # CHANNEL_IDS=channel_id_1,channel_id_2
@@ -102,24 +104,29 @@ AI_CONTEXT_INACTIVITY_MINUTES=20
 | `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
 | `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
 | `AI_CONTEXT_INACTIVITY_MINUTES` | No       | Silence that starts a new context (default: `20`)             |
+| `HARU_DB_PATH`                  | No       | SQLite database file (default: `./data/haru.sqlite3`)         |
 
 _Set either `CHANNEL_ID` or `CHANNEL_IDS`._
+
+`.env` is loaded only by `bun run start` and `bun run dev`. Tests never read it; the sandbox and
+evaluation scripts below load it explicitly.
 
 ### 6. Run the Bot
 
 ```bash
 # Production
-deno task start
+bun run start
 
-# Development (with hot reload)
-deno task dev
+# Development (restarts on file changes)
+bun run dev
 ```
 
 You should see:
 
 ```
-🐴 Weabot is running!
+🐴 Haru is running!
    Channels: 123456789012345678
+   Database: ./data/haru.sqlite3
    Timezone: America/Los_Angeles
    Glue Alert Threshold: 7 days
 ```
@@ -143,7 +150,7 @@ message. Direct mentions and commands still use the normal reply path.
 
 The existing human activity threshold, random admission chance, token budget, configured channels,
 and cooldown apply to all autonomous participation. The latest considered human message and attempt
-time are persisted per channel in Deno KV, so replies, reactions, silence, errors, and restarts
+time are persisted per channel in the database, so replies, reactions, silence, errors, and restarts
 cannot repeatedly process the same conversation. Reaction targets exclude bots, webhooks, older
 handled messages, and messages Haru already reacted to. Nearby messages by one author are
 represented as a turn, with reply relationships intact. Connective fragments and trailing laughter
@@ -217,9 +224,9 @@ Reported tokens, including usage returned with failed generations, are recorded 
 are charged to the UTC day when the response is recorded; requests count on their admission day.
 Requests spanning midnight may therefore appear in different daily request and token buckets.
 Autonomous chat uses the same budget check and request accounting, but remains exempt from the human
-per-user limit. Existing numeric KV counters remain compatible, with user buckets retained for two
-minutes and daily counters for 48 hours. A repeatedly conflicting transaction fails explicitly after
-bounded retries, so it never authorizes uncounted work.
+per-user limit. Per-minute user counts are kept in memory, so a restart resets them (at most one
+extra minute of allowance). Daily request and token totals are stored in the database for 30 days,
+so a restart does not reset the budget.
 
 ### Discord events and invitations
 
@@ -272,7 +279,7 @@ when the user does not name one. Daylight saving gaps and repeated times require
 This version creates individual events and invitations and cancels scheduled events. Ending active
 events, cancelling recurring series or occurrences, other event edits/deletion, and bulk invitations
 are not exposed to the AI. Autonomous chat and opened web pages cannot invoke these tools. Mutation
-attempts are recorded in Deno KV; ambiguous network outcomes are not automatically retried.
+attempts are recorded in the database; ambiguous network outcomes are not automatically retried.
 Read-only requests can retry a confirmed rate limit twice, respecting Discord's delay (up to 15
 seconds per wait). If Haru cannot confirm a write, inspect Discord before issuing another request.
 
@@ -364,7 +371,7 @@ and decompression. Redirects and slowly arriving chunks do not reset the deadlin
 limit applies to decoded bytes. Abandoned bodies are canceled, readers released, and the deadline
 timer cleared on every exit; download and decoding errors return structured failures.
 `bun run test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI runs
-it on Bun through `bun run migration:gate`.
+it too.
 
 ### Available Endpoints
 
@@ -397,7 +404,7 @@ it on Bun through `bun run migration:gate`.
 
    ```bash
    export ADMIN_HTTP_TOKEN="$(openssl rand -hex 32)"
-   deno task dev
+   bun run dev
    ```
 
 2. **Test the poll**:
@@ -450,9 +457,13 @@ weabot/
 │   │   ├── bot.ts              # Domain types (Mood, MoodPollConfig)
 │   │   ├── discord.ts          # Discord API types
 │   │   └── storage.ts          # Storage types (VoteRecord, etc.)
+│   ├── db/
+│   │   ├── database.ts         # Opens SQLite, applies migrations
+│   │   ├── migrations.ts       # Schema
+│   │   └── *.ts                # Queries per table group
 │   ├── services/
 │   │   ├── discord.ts          # Discord API client
-│   │   ├── storage.ts          # Deno KV storage service
+│   │   ├── storage.ts          # Polls, votes and chat state
 │   │   ├── web_search.ts       # Brave web search integration
 │   │   ├── link_open.ts        # Safe HTML link opener for \open command
 │   │   └── rate_limit.ts       # AI usage/rate limiting
@@ -464,8 +475,10 @@ weabot/
 │       └── stats/              # Stats & embed generation
 │           ├── mod.ts
 │           └── embed.ts
-├── deno.json                   # Task definitions
-├── deno.lock                   # Dependency lock file
+├── package.json                # Scripts and dependencies
+├── bun.lock                    # Dependency lock file
+├── bunfig.toml                 # Bun settings (tests, format, lint)
+├── tsconfig.json               # Type-check settings
 └── .github/workflows/ci.yml    # CI pipeline
 ```
 
@@ -476,21 +489,61 @@ weabot/
 ### Run Tests
 
 ```bash
-deno task test
+bun run test
+bun run test:transport
 ```
+
+`test:transport` runs the HTTP/TLS transport tests against loopback servers. Tests block network
+calls that are not stubbed.
 
 ### Lint & Format
 
 ```bash
-deno task lint
-deno task fmt
+bun run lint
+bun run fmt
+bun run fmt:check
 ```
+
+`lint` uses a pinned Bun canary through `bunx`, because `bun lint` is not in a stable Bun release
+yet.
 
 ### Type Check
 
 ```bash
-deno task check
+bun run check
 ```
+
+### Data Storage
+
+Haru keeps everything that must survive a restart in one SQLite database (`HARU_DB_PATH`, default
+`./data/haru.sqlite3`):
+
+- polls and votes;
+- `\reset` markers;
+- the autonomous chat watermark, cooldown and last reaction;
+- daily AI request and token totals (kept for 30 days);
+- Discord action records and event guards, so an action is never repeated.
+
+The schema is created and upgraded on startup. Haru refuses to start on a database written by a
+newer version. Per-minute AI request counts, Discord action turns and pending clarifications are
+kept in memory only.
+
+### Changes From the Previous Runtime
+
+Haru now runs on Bun and started with a new, empty database. These differences are intentional:
+
+1. A pending clarification (for example, "what time should the event start?") is forgotten on
+   restart; repeat the request.
+2. A restart resets the per-minute AI request counts. The daily budget is unaffected.
+3. Link requests send `User-Agent: HaruBot/1.0`.
+4. The AWS cost request sends the AWS SDK's default user agent.
+5. A link path starting with `//` is requested with a single `/`.
+6. A gzip body followed by trailing zero bytes fails to decode.
+7. An admin HTTP request that sends nothing for 120 seconds is cut off.
+8. Issue triage counts "bun" as an environment detail in bug reports.
+
+Weekly stats no longer drop or duplicate a day across a daylight saving change. See
+[`docs/bun-migration-plan.md`](docs/bun-migration-plan.md) for details.
 
 ### Local Issue Automation (Codex + GitHub Issues)
 
@@ -555,12 +608,17 @@ Suggested recurring loop:
 
 ## AWS Deployment
 
+> **Pending.** The deployment template and `scripts/deploy_aws.sh` still install and run the pre-Bun
+> version of Haru. They move to Bun in a separate follow-up (see "Deployment notes" in
+> [`docs/bun-migration-plan.md`](docs/bun-migration-plan.md)). This section describes the current
+> deployment.
+
 The production deployment uses a small ARM EC2 instance in the account's default VPC. It has no
 inbound ports, is administered through AWS Systems Manager, restarts Haru after process or health
-check failures, and backs up Deno KV to a private versioned S3 bucket each day. The instance uses
-Standard CPU credits to avoid surplus CPU credit charges. Bursts spend earned credits; sustained CPU
-work slows toward the instance's baseline as credits run low, which can increase response and
-deployment times. See
+check failures, and backs up its database to a private versioned S3 bucket each day. The instance
+uses Standard CPU credits to avoid surplus CPU credit charges. Bursts spend earned credits;
+sustained CPU work slows toward the instance's baseline as credits run low, which can increase
+response and deployment times. See
 [AWS Standard mode](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-standard-mode.html).
 
 Prerequisites:
@@ -573,7 +631,7 @@ Deploy from the repository root, migrating the current local KV database if desi
 
 ```bash
 AWS_PROFILE=mochi-admin ./scripts/deploy_aws.sh \
-  --migrate-kv /path/to/deno/location_data/project/kv.sqlite3
+  --migrate-kv /path/to/kv.sqlite3
 ```
 
 For infrastructure updates that should preserve the running instance, set the CloudFormation
@@ -614,7 +672,7 @@ instance itself.
 ## Acknowledgments
 
 - Inspired by [Umamusume Pretty Derby](https://umamusume.jp/)
-- Built with [Deno](https://deno.land/) and the Discord API
+- Built with [Bun](https://bun.sh/) and the Discord API
 
 ---
 

@@ -15,7 +15,7 @@ proseWrap = "always"
 
 [lint.rules]
 # Defaults: ESLint and typescript-eslint recommended, plus bun:test rules.
-# Run with --max-warnings 0, so warnings fail CI as deno lint errors did.
+# Run with --max-warnings 0, so warnings fail CI.
 
 [test]
 # Sets the default timeout and blocks unstubbed network calls.
