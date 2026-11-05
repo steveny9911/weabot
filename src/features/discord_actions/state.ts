@@ -4,7 +4,7 @@
  * A turn is the latest message a user sent in a channel. Each write of a turn issues a new token,
  * so a session can check that its turn is still the current one (a token works like a version).
  * Turns and pending clarifications expire 20 minutes after they were written. They only
- * coordinate work inside this process, so they are not persisted (behavior change 1).
+ * coordinate work inside this process, so they are not persisted.
  */
 
 export const TURN_TTL_MS = 20 * 60_000;
