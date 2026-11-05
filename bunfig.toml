@@ -1,0 +1,22 @@
+# Environment files are loaded only where asked for: `bun run start` and
+# `bun run dev` pass --env-file=.env. Tests and scripts never read .env.
+env = false
+
+[install]
+# Never install packages at runtime; a missing `bun install` fails loudly.
+auto = "disable"
+
+[fmt]
+printWidth = 100
+tabWidth = 2
+useTabs = false
+singleQuote = false
+proseWrap = "always"
+
+[lint.rules]
+# Defaults: ESLint and typescript-eslint recommended, plus bun:test rules.
+# Run with --max-warnings 0, so warnings fail CI as deno lint errors did.
+
+[test]
+# Sets the default timeout and blocks unstubbed network calls.
+preload = ["./test_support/setup.ts"]

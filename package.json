@@ -1,0 +1,27 @@
+{
+  "name": "weabot",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "bun": "~1.4.4"
+  },
+  "scripts": {
+    "start": "bun --env-file=.env main.ts",
+    "dev": "bun --watch --env-file=.env main.ts",
+    "test": "bun test --isolate",
+    "test:transport": "bun test --isolate ./tests/public_fetch.integration.ts ./tests/link_open.integration.ts",
+    "check": "bun check",
+    "fmt": "bun fmt",
+    "fmt:check": "bun fmt --check",
+    "lint": "bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0",
+    "migration:gate": "bun scripts/migration/gate.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cost-explorer": "^3.1146.0",
+    "@smithy/credential-provider-imds": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4"
+  }
+}
