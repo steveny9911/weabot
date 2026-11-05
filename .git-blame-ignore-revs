@@ -1,2 +1,5 @@
 # Repository-wide bun fmt (Prettier) formatting, Bun migration slice 0
 aecc3908776806d00c17727a872a2df31b850676
+
+# camelCase rename without type prefixes (mechanical)
+8ddb6f7714f3170922e8ed3e77f5fb420bf8c171
