@@ -14,6 +14,8 @@ type Expected = Record<string, number | null>;
 interface Ported {
   unit: Expected;
   transport: Expected;
+  /** Files allowed to skip up to this many tests, e.g. where the machine has no IPv6. */
+  allowedSkips?: Record<string, number>;
 }
 
 const BASELINE_PATH = "docs/bun-migration-baseline.txt";
@@ -58,7 +60,20 @@ function run(command: string[]): number {
   return result.exitCode ?? 1;
 }
 
-function testGroup(label: string, expected: Expected, baseline: Map<string, number>, dir: string) {
+/** Bun counts skipped and todo tests in `tests`, so a skipped test would otherwise pass. */
+export function skipProblem(file: string, skipped: number, allowed = 0): string | undefined {
+  if (skipped > allowed) return `${file}: ${skipped} skipped or todo tests (allowed: ${allowed})`;
+  if (skipped > 0) console.warn(`${file}: ${skipped} test(s) skipped, within the allowance`);
+  return undefined;
+}
+
+function testGroup(
+  label: string,
+  expected: Expected,
+  baseline: Map<string, number>,
+  dir: string,
+  allowedSkips: Record<string, number> = {},
+) {
   const files = Object.keys(expected);
   if (files.length === 0) return [] as string[];
   const report = join(dir, `${label}.xml`);
@@ -80,8 +95,8 @@ function testGroup(label: string, expected: Expected, baseline: Map<string, numb
     else if (got?.tests !== want) {
       problems.push(`${file}: expected ${want} tests, Bun ran ${got?.tests ?? 0}`);
     }
-    // Bun counts skipped and todo tests in `tests`, so a skipped test would otherwise pass.
-    if (got && got.skipped > 0) problems.push(`${file}: ${got.skipped} skipped or todo tests`);
+    const skip = got ? skipProblem(file, got.skipped, allowedSkips[file]) : undefined;
+    if (skip) problems.push(skip);
   }
   return problems;
 }
@@ -103,8 +118,8 @@ if (import.meta.main) {
   }
   const dir = mkdtempSync(join(tmpdir(), "migration-gate-"));
   try {
-    problems.push(...testGroup("unit", ported.unit, baseline, dir));
-    problems.push(...testGroup("transport", ported.transport, baseline, dir));
+    problems.push(...testGroup("unit", ported.unit, baseline, dir, ported.allowedSkips));
+    problems.push(...testGroup("transport", ported.transport, baseline, dir, ported.allowedSkips));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

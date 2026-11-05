@@ -1,9 +1,6 @@
 /** Public-only link transport. DNS answers are checked once and the connection
  * uses a numeric address, preserving the original HTTP Host and TLS identity. */
 import { isIP } from "node:net";
-import { Agent, buildConnector } from "npm:undici@7.29.1";
-import type { Readable } from "node:stream";
-import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 const METADATA_HOSTS = new Set([
   "metadata",
@@ -164,33 +161,42 @@ export class BlockedDestinationError extends Error {
 export type LinkFetch = (url: string, init: RequestInit) => Promise<Response>;
 export type ResolveAddresses = (hostname: string, signal?: AbortSignal) => Promise<string[]>;
 export type PinnedRequest = (url: URL, address: string, signal?: AbortSignal) => Promise<Response>;
+export type DnsLookup = (hostname: string) => Promise<{ address: string }[]>;
 
-/** Resolve both families before connecting; an incomplete lookup fails closed. */
-export async function resolveAddresses(hostname: string, signal?: AbortSignal): Promise<string[]> {
+const defaultLookup: DnsLookup = (hostname) => Bun.dns.lookup(hostname, { backend: "c-ares" });
+
+/** Both address families from one lookup. A name with no records resolves to
+ * no addresses; every other DNS failure rejects. The lookup itself cannot be
+ * cancelled, so the caller's signal ends the wait and its late answer is
+ * ignored. */
+export async function resolveAddresses(
+  hostname: string,
+  signal?: AbortSignal,
+  lookup: DnsLookup = defaultLookup,
+): Promise<string[]> {
   signal?.throwIfAborted();
-  const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  signal?.addEventListener("abort", abort, { once: true });
-  const lookups = ["A", "AAAA"].map(async (type) => {
-    try {
-      return await Deno.resolveDns(hostname, type as "A" | "AAAA", {
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (error instanceof Deno.errors.NotFound) return [];
-      throw error;
-    }
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  const answers = lookup(hostname).catch((error: unknown) => {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === "DNS_ENOTFOUND" || code === "DNS_ENODATA") return [];
+    throw error;
   });
   try {
-    return (await Promise.all(lookups)).flat();
+    return (await Promise.race([answers, aborted])).map((record) => record.address);
   } finally {
-    // Promise.all rejects before a sibling lookup finishes. Cancel and settle
-    // both DNS operations before the caller clears its overall deadline.
-    signal?.removeEventListener("abort", abort);
-    controller.abort();
-    await Promise.allSettled(lookups);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
   }
 }
+
+const DECODERS = new Map<string, Bun.CompressionFormat>([
+  ["gzip", "gzip"],
+  ["deflate", "deflate"],
+  ["br", "brotli"],
+]);
 
 /** Low-level transport: callers must validate address before calling this.
  * Exported separately so CI can prove numeric pinning and TLS verification on
@@ -202,124 +208,59 @@ export async function requestPinned(
   signal?: AbortSignal,
   ca?: string,
 ): Promise<Response> {
-  if (!isIP(address)) throw new BlockedDestinationError();
+  const family = isIP(address);
+  if (!family) throw new BlockedDestinationError();
   signal?.throwIfAborted();
   const hostname = szNormalizeHost(url.hostname);
-  // Use Undici's maintained TCP/TLS connector and parser on both supported Deno
-  // runtimes. Deno 2.6's node:http parser has a process-fatal pending-read abort
-  // bug; newer Deno also changed how HTTPS agent sockets are upgraded to TLS.
-  const connect = buildConnector({ rejectUnauthorized: true, ca, timeout: 0 });
-  const dispatcher = new Agent({
-    // link_open owns the request deadline; disabling Undici's separate timers
-    // also avoids leaving its shared timer running after a request completes.
-    headersTimeout: 0,
-    bodyTimeout: 0,
-    pipelining: 0,
-    connect(options, callback) {
-      // Only the socket destination changes. The URL/Host and TLS servername
-      // retain the original identity. No hostname is resolved a second time.
-      connect({ ...options, hostname: address, servername: hostname }, callback);
-    },
-  });
-  let source: Readable | undefined;
-  let closing: Promise<void> | undefined;
-  const close = () => {
-    signal?.removeEventListener("abort", abort);
-    return (closing ??= dispatcher.destroy().catch(() => {}));
-  };
-  const abort = () => {
-    source?.destroy(new DOMException("Aborted", "AbortError"));
-    void close();
-  };
-  signal?.addEventListener("abort", abort, { once: true });
+  // Only the socket destination changes. The Host header and the TLS server
+  // name keep the original identity, and the hostname is never resolved again.
+  const target = new URL(url.pathname + url.search, url.origin);
+  target.hostname = family === 6 ? `[${address}]` : address;
+  let response: Response;
   try {
-    const response = await dispatcher.request({
-      origin: url.origin,
-      path: url.pathname + url.search,
+    response = await fetch(target, {
       method: "GET",
+      redirect: "manual",
+      // Decode here so the caller's byte limit applies to the decoded body.
+      decompress: false,
+      keepalive: false,
+      // Environment proxies would connect by hostname and bypass the pinning.
+      proxy: false,
       signal,
       headers: {
+        Host: url.host,
         Accept: "text/html,application/xhtml+xml",
         "Accept-Encoding": "gzip, deflate, br",
+        // Bun always sends a User-Agent; a fixed one avoids naming the runtime.
+        "User-Agent": "HaruBot/1.0",
+      },
+      tls: {
+        rejectUnauthorized: true,
+        ...(ca ? { ca } : {}),
+        ...(isIP(hostname) ? {} : { serverName: hostname }),
       },
     });
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(response.headers)) {
-      if (Array.isArray(value)) {
-        for (const entry of value) headers.append(key, entry);
-      } else if (value !== undefined) headers.set(key, value);
-    }
-    source = response.body;
-    // BodyReadable emits AbortError when destroyed before it is consumed. A
-    // permanent listener makes every early-discard path safe; the iterator below
-    // separately observes errors while the caller is consuming the response.
-    source.on("error", () => {});
-    if ([204, 205, 304].includes(response.statusCode)) {
-      source.destroy();
-      await close();
-      return new Response(null, { status: response.statusCode, headers });
-    }
-    const encoding = headers.get("content-encoding")?.trim().toLowerCase();
-    if (encoding && encoding !== "identity") {
-      const decoder =
-        encoding === "gzip"
-          ? createGunzip()
-          : encoding === "deflate"
-            ? createInflate()
-            : encoding === "br"
-              ? createBrotliDecompress()
-              : undefined;
-      if (!decoder) {
-        source.destroy();
-        throw new Error("Unsupported content encoding");
-      }
-      response.body.on("error", (error) => decoder.destroy(error));
-      decoder.on("close", () => response.body.destroy());
-      decoder.on("error", () => {});
-      source = response.body.pipe(decoder);
-      // Decode before applying the caller's byte limit, including gzip bombs.
-      headers.delete("content-encoding");
-      headers.delete("content-length");
-    }
-    // Readable.toWeb in Deno 2.6 can enqueue after cancellation. The guarded
-    // iterator bridge stops delivery before destroying a body with pending IO.
-    const iterator = source[Symbol.asyncIterator]();
-    let finished = false;
-    const body = new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        try {
-          const chunk = await iterator.next();
-          if (finished) return;
-          if (chunk.done) {
-            finished = true;
-            controller.close();
-            await close();
-          } else {
-            controller.enqueue(chunk.value);
-          }
-        } catch (error) {
-          if (!finished) {
-            finished = true;
-            controller.error(error);
-          }
-          await close();
-        }
-      },
-      async cancel(reason) {
-        finished = true;
-        try {
-          source?.destroy();
-          await iterator.return?.(reason);
-        } finally {
-          await close();
-        }
-      },
-    });
-    return new Response(body, { status: response.statusCode, headers });
   } catch (error) {
-    await close();
     throw signal?.aborted ? new DOMException("Aborted", "AbortError") : error;
   }
+  const headers = new Headers(response.headers);
+  if ([204, 205, 304].includes(response.status)) {
+    await response.body?.cancel().catch(() => {});
+    return new Response(null, { status: response.status, headers });
+  }
+  let body = response.body;
+  const encoding = headers.get("content-encoding")?.trim().toLowerCase();
+  if (body && encoding && encoding !== "identity") {
+    const format = DECODERS.get(encoding);
+    if (!format) {
+      await body.cancel().catch(() => {});
+      throw new Error("Unsupported content encoding");
+    }
+    body = body.pipeThrough(new DecompressionStream(format));
+    headers.delete("content-encoding");
+    headers.delete("content-length");
+  }
+  return new Response(body, { status: response.status, headers });
 }
 
 /** Every invocation validates all DNS answers and pins the actual connection.

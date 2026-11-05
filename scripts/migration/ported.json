@@ -1,8 +1,8 @@
 {
-  "$comment": "Test files ported to Bun. null = expect the bun_expected count from docs/bun-migration-baseline.txt; a number = explicit count for new or rewritten files (record the reason in the plan's test-count table). Removed in slice 5.",
+  "$comment": "Test files ported to Bun. null = expect the bun_expected count from docs/bun-migration-baseline.txt; a number = explicit count for new or rewritten files (record the reason in the plan's test-count table). allowedSkips: files that may skip up to N tests (the IPv6 test skips where the machine has no IPv6 loopback). Removed in slice 5.",
   "unit": {
     "test_support/assert.test.ts": 11,
-    "scripts/migration/gate.test.ts": 3,
+    "scripts/migration/gate.test.ts": 4,
     "src/utils/retry.test.ts": null,
     "src/features/poll/poll.test.ts": null,
     "src/features/stats/embed.test.ts": null,
@@ -19,7 +19,15 @@
     "src/services/usage.test.ts": null,
     "src/config.test.ts": null,
     "ai_service.test.ts": null,
-    "ai_service.tools.test.ts": null
+    "ai_service.tools.test.ts": null,
+    "src/services/public_fetch.test.ts": null,
+    "src/services/link_open.test.ts": null
   },
-  "transport": {}
+  "transport": {
+    "tests/public_fetch.integration.ts": 21,
+    "tests/link_open.integration.ts": 21
+  },
+  "allowedSkips": {
+    "tests/public_fetch.integration.ts": 1
+  }
 }

@@ -2,7 +2,8 @@
  * Tests for Link Open Service.
  */
 
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { describe, expect, test } from "bun:test";
+import { assert } from "../../test_support/assert.ts";
 import { createLinkOpenService as createService } from "./link_open.ts";
 import { type LinkFetch } from "./public_fetch.ts";
 
@@ -59,32 +60,32 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Respons
   };
 }
 
-Deno.test("open rejects invalid url", async () => {
+test("open rejects invalid url", async () => {
   const service = createLinkOpenService(createMockConfig());
   const result = await service.open("not-a-url");
-  assertEquals(result, { ok: false, error: "invalid_url" });
+  expect(result).toStrictEqual({ ok: false, error: "invalid_url" });
 });
 
-Deno.test("open rejects unsupported protocol", async () => {
+test("open rejects unsupported protocol", async () => {
   const service = createLinkOpenService(createMockConfig());
   const result = await service.open("ftp://example.com/file.txt");
-  assertEquals(result, { ok: false, error: "unsupported_protocol" });
+  expect(result).toStrictEqual({ ok: false, error: "unsupported_protocol" });
 });
 
-Deno.test("open rejects blocked hosts", async () => {
+test("open rejects blocked hosts", async () => {
   const service = createLinkOpenService(createMockConfig());
 
   const localhost = await service.open("http://localhost/test");
-  assertEquals(localhost, { ok: false, error: "blocked_host" });
+  expect(localhost).toStrictEqual({ ok: false, error: "blocked_host" });
 
   const privateIp = await service.open("http://10.0.0.1/test");
-  assertEquals(privateIp, { ok: false, error: "blocked_host" });
+  expect(privateIp).toStrictEqual({ ok: false, error: "blocked_host" });
 
   const metadata = await service.open("http://metadata.google.internal/test");
-  assertEquals(metadata, { ok: false, error: "blocked_host" });
+  expect(metadata).toStrictEqual({ ok: false, error: "blocked_host" });
 });
 
-Deno.test("open rejects too many redirects", async () => {
+test("open rejects too many redirects", async () => {
   const mock = mockFetch((url) => {
     if (url === "https://a.example/start") {
       return new Response(null, { status: 302, headers: { location: "https://b.example/1" } });
@@ -104,13 +105,13 @@ Deno.test("open rejects too many redirects", async () => {
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://a.example/start");
-    assertEquals(result, { ok: false, error: "too_many_redirects" });
+    expect(result).toStrictEqual({ ok: false, error: "too_many_redirects" });
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open rejects redirect to blocked host", async () => {
+test("open rejects redirect to blocked host", async () => {
   const mock = mockFetch((url) => {
     if (url === "https://safe.example/start") {
       return new Response(null, {
@@ -124,13 +125,13 @@ Deno.test("open rejects redirect to blocked host", async () => {
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/start");
-    assertEquals(result, { ok: false, error: "redirect_blocked" });
+    expect(result).toStrictEqual({ ok: false, error: "redirect_blocked" });
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open rejects non-html content", async () => {
+test("open rejects non-html content", async () => {
   const mock = mockFetch((_url) => {
     return new Response("{}", {
       status: 200,
@@ -141,13 +142,13 @@ Deno.test("open rejects non-html content", async () => {
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/data.json");
-    assertEquals(result, { ok: false, error: "unsupported_content_type" });
+    expect(result).toStrictEqual({ ok: false, error: "unsupported_content_type" });
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open rejects oversized response by content-length", async () => {
+test("open rejects oversized response by content-length", async () => {
   const mock = mockFetch((_url) => {
     return new Response("<html>tiny</html>", {
       status: 200,
@@ -161,13 +162,13 @@ Deno.test("open rejects oversized response by content-length", async () => {
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/large");
-    assertEquals(result, { ok: false, error: "response_too_large" });
+    expect(result).toStrictEqual({ ok: false, error: "response_too_large" });
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open returns timeout on abort error", async () => {
+test("open returns timeout on abort error", async () => {
   const mock = mockFetch((_url) => {
     throw new DOMException("Aborted", "AbortError");
   });
@@ -175,13 +176,13 @@ Deno.test("open returns timeout on abort error", async () => {
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/slow");
-    assertEquals(result, { ok: false, error: "timeout" });
+    expect(result).toStrictEqual({ ok: false, error: "timeout" });
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open extracts title and cleaned excerpt from html", async () => {
+test("open extracts title and cleaned excerpt from html", async () => {
   const html = `
     <html>
       <head>
@@ -209,14 +210,14 @@ Deno.test("open extracts title and cleaned excerpt from html", async () => {
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/page");
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertEquals(result.page.domain, "safe.example");
-      assertEquals(result.page.title, "Hello & World");
-      assertStringIncludes(result.page.excerpt, "Welcome Line one. Line two with spacing.");
-      assertEquals(result.page.excerpt.includes("secret script text"), false);
-      assertEquals(result.page.excerpt.includes("hidden text"), false);
-      assertEquals(result.page.excerpt.includes("vector text"), false);
+      expect(result.page.domain).toStrictEqual("safe.example");
+      expect(result.page.title).toStrictEqual("Hello & World");
+      expect(result.page.excerpt).toContain("Welcome Line one. Line two with spacing.");
+      expect(result.page.excerpt.includes("secret script text")).toStrictEqual(false);
+      expect(result.page.excerpt.includes("hidden text")).toStrictEqual(false);
+      expect(result.page.excerpt.includes("vector text")).toStrictEqual(false);
       assert(result.page.excerpt.length <= 3500);
     }
   } finally {
@@ -224,7 +225,7 @@ Deno.test("open extracts title and cleaned excerpt from html", async () => {
   }
 });
 
-Deno.test("open blocks additional local/private/reserved IPv4 and IPv6 hosts", async () => {
+test("open blocks additional local/private/reserved IPv4 and IPv6 hosts", async () => {
   const service = createLinkOpenService(createMockConfig());
   const blockedUrls = [
     "http://abc.local/path",
@@ -254,38 +255,35 @@ Deno.test("open blocks additional local/private/reserved IPv4 and IPv6 hosts", a
 
   for (const url of blockedUrls) {
     const result = await service.open(url);
-    assertEquals(result, { ok: false, error: "blocked_host" });
+    expect(result).toStrictEqual({ ok: false, error: "blocked_host" });
   }
 });
 
-Deno.test(
-  "open allows public hosts including normalized hostname and public IPv6 mapped IPv4",
-  async () => {
-    const mock = mockFetch((_url) => {
-      return new Response("<html><title>Hi</title><body>ok</body></html>", {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      });
+test("open allows public hosts including normalized hostname and public IPv6 mapped IPv4", async () => {
+  const mock = mockFetch((_url) => {
+    return new Response("<html><title>Hi</title><body>ok</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" },
     });
+  });
 
-    try {
-      const service = createLinkOpenService(createMockConfig());
+  try {
+    const service = createLinkOpenService(createMockConfig());
 
-      const normalized = await service.open("https://Example.COM./test");
-      assertEquals(normalized.ok, true);
-      if (normalized.ok) {
-        assertEquals(normalized.page.domain, "example.com");
-      }
-
-      const mappedPublic = await service.open("http://[::ffff:8.8.8.8]/x");
-      assertEquals(mappedPublic.ok, true);
-    } finally {
-      mock.restore();
+    const normalized = await service.open("https://Example.COM./test");
+    expect(normalized.ok).toStrictEqual(true);
+    if (normalized.ok) {
+      expect(normalized.page.domain).toStrictEqual("example.com");
     }
-  },
-);
 
-Deno.test("open follows a safe relative redirect and succeeds", async () => {
+    const mappedPublic = await service.open("http://[::ffff:8.8.8.8]/x");
+    expect(mappedPublic.ok).toStrictEqual(true);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("open follows a safe relative redirect and succeeds", async () => {
   let calls = 0;
   const mock = mockFetch((url) => {
     calls++;
@@ -307,24 +305,24 @@ Deno.test("open follows a safe relative redirect and succeeds", async () => {
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/start");
-    assertEquals(result.ok, true);
-    assertEquals(calls, 2);
+    expect(result.ok).toStrictEqual(true);
+    expect(calls).toStrictEqual(2);
     if (result.ok) {
-      assertEquals(result.page.title, "Redirected");
-      assertStringIncludes(result.page.excerpt, "hello");
+      expect(result.page.title).toStrictEqual("Redirected");
+      expect(result.page.excerpt).toContain("hello");
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open handles redirect edge failures", async () => {
+test("open handles redirect edge failures", async () => {
   {
     const mockMissingLocation = mockFetch((_url) => new Response(null, { status: 301 }));
     try {
       const service = createLinkOpenService(createMockConfig());
       const result = await service.open("https://safe.example/start");
-      assertEquals(result, { ok: false, error: "fetch_failed" });
+      expect(result).toStrictEqual({ ok: false, error: "fetch_failed" });
     } finally {
       mockMissingLocation.restore();
     }
@@ -337,7 +335,7 @@ Deno.test("open handles redirect edge failures", async () => {
     try {
       const service = createLinkOpenService(createMockConfig());
       const result = await service.open("https://safe.example/start");
-      assertEquals(result, { ok: false, error: "redirect_blocked" });
+      expect(result).toStrictEqual({ ok: false, error: "redirect_blocked" });
     } finally {
       mockBadLocation.restore();
     }
@@ -351,14 +349,14 @@ Deno.test("open handles redirect edge failures", async () => {
     try {
       const service = createLinkOpenService(createMockConfig());
       const result = await service.open("https://safe.example/start");
-      assertEquals(result, { ok: false, error: "redirect_blocked" });
+      expect(result).toStrictEqual({ ok: false, error: "redirect_blocked" });
     } finally {
       mockUnsupportedScheme.restore();
     }
   }
 });
 
-Deno.test("open handles non-ok, missing-body, and fetch error responses", async () => {
+test("open handles non-ok, missing-body, and fetch error responses", async () => {
   {
     const mockServerError = mockFetch(
       (_url) =>
@@ -367,7 +365,7 @@ Deno.test("open handles non-ok, missing-body, and fetch error responses", async 
     try {
       const service = createLinkOpenService(createMockConfig());
       const result = await service.open("https://safe.example/fail");
-      assertEquals(result, { ok: false, error: "fetch_failed" });
+      expect(result).toStrictEqual({ ok: false, error: "fetch_failed" });
     } finally {
       mockServerError.restore();
     }
@@ -380,7 +378,7 @@ Deno.test("open handles non-ok, missing-body, and fetch error responses", async 
     try {
       const service = createLinkOpenService(createMockConfig());
       const result = await service.open("https://safe.example/nobody");
-      assertEquals(result, { ok: false, error: "fetch_failed" });
+      expect(result).toStrictEqual({ ok: false, error: "fetch_failed" });
     } finally {
       mockMissingBody.restore();
     }
@@ -393,14 +391,14 @@ Deno.test("open handles non-ok, missing-body, and fetch error responses", async 
     try {
       const service = createLinkOpenService(createMockConfig());
       const result = await service.open("https://safe.example/throw");
-      assertEquals(result, { ok: false, error: "fetch_failed" });
+      expect(result).toStrictEqual({ ok: false, error: "fetch_failed" });
     } finally {
       mockThrown.restore();
     }
   }
 });
 
-Deno.test("open enforces stream body size limit when content-length is absent", async () => {
+test("open enforces stream body size limit when content-length is absent", async () => {
   const chunk = new Uint8Array(400_000).fill(65);
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -421,13 +419,13 @@ Deno.test("open enforces stream body size limit when content-length is absent", 
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/stream-large");
-    assertEquals(result, { ok: false, error: "response_too_large" });
+    expect(result).toStrictEqual({ ok: false, error: "response_too_large" });
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open decodes numeric entities and truncates long excerpt", async () => {
+test("open decodes numeric entities and truncates long excerpt", async () => {
   const longBody = "word ".repeat(1000);
   const html = `<html><head><title> A&#66; &#x43; &unknown; </title></head><body>${longBody}</body></html>`;
   const mock = mockFetch((_url) => {
@@ -440,18 +438,18 @@ Deno.test("open decodes numeric entities and truncates long excerpt", async () =
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/entities");
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertEquals(result.page.title, "AB C");
-      assertEquals(result.page.excerpt.length, 3500);
-      assertEquals(result.page.excerpt.endsWith("..."), true);
+      expect(result.page.title).toStrictEqual("AB C");
+      expect(result.page.excerpt.length).toStrictEqual(3500);
+      expect(result.page.excerpt.endsWith("...")).toStrictEqual(true);
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open allows full public IPv6 literals and dotted non-IP hostnames", async () => {
+test("open allows full public IPv6 literals and dotted non-IP hostnames", async () => {
   const mock = mockFetch((_url) => {
     return new Response("<html><title>IPv6</title><body>ok</body></html>", {
       status: 200,
@@ -463,16 +461,16 @@ Deno.test("open allows full public IPv6 literals and dotted non-IP hostnames", a
     const service = createLinkOpenService(createMockConfig());
 
     const publicIpv6 = await service.open("http://[2606:4700:4700:0000:0000:0000:0000:1111]/x");
-    assertEquals(publicIpv6.ok, true);
+    expect(publicIpv6.ok).toStrictEqual(true);
 
     const dottedHostname = await service.open("http://1.2.3.example/x");
-    assertEquals(dottedHostname.ok, true);
+    expect(dottedHostname.ok).toStrictEqual(true);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open ignores non-numeric content-length header and reads body", async () => {
+test("open ignores non-numeric content-length header and reads body", async () => {
   const mock = mockFetch((_url) => {
     return new Response("<html><body>hello</body></html>", {
       status: 200,
@@ -486,16 +484,16 @@ Deno.test("open ignores non-numeric content-length header and reads body", async
   try {
     const service = createLinkOpenService(createMockConfig());
     const result = await service.open("https://safe.example/content-length");
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertStringIncludes(result.page.excerpt, "hello");
+      expect(result.page.excerpt).toContain("hello");
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("open deadline covers a stalled body and releases the reader", async () => {
+test("open deadline covers a stalled body and releases the reader", async () => {
   let canceled = 0;
   let seenSignal: AbortSignal | null | undefined;
   const body = new ReadableStream<Uint8Array>({
@@ -511,14 +509,17 @@ Deno.test("open deadline covers a stalled body and releases the reader", async (
     },
   });
   const start = performance.now();
-  assertEquals(await service.open("https://safe.example/stall"), { ok: false, error: "timeout" });
+  expect(await service.open("https://safe.example/stall")).toStrictEqual({
+    ok: false,
+    error: "timeout",
+  });
   assert(performance.now() - start < 1000, "stalled body must return within its overall deadline");
-  assertEquals(seenSignal?.aborted, true);
-  assertEquals(canceled, 1);
-  assertEquals(body.locked, false);
+  expect(seenSignal?.aborted).toStrictEqual(true);
+  expect(canceled).toStrictEqual(1);
+  expect(body.locked).toStrictEqual(false);
 });
 
-Deno.test("open deadline is not extended by slow chunks below the size limit", async () => {
+test("open deadline is not extended by slow chunks below the size limit", async () => {
   let chunks = 0;
   let interval: ReturnType<typeof setInterval> | undefined;
   let canceled = false;
@@ -539,21 +540,21 @@ Deno.test("open deadline is not extended by slow chunks below the size limit", a
     fetch: () => Promise.resolve(new Response(body, { headers: { "content-type": "text/html" } })),
   });
   try {
-    assertEquals(await service.open("https://safe.example/trickle"), {
+    expect(await service.open("https://safe.example/trickle")).toStrictEqual({
       ok: false,
       error: "timeout",
     });
     assert(chunks > 1, "several chunks should arrive before the deadline");
-    assertEquals(canceled, true);
-    assertEquals(body.locked, false);
+    expect(canceled).toStrictEqual(true);
+    expect(body.locked).toStrictEqual(false);
   } finally {
     clearInterval(interval);
   }
 });
 
-Deno.test("open maps body failures to structured errors and releases its reader", async (t) => {
+describe("open maps body failures to structured errors and releases its reader", () => {
   for (const error of [new Error("socket reset"), new DOMException("Aborted", "AbortError")]) {
-    await t.step(error.name, async () => {
+    test(error.name, async () => {
       const body = new ReadableStream<Uint8Array>({
         pull(controller) {
           controller.error(error);
@@ -563,16 +564,16 @@ Deno.test("open maps body failures to structured errors and releases its reader"
         fetch: () =>
           Promise.resolve(new Response(body, { headers: { "content-type": "text/html" } })),
       });
-      assertEquals(await service.open("https://safe.example/broken"), {
+      expect(await service.open("https://safe.example/broken")).toStrictEqual({
         ok: false,
         error: error.name === "AbortError" ? "timeout" : "fetch_failed",
       });
-      assertEquals(body.locked, false);
+      expect(body.locked).toStrictEqual(false);
     });
   }
 });
 
-Deno.test("open cancels every abandoned response body", async (t) => {
+describe("open cancels every abandoned response body", () => {
   const cases = [
     { status: 500, headers: {}, error: "fetch_failed" },
     {
@@ -592,7 +593,7 @@ Deno.test("open cancels every abandoned response body", async (t) => {
     { status: 302, headers: { location: "/loop" }, error: "too_many_redirects" },
   ] as const;
   for (const [index, fixture] of cases.entries()) {
-    await t.step(`${index}: ${fixture.error}`, async () => {
+    test(`${index}: ${fixture.error}`, async () => {
       let fetched = 0;
       let canceled = 0;
       const streams: ReadableStream<Uint8Array>[] = [];
@@ -610,18 +611,18 @@ Deno.test("open cancels every abandoned response body", async (t) => {
           );
         },
       });
-      assertEquals(await service.open("https://safe.example/rejected"), {
+      expect(await service.open("https://safe.example/rejected")).toStrictEqual({
         ok: false,
         error: fixture.error,
       });
-      assertEquals(canceled, fetched);
-      assertEquals(fetched, fixture.error === "too_many_redirects" ? 4 : 1);
+      expect(canceled).toStrictEqual(fetched);
+      expect(fetched).toStrictEqual(fixture.error === "too_many_redirects" ? 4 : 1);
       assert(streams.every((stream) => !stream.locked));
     });
   }
 });
 
-Deno.test("open cancels oversized streamed body and releases its reader", async () => {
+test("open cancels oversized streamed body and releases its reader", async () => {
   let canceled = 0;
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -635,15 +636,15 @@ Deno.test("open cancels oversized streamed body and releases its reader", async 
   const service = createService(createMockConfig(), {
     fetch: () => Promise.resolve(new Response(body, { headers: { "content-type": "text/html" } })),
   });
-  assertEquals(await service.open("https://safe.example/large"), {
+  expect(await service.open("https://safe.example/large")).toStrictEqual({
     ok: false,
     error: "response_too_large",
   });
-  assertEquals(canceled, 1);
-  assertEquals(body.locked, false);
+  expect(canceled).toStrictEqual(1);
+  expect(body.locked).toStrictEqual(false);
 });
 
-Deno.test("open clears its deadline and releases the reader after success", async () => {
+test("open clears its deadline and releases the reader after success", async () => {
   let signal: AbortSignal | null | undefined;
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -658,16 +659,17 @@ Deno.test("open clears its deadline and releases the reader after success", asyn
       return Promise.resolve(new Response(body, { headers: { "content-type": "text/html" } }));
     },
   });
-  assertEquals(await service.open("https://safe.example/done"), {
+  expect(await service.open("https://safe.example/done")).toStrictEqual({
     ok: true,
     page: { domain: "safe.example", title: "Done", excerpt: "Done success" },
   });
   await new Promise((resolve) => setTimeout(resolve, 40));
-  assertEquals(signal?.aborted, false, "completed operation must not leave its abort timer armed");
-  assertEquals(body.locked, false);
+  // A completed operation must not leave its abort timer armed.
+  expect(signal?.aborted).toStrictEqual(false);
+  expect(body.locked).toStrictEqual(false);
 });
 
-Deno.test("open shares one abort signal across all redirect hops and the final body", async () => {
+test("open shares one abort signal across all redirect hops and the final body", async () => {
   let requests = 0;
   let canceled = 0;
   const signals: (AbortSignal | null | undefined)[] = [];
@@ -691,13 +693,16 @@ Deno.test("open shares one abort signal across all redirect hops and the final b
       );
     },
   });
-  assertEquals(await service.open("https://safe.example/start"), { ok: false, error: "timeout" });
-  assertEquals(requests, 4);
-  assertEquals(canceled, 4);
+  expect(await service.open("https://safe.example/start")).toStrictEqual({
+    ok: false,
+    error: "timeout",
+  });
+  expect(requests).toStrictEqual(4);
+  expect(canceled).toStrictEqual(4);
   assert(signals.every((signal) => signal === signals[0] && signal?.aborted));
 });
 
-Deno.test("open cancels headers arriving after the overall deadline", async () => {
+test("open cancels headers arriving after the overall deadline", async () => {
   const pending = Promise.withResolvers<Response>();
   let canceled = 0;
   const body = new ReadableStream<Uint8Array>({
@@ -709,16 +714,19 @@ Deno.test("open cancels headers arriving after the overall deadline", async () =
     timeoutMs: 20,
     fetch: () => pending.promise,
   });
-  assertEquals(await service.open("https://safe.example/late"), { ok: false, error: "timeout" });
+  expect(await service.open("https://safe.example/late")).toStrictEqual({
+    ok: false,
+    error: "timeout",
+  });
   pending.resolve(new Response(body, { headers: { "content-type": "text/html" } }));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assertEquals(canceled, 1);
-  assertEquals(body.locked, false);
+  expect(canceled).toStrictEqual(1);
+  expect(body.locked).toStrictEqual(false);
 });
 
-Deno.test("open cannot hang on a rejected or oversized body's cancellation hook", async (t) => {
+describe("open cannot hang on a rejected or oversized body's cancellation hook", () => {
   for (const oversized of [false, true]) {
-    await t.step(oversized ? "reader cancellation" : "unread response cancellation", async () => {
+    test(oversized ? "reader cancellation" : "unread response cancellation", async () => {
       let canceled = 0;
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -739,13 +747,13 @@ Deno.test("open cannot hang on a rejected or oversized body's cancellation hook"
           ),
       });
       const start = performance.now();
-      assertEquals(await service.open("https://safe.example/cancel-hang"), {
+      expect(await service.open("https://safe.example/cancel-hang")).toStrictEqual({
         ok: false,
         error: oversized ? "response_too_large" : "unsupported_content_type",
       });
       assert(performance.now() - start < 1000);
-      assertEquals(canceled, 1);
-      assertEquals(body.locked, false);
+      expect(canceled).toStrictEqual(1);
+      expect(body.locked).toStrictEqual(false);
     });
   }
 });

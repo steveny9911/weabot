@@ -1,6 +1,6 @@
 # Bun Migration Plan
 
-Port Haru from Deno to Bun on branch `feat/bun`. Behavior seen in Discord stays the same, with two
+Port Haru from Deno to Bun on branch `feat/bun`. Behavior seen in Discord stays the same, with the
 accepted exceptions listed under [Behavior changes](#behavior-changes). Storage moves from Deno KV
 to a new SQLite data model, and the bot starts with an empty database.
 
@@ -18,28 +18,28 @@ listed under [Behavior changes](#behavior-changes) as an explicit decision.
 
 ## Decisions
 
-| Topic                | Decision                                                                                                                                                                                                                                                                             |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runtime              | Bun 1.4.4. `packageManager: "bun@1.4.4"` is the single version source for CI (`oven-sh/setup-bun` reads it). `engines.bun: "~1.4.4"` documents the 1.4.x range; Bun itself does not enforce either field.                                                                            |
-| Dependencies         | Built-in Bun and `node:` APIs first. Runtime dependencies: only the official AWS SDK (`@aws-sdk/client-cost-explorer@^3`, `@smithy/credential-provider-imds@^4`). Dev dependency: `@types/bun@^1`. Runtime auto-install is disabled.                                                 |
-| Discord gateway      | Global `WebSocket`, unchanged. The IDENTIFY properties change from `"deno"` to `"bun"`.                                                                                                                                                                                              |
-| Database             | `bun:sqlite`, seven tables for data that must survive a restart (see [Data model](#data-model)).                                                                                                                                                                                     |
-| In-memory state      | Per-user per-minute AI request counts, Discord action turn tokens and pending clarifications. All are short-lived and only coordinate work inside the running process.                                                                                                               |
-| Data                 | Start fresh. No migration from Deno KV.                                                                                                                                                                                                                                              |
-| Scheduled jobs       | In-process `Bun.cron(schedule, handler, { tz: "UTC" })` through a registrar that catches and logs handler errors.                                                                                                                                                                    |
-| HTTP server          | `Bun.serve` with `development: false`, `idleTimeout: 120` and an `error()` handler.                                                                                                                                                                                                  |
-| DNS for link checks  | `Bun.dns.lookup(hostname, { backend: "c-ares" })`, injected, raced against the link deadline.                                                                                                                                                                                        |
-| Link transport       | Bun `fetch` to the validated IP literal, with explicit `Host`, `Accept`, `Accept-Encoding` and `User-Agent` headers, and `tls.serverName` only when the original host is a name.                                                                                                     |
-| Proxy variables      | Deleted from `process.env` at startup, because Bun's `fetch` would otherwise route link requests through them and bypass IP pinning.                                                                                                                                                 |
-| Tests                | `bun:test`, run with `--isolate`, a preload that blocks unstubbed network calls and sets a 20 s default timeout, and helpers for `assert`, `rejects` and `throws`.                                                                                                                   |
-| Environment files    | `env = false` in `bunfig.toml`. `start` and `dev` pass `--env-file=.env` explicitly, as Deno's `--env` did. Tests never read `.env`.                                                                                                                                                 |
-| Format               | `bun fmt` (Prettier-compatible), applied to the whole repo in one commit in slice 0.                                                                                                                                                                                                 |
-| Type check           | `bun check`.                                                                                                                                                                                                                                                                         |
-| Lint                 | `bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0`, because `bun lint` is canary-only in 1.4.4. CI caches the Bun install cache. Switch to stable `bun lint` when it ships. Never add the canary as a dependency: its binary would shadow `bun` inside every `bun run` script. |
-| Layout               | Unchanged (root-level `main.ts`, `ai_service.ts`, `bot_actions.ts`, `discord_gateway.ts` stay).                                                                                                                                                                                      |
-| Scripts              | All ported.                                                                                                                                                                                                                                                                          |
-| Deployment           | Out of scope. See [Deployment notes](#deployment-notes-for-later).                                                                                                                                                                                                                   |
-| `master` during port | No new code lands on `master` until `feat/bun` merges.                                                                                                                                                                                                                               |
+| Topic                | Decision                                                                                                                                                                                                                                                                                  |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime              | Bun 1.4.4. `packageManager: "bun@1.4.4"` is the single version source for CI (`oven-sh/setup-bun` reads it). `engines.bun: "~1.4.4"` documents the 1.4.x range; Bun itself does not enforce either field.                                                                                 |
+| Dependencies         | Built-in Bun and `node:` APIs first. Runtime dependencies: only the official AWS SDK (`@aws-sdk/client-cost-explorer@^3`, `@smithy/credential-provider-imds@^4`). Dev dependency: `@types/bun@^1`. Runtime auto-install is disabled.                                                      |
+| Discord gateway      | Global `WebSocket`, unchanged. The IDENTIFY properties change from `"deno"` to `"bun"`.                                                                                                                                                                                                   |
+| Database             | `bun:sqlite`, seven tables for data that must survive a restart (see [Data model](#data-model)).                                                                                                                                                                                          |
+| In-memory state      | Per-user per-minute AI request counts, Discord action turn tokens and pending clarifications. All are short-lived and only coordinate work inside the running process.                                                                                                                    |
+| Data                 | Start fresh. No migration from Deno KV.                                                                                                                                                                                                                                                   |
+| Scheduled jobs       | In-process `Bun.cron(schedule, handler, { tz: "UTC" })` through a registrar that catches and logs handler errors.                                                                                                                                                                         |
+| HTTP server          | `Bun.serve` with `development: false`, `idleTimeout: 120` and an `error()` handler.                                                                                                                                                                                                       |
+| DNS for link checks  | `Bun.dns.lookup(hostname, { backend: "c-ares" })`, injected, raced against the link deadline.                                                                                                                                                                                             |
+| Link transport       | Bun `fetch` to the validated IP literal, with explicit `Host`, `Accept`, `Accept-Encoding` and `User-Agent` headers, and `tls.serverName` only when the original host is a name. Decoding uses `DecompressionStream`.                                                                     |
+| Proxy variables      | The link transport passes `proxy: false`, because Bun's `fetch` would otherwise route link requests through `HTTP_PROXY`/`HTTPS_PROXY` and bypass IP pinning. Other requests keep honoring proxy variables, as Deno's `fetch` did. (Replaces the earlier plan to delete them at startup.) |
+| Tests                | `bun:test`, run with `--isolate`, a preload that blocks unstubbed network calls and sets a 20 s default timeout, and helpers for `assert`, `rejects` and `throws`.                                                                                                                        |
+| Environment files    | `env = false` in `bunfig.toml`. `start` and `dev` pass `--env-file=.env` explicitly, as Deno's `--env` did. Tests never read `.env`.                                                                                                                                                      |
+| Format               | `bun fmt` (Prettier-compatible), applied to the whole repo in one commit in slice 0.                                                                                                                                                                                                      |
+| Type check           | `bun check`.                                                                                                                                                                                                                                                                              |
+| Lint                 | `bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0`, because `bun lint` is canary-only in 1.4.4. CI caches the Bun install cache. Switch to stable `bun lint` when it ships. Never add the canary as a dependency: its binary would shadow `bun` inside every `bun run` script.      |
+| Layout               | Unchanged (root-level `main.ts`, `ai_service.ts`, `bot_actions.ts`, `discord_gateway.ts` stay).                                                                                                                                                                                           |
+| Scripts              | All ported.                                                                                                                                                                                                                                                                               |
+| Deployment           | Out of scope. See [Deployment notes](#deployment-notes-for-later).                                                                                                                                                                                                                        |
+| `master` during port | No new code lands on `master` until `feat/bun` merges.                                                                                                                                                                                                                                    |
 
 ### Behavior changes
 
@@ -50,6 +50,11 @@ Accepted on purpose:
    happen on deploys.
 2. **A restart resets the per-minute AI request counts.** At most one extra minute of allowance. The
    daily token budget is persisted and unaffected.
+3. **Link requests send `User-Agent: HaruBot/1.0`.** The old transport sent no `User-Agent`. Bun's
+   `fetch` always sends one (`Bun/<version>` by default, an empty value at best), so a fixed name is
+   sent instead of one that reveals the runtime and version.
+4. **The AWS cost request sends the AWS SDK's default user agent** (SDK version, OS and kernel
+   release, runtime) instead of `weabot/1`. Only the bot's own AWS account sees it.
 
 Side effects of the new runtime, all safe because every address is validated before connecting:
 
@@ -69,14 +74,13 @@ in a non-UTC time zone.
 | `src/services/usage.ts`                                  | `process.env`; drop the Deno `--allow-sys` user-agent workaround; inject the 15 s timeout; type the injected fetcher without `typeof fetch`           | 1     |
 | `src/services/discord_events.ts`                         | Replace the one constructor parameter property; type the injected fetcher without `typeof fetch`                                                      | 1     |
 | `src/types/storage.ts`                                   | Receives `StorageService`, `ContextStorageService` and `isNewerHumanMessage` from `storage.ts`, so slice 1 files no longer import a Deno-typed module | 1     |
-| `src/services/public_fetch.ts`                           | `Bun.dns.lookup`; Bun `fetch` pinning; undici removed                                                                                                 | 2     |
-| `src/runtime_env.ts` (new)                               | `stripProxyEnvironment()`                                                                                                                             | 2     |
+| `src/services/public_fetch.ts`                           | `Bun.dns.lookup`; Bun `fetch` pinning with `proxy: false`; `DecompressionStream`; undici removed                                                      | 2     |
 | `src/db/*` (new)                                         | Database, migrations, queries                                                                                                                         | 3     |
 | `src/services/storage.ts`, `src/services/rate_limit.ts`  | SQLite plus in-memory minute counter                                                                                                                  | 3     |
 | `src/features/discord_actions/mod.ts` and new `state.ts` | In-memory turns, pending clarifications and per-guild lock; SQLite operation records and event guards                                                 | 3     |
 | `src/scheduler.ts`                                       | Injected cron registrar; UTC date arithmetic; maintenance job                                                                                         | 3     |
 | `src/server.ts`                                          | `Bun.serve`                                                                                                                                           | 3     |
-| `main.ts`                                                | Strip proxy variables, open the database, start everything                                                                                            | 3     |
+| `main.ts`                                                | Open the database, start everything                                                                                                                   | 3     |
 | `discord_gateway.ts`                                     | IDENTIFY properties `"bun"`                                                                                                                           | 3     |
 | `scripts/**`                                             | `Bun.spawn`, `process.argv`, `process.cwd()`, `process.exitCode`, in-memory or sandbox databases                                                      | 4     |
 | `deno.json`, `deno.lock`, `.vscode/`                     | Removed                                                                                                                                               | 5     |
@@ -474,8 +478,8 @@ import a module that still uses Deno; shared types and helpers move first.
   excluded file explicitly.
 - Injected fetchers use the `Fetcher` type (`src/types/fetch.ts`); `globalThis.fetch` stubs use
   `asFetch()` (`test_support/fetch.ts`).
-- `src/runtime_env.ts`: `stripProxyEnvironment()` deletes `HTTP_PROXY`, `HTTPS_PROXY` and
-  `ALL_PROXY` in both cases. It is called from `main.ts` in slice 3, and has a test now.
+- ~~`src/runtime_env.ts`: `stripProxyEnvironment()`~~ Replaced during slice 2 by `proxy: false` on
+  the link request only (see the slice log).
 - `public_fetch.ts`, `resolveAddresses(hostname, signal, lookup = defaultLookup)`:
   - `defaultLookup` is `Bun.dns.lookup(hostname, { backend: "c-ares" })`.
   - Race it against the signal, rejecting with the signal's reason. Remove the abort listener when
@@ -518,13 +522,13 @@ import a module that still uses Deno; shared types and helpers move first.
 
 **Verify**
 
-- `bun run test:transport` reports exactly 35 tests. These cover:
+- `bun run test:transport` reports exactly 42 tests (41 run where IPv6 is unavailable). These cover:
   - pinning, `Host` and SNI, and wrong-certificate rejection;
   - redirects not followed;
   - stalled and trickling bodies ending at the 8-second deadline;
   - invalid compression, the expanded-size limit, and rejected bodies released;
   - a hung lookup ending at the deadline;
-  - proxy variables removed.
+  - proxy variables ignored by the link transport.
 - Unit counts match the baseline, apart from the recorded DNS test replacements.
 
 ### Slice 3: Data layer and runtime (the bot runs)
@@ -559,9 +563,8 @@ import a module that still uses Deno; shared types and helpers move first.
 - **`src/server.ts`:**
   `Bun.serve({ port: 8000, development: false, idleTimeout: 120, fetch: handler, error })`. The
   `error()` handler logs and returns a plain 500.
-- **`main.ts`:** `stripProxyEnvironment()`, then
-  `openDatabase(process.env.HARU_DB_PATH ?? "./data/haru.sqlite3")`, then start the gateway, cron
-  and server.
+- **`main.ts`:** `openDatabase(process.env.HARU_DB_PATH ?? "./data/haru.sqlite3")`, then start the
+  gateway, cron and server.
 - **`discord_gateway.ts`:** IDENTIFY properties `"bun"`.
 - **Tests.**
   - New `src/db/*.test.ts` and `state.test.ts`:
@@ -662,7 +665,7 @@ Not part of this plan.
   - `Environment=NODE_ENV=production`, `TZ=UTC` and `HARU_DB_PATH=/var/lib/haru/haru.sqlite3`;
   - keep `ProtectSystem=strict` and `ReadWritePaths=/var/lib/haru`;
   - remove `DENO_DIR` and `DENO_KV_PATH`;
-  - do not set proxy variables (they are stripped anyway).
+  - do not set proxy variables (the link transport ignores them; other requests would use them).
 - **Fresh database.** Use a new file name. Keep the Deno KV file and its S3 backups untouched, and
   name the new backup differently (for example `kv/haru-bun.sqlite3`). Polls posted in the 24 hours
   before cutover will not be collected.
@@ -763,11 +766,47 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   (option C): `deno.json` `start` and `dev` now pass `--allow-sys=osRelease`; the production unit in
   `deploy/aws/cloudformation.yml` is unchanged because deployment is out of scope. On Bun the client
   works, but the user agent sent to AWS changed from `weabot/1` to the SDK default (SDK version, OS
-  and kernel release, runtime); open question, see below.
+  and kernel release, runtime). Accepted as behavior change 4.
 - **Docs:** the transport task and CI step change is now part of slice 2; slices 2 and 3 name the
   `Fetcher`/`asFetch` convention; the "19" wording is corrected.
 - **Guiding principle added:** Bun behavior must match the pre-migration Deno behavior; Deno runtime
   concerns get no effort.
+
+### Slice 2 (done)
+
+- **`public_fetch.ts` on Bun:**
+  - DNS: `Bun.dns.lookup(hostname, { backend: "c-ares" })`, injectable, raced against the caller's
+    signal (the lookup itself cannot be cancelled). `DNS_ENOTFOUND` and `DNS_ENODATA` mean no
+    addresses; other errors reject.
+  - Transport: Bun `fetch` to the IP literal with `Host`, `tls.serverName`, `redirect: "manual"`,
+    `decompress: false`, `keepalive: false` and `proxy: false`. gzip, deflate and br are decoded
+    with `DecompressionStream`; any other encoding (including `zstd`) is rejected and the body
+    cancelled. 204, 205 and 304 return no body. undici and the Deno stream workarounds are gone.
+- **Checked against the Deno transport** (raw request bytes on a TCP fixture): Deno sent `host`,
+  `connection: close`, `Accept` and `Accept-Encoding`, and no `User-Agent`. Bun cannot omit
+  `User-Agent` (deleting it still sends `Bun/1.4.4`; an empty string sends an empty header), so
+  `HaruBot/1.0` is sent: behavior change 3.
+- **Proxy decision changed:** Bun's `fetch` has a per-request `proxy: false`, verified to bypass
+  `HTTP_PROXY`. It is used on the link request only, so Discord, AI and AWS requests keep honoring
+  proxy variables as they did on Deno. `stripProxyEnvironment()` and `src/runtime_env.ts` are
+  dropped.
+- **Mutation check:** removing `proxy: false`, `serverName`, `redirect: "manual"`,
+  `decompress: false`, the `Host` header, the IP pinning, or certificate verification each makes at
+  least one transport test fail.
+- **Tests:**
+  - `public_fetch.test.ts` (44) and `link_open.test.ts` (36) match the baseline. The five
+    `Deno.resolveDns` tests are replaced by five `Bun.dns.lookup` tests (see the table below).
+  - Transport tests use `Bun.serve` (`tests/fixtures/serve.ts`, `idleTimeout: 10`) and `node:net`
+    for raw responses. The body-cancellation tests now also wait for the server to see the cancel.
+  - The IPv6 test skips where the machine has no IPv6 loopback (as in this sandbox). The gate
+    accepts that one declared skip (`allowedSkips` in `ported.json`) and fails on any other.
+- **Deno job:** `bot_actions.test.ts` still runs on Deno and imports `public_fetch.ts`, so
+  `scripts/migration/deno_bun_types.d.ts` gives Deno's type checker a stand-in for the `Bun` global
+  (set in `deno.json` `compilerOptions.types`, excluded in `tsconfig.json`). Deno now runs 262 tests
+  (8 steps), i.e. 270 testcases: 355 minus the 85 moved here.
+- **CI:** the Deno transport step and `test:transport` task are removed in this commit; the gate
+  runs the Bun transport files with exact counts.
+- **AWS user agent:** accepted as behavior change 4.
 
 ## Future work
 
@@ -785,5 +824,8 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
 
 Filled in during the port.
 
-| File | Deno tests + steps | Bun tests | Reason / replacement |
-| ---- | ------------------ | --------- | -------------------- |
+| File                                | Deno tests + steps | Bun tests       | Reason / replacement                                                                                                                                                                                                                        |
+| ----------------------------------- | ------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/services/public_fetch.test.ts` | 46 (2 groups)      | 44              | Five `Deno.resolveDns` tests (requires both families, family failure ×2, caller cancellation, already aborted) replaced by: default lookup and error mapping; partial family results ×2; hung lookup ends at the deadline; already aborted. |
+| `tests/public_fetch.integration.ts` | 19 (4 groups) → 15 | 21 (1 may skip) | Added: corrupt `br`, `zstd` and `constructor` encodings (3); 204/205/304 return no body (1); proxy variables ignored (1); IPv6 literal (1, skips without IPv6).                                                                             |
+| `tests/link_open.integration.ts`    | 26 (6 groups) → 20 | 21              | Added: malformed `br` (Deno 2.6 accepted some malformed Brotli, so the Deno test left it out).                                                                                                                                              |

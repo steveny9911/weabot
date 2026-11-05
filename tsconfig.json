@@ -15,5 +15,6 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["node_modules", "scripts/migration/deno_bun_types.d.ts"]
 }

@@ -1,4 +1,5 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { describe, expect, spyOn, test } from "bun:test";
+import { rejects } from "../../test_support/assert.ts";
 import { BlockedDestinationError, createPublicFetch, resolveAddresses } from "./public_fetch.ts";
 import { createLinkOpenService } from "./link_open.ts";
 import type { AppConfig } from "../config.ts";
@@ -40,30 +41,24 @@ const blocked = [
   "ff02::1",
 ];
 
-Deno.test(
-  "DNS addresses: every private/reserved IPv4 and IPv6 answer blocks before request",
-  async (t) => {
-    for (const address of blocked) {
-      await t.step(address, async () => {
-        let requests = 0;
-        const fetch = createPublicFetch({
-          resolve: () => Promise.resolve([address]),
-          request: () => {
-            requests++;
-            return Promise.resolve(new Response("unexpected"));
-          },
-        });
-        await assertRejects(
-          () => fetch("https://attacker.example/trigger", {}),
-          BlockedDestinationError,
-        );
-        assertEquals(requests, 0);
+describe("DNS addresses: every private/reserved IPv4 and IPv6 answer blocks before request", () => {
+  for (const address of blocked) {
+    test(address, async () => {
+      let requests = 0;
+      const fetch = createPublicFetch({
+        resolve: () => Promise.resolve([address]),
+        request: () => {
+          requests++;
+          return Promise.resolve(new Response("unexpected"));
+        },
       });
-    }
-  },
-);
+      await rejects(() => fetch("https://attacker.example/trigger", {}), BlockedDestinationError);
+      expect(requests).toStrictEqual(0);
+    });
+  }
+});
 
-Deno.test("DNS mixed families and answer order fail closed before any connection", async () => {
+test("DNS mixed families and answer order fail closed before any connection", async () => {
   for (const answers of [
     [publicV4, "127.0.0.1"],
     ["::1", publicV6],
@@ -78,108 +73,98 @@ Deno.test("DNS mixed families and answer order fail closed before any connection
         return Promise.resolve(new Response());
       },
     });
-    await assertRejects(() => fetch("https://mixed.example/", {}), BlockedDestinationError);
-    assertEquals(requests, 0);
+    await rejects(() => fetch("https://mixed.example/", {}), BlockedDestinationError);
+    expect(requests).toStrictEqual(0);
   }
 });
 
-Deno.test(
-  "DNS rebinding cannot change the pinned address, including on repeated requests",
-  async () => {
-    let lookups = 0;
-    const destinations: string[] = [];
+test("DNS rebinding cannot change the pinned address, including on repeated requests", async () => {
+  let lookups = 0;
+  const destinations: string[] = [];
+  const fetch = createPublicFetch({
+    resolve: () => Promise.resolve(++lookups === 1 ? [publicV4] : ["127.0.0.1"]),
+    request: (url, address) => {
+      expect(url.hostname).toStrictEqual("rebind.example");
+      destinations.push(address);
+      return Promise.resolve(new Response("public page"));
+    },
+  });
+  expect(await (await fetch("http://rebind.example/", {})).text()).toStrictEqual("public page");
+  await rejects(() => fetch("http://rebind.example/", {}), BlockedDestinationError);
+  expect(lookups).toStrictEqual(2);
+  expect(destinations).toStrictEqual([publicV4]);
+});
+
+test("public HTTP, HTTPS, literal IPs and multiple public answers remain supported", async () => {
+  for (const input of [
+    "http://public.example/a?b=1",
+    "https://PUBLIC.example./",
+    `http://${publicV4}/`,
+    `https://[${publicV6}]/`,
+    "http://[::ffff:8.8.8.8]/",
+  ]) {
+    let requests = 0;
     const fetch = createPublicFetch({
-      resolve: () => Promise.resolve(++lookups === 1 ? [publicV4] : ["127.0.0.1"]),
+      resolve: (host) => {
+        expect(host).toStrictEqual("public.example");
+        return Promise.resolve([publicV4, publicV6]);
+      },
       request: (url, address) => {
-        assertEquals(url.hostname, "rebind.example");
-        destinations.push(address);
-        return Promise.resolve(new Response("public page"));
+        expect(url.toString()).toStrictEqual(new URL(input).toString());
+        expect(
+          address === publicV4 || address === publicV6 || address === "::ffff:808:808",
+        ).toStrictEqual(true);
+        requests++;
+        return Promise.resolve(new Response("ok"));
       },
     });
-    assertEquals(await (await fetch("http://rebind.example/", {})).text(), "public page");
-    await assertRejects(() => fetch("http://rebind.example/", {}), BlockedDestinationError);
-    assertEquals(lookups, 2);
-    assertEquals(destinations, [publicV4]);
-  },
-);
+    expect(await (await fetch(input, {})).text()).toStrictEqual("ok");
+    expect(requests).toStrictEqual(1);
+  }
+});
 
-Deno.test(
-  "public HTTP, HTTPS, literal IPs and multiple public answers remain supported",
-  async () => {
-    for (const input of [
-      "http://public.example/a?b=1",
-      "https://PUBLIC.example./",
-      `http://${publicV4}/`,
-      `https://[${publicV6}]/`,
-      "http://[::ffff:8.8.8.8]/",
-    ]) {
-      let requests = 0;
-      const fetch = createPublicFetch({
-        resolve: (host) => {
-          assertEquals(host, "public.example");
-          return Promise.resolve([publicV4, publicV6]);
-        },
-        request: (url, address) => {
-          assertEquals(url.toString(), new URL(input).toString());
-          assertEquals(
-            address === publicV4 || address === publicV6 || address === "::ffff:808:808",
-            true,
-          );
-          requests++;
-          return Promise.resolve(new Response("ok"));
-        },
-      });
-      assertEquals(await (await fetch(input, {})).text(), "ok");
-      assertEquals(requests, 1);
-    }
-  },
-);
-
-Deno.test(
-  "empty/failed/malformed DNS and credential-bearing URLs never reach transport",
-  async () => {
-    let requests = 0;
-    for (const resolve of [
-      () => Promise.resolve([]),
-      () => Promise.resolve(["not-an-ip"]),
-      () => Promise.reject(new Error("DNS failed")),
-    ]) {
-      const fetch = createPublicFetch({
-        resolve,
-        request: () => {
-          requests++;
-          return Promise.resolve(new Response());
-        },
-      });
-      await assertRejects(() => fetch("https://public.example/", {}));
-    }
+test("empty/failed/malformed DNS and credential-bearing URLs never reach transport", async () => {
+  let requests = 0;
+  for (const resolve of [
+    () => Promise.resolve([]),
+    () => Promise.resolve(["not-an-ip"]),
+    () => Promise.reject(new Error("DNS failed")),
+  ]) {
     const fetch = createPublicFetch({
-      resolve: () => {
-        throw new Error("DNS must not be reached");
-      },
+      resolve,
       request: () => {
         requests++;
         return Promise.resolve(new Response());
       },
     });
-    for (const url of [
-      "https://user:password@public.example/",
-      "ftp://public.example/",
-      "http://localhost./",
-      "http://a.localhost/",
-    ]) {
-      await assertRejects(() => fetch(url, {}), BlockedDestinationError);
-    }
-    assertEquals(requests, 0);
-  },
-);
+    await rejects(() => fetch("https://public.example/", {}));
+  }
+  const fetch = createPublicFetch({
+    resolve: () => {
+      throw new Error("DNS must not be reached");
+    },
+    request: () => {
+      requests++;
+      return Promise.resolve(new Response());
+    },
+  });
+  for (const url of [
+    "https://user:password@public.example/",
+    "ftp://public.example/",
+    "http://localhost./",
+    "http://a.localhost/",
+  ]) {
+    await rejects(() => fetch(url, {}), BlockedDestinationError);
+  }
+  expect(requests).toStrictEqual(0);
+});
 
-Deno.test("abort during DNS prevents a late answer from opening a socket", async () => {
+test("abort during DNS prevents a late answer from opening a socket", async () => {
   const controller = new AbortController();
   let requests = 0;
   const fetch = createPublicFetch({
     resolve: (_host, signal) => {
-      assertEquals(signal, controller.signal);
+      expect(signal).toBe(controller.signal);
       controller.abort();
       return Promise.resolve([publicV4]);
     },
@@ -188,184 +173,163 @@ Deno.test("abort during DNS prevents a late answer from opening a socket", async
       return Promise.resolve(new Response());
     },
   });
-  await assertRejects(
+  await rejects(
     () => fetch("https://public.example/", { signal: controller.signal }),
     DOMException,
     "aborted",
   );
-  assertEquals(requests, 0);
+  expect(requests).toStrictEqual(0);
 });
 
-Deno.test(
-  "DNS resolver requires both families, tolerates only missing records, and propagates signal",
-  async () => {
-    const original = Deno.resolveDns;
-    const controller = new AbortController();
-    const calls: string[] = [];
-    try {
-      Deno.resolveDns = ((_host: string, type: string, options?: Deno.ResolveDnsOptions) => {
-        assert(options?.signal instanceof AbortSignal);
-        assertEquals(options.signal.aborted, false);
-        calls.push(type);
-        if (type === "AAAA") return Promise.reject(new Deno.errors.NotFound());
-        return Promise.resolve([publicV4]);
-      }) as typeof Deno.resolveDns;
-      assertEquals(await resolveAddresses("public.example", controller.signal), [publicV4]);
-      assertEquals(calls.sort(), ["A", "AAAA"]);
-      assertEquals(controller.signal.aborted, false);
-      Deno.resolveDns = (() =>
-        Promise.reject(new Deno.errors.TimedOut())) as typeof Deno.resolveDns;
-      await assertRejects(() => resolveAddresses("public.example"), Deno.errors.TimedOut);
-    } finally {
-      Deno.resolveDns = original;
-    }
-  },
-);
+test("DNS resolver returns both families, maps missing names to none, and rejects failures", async () => {
+  const lookups: unknown[][] = [];
+  const spy = spyOn(Bun.dns, "lookup").mockImplementation(((...args: unknown[]) => {
+    lookups.push(args);
+    return Promise.resolve([
+      { address: publicV4, family: 4, ttl: 0 },
+      { address: publicV6, family: 6, ttl: 0 },
+    ]);
+  }) as typeof Bun.dns.lookup);
+  try {
+    // The default lookup asks c-ares for both families in one query.
+    expect(await resolveAddresses("public.example")).toStrictEqual([publicV4, publicV6]);
+    expect(lookups).toStrictEqual([["public.example", { backend: "c-ares" }]]);
+  } finally {
+    spy.mockRestore();
+  }
+  for (const code of ["DNS_ENOTFOUND", "DNS_ENODATA"]) {
+    const missing = () => Promise.reject(Object.assign(new Error("not found"), { code }));
+    expect(await resolveAddresses("public.example", undefined, missing)).toStrictEqual([]);
+  }
+  const failure = () =>
+    Promise.reject(Object.assign(new Error("timed out"), { code: "DNS_ETIMEOUT" }));
+  await rejects(() => resolveAddresses("public.example", undefined, failure), Error, "timed out");
+});
 
-Deno.test(
-  "link service validates DNS at every redirect, including same-host rebinding",
-  async () => {
-    for (const sameHost of [false, true]) {
-      let lookups = 0;
-      const requests: string[] = [];
-      const fetch = createPublicFetch({
-        resolve: () => Promise.resolve(++lookups === 1 ? [publicV4] : ["127.0.0.1"]),
-        request: (_url, address) => {
-          requests.push(address);
-          return Promise.resolve(
-            new Response(null, {
-              status: 302,
-              headers: { location: sameHost ? "/internal" : "http://internal.example/trigger" },
-            }),
-          );
-        },
-      });
-      const service = createLinkOpenService({} as AppConfig, { fetch });
-      assertEquals(await service.open("http://public.example/start"), {
-        ok: false,
-        error: "redirect_blocked",
-      });
-      assertEquals(requests, [publicV4]);
-    }
-  },
-);
-
-Deno.test(
-  "allowed redirects still yield HTML context through the protected transport",
-  async () => {
+test("link service validates DNS at every redirect, including same-host rebinding", async () => {
+  for (const sameHost of [false, true]) {
+    let lookups = 0;
     const requests: string[] = [];
     const fetch = createPublicFetch({
-      resolve: () => Promise.resolve([publicV4, publicV6]),
-      request: (url, address) => {
-        assertEquals(address, publicV4);
-        requests.push(url.pathname);
+      resolve: () => Promise.resolve(++lookups === 1 ? [publicV4] : ["127.0.0.1"]),
+      request: (_url, address) => {
+        requests.push(address);
         return Promise.resolve(
-          url.pathname === "/start"
-            ? new Response(null, {
-                status: 302,
-                headers: { location: "https://second.example/page" },
-              })
-            : new Response(
-                "<html><head><title>Working</title></head><body>Public links work.</body></html>",
-                {
-                  headers: { "content-type": "text/html" },
-                },
-              ),
+          new Response(null, {
+            status: 302,
+            headers: { location: sameHost ? "/internal" : "http://internal.example/trigger" },
+          }),
         );
       },
     });
     const service = createLinkOpenService({} as AppConfig, { fetch });
-    assertEquals(await service.open("http://public.example/start"), {
-      ok: true,
-      page: { domain: "second.example", title: "Working", excerpt: "Public links work." },
+    expect(await service.open("http://public.example/start")).toStrictEqual({
+      ok: false,
+      error: "redirect_blocked",
     });
-    assertEquals(requests, ["/start", "/page"]);
-  },
-);
-
-Deno.test(
-  "DNS family failure cancels and settles the pending sibling before returning",
-  async (t) => {
-    for (const failedFamily of ["A", "AAAA"]) {
-      await t.step(failedFamily, async () => {
-        const original = Deno.resolveDns;
-        const caller = new AbortController();
-        const pending = Promise.withResolvers<string[]>();
-        let siblingSettled = false;
-        let siblingSignal: AbortSignal | undefined;
-        try {
-          Deno.resolveDns = ((_host: string, type: string, options?: Deno.ResolveDnsOptions) => {
-            if (type === failedFamily) return Promise.reject(new Error("resolver failure"));
-            siblingSignal = options?.signal;
-            siblingSignal?.addEventListener("abort", () => pending.reject(siblingSignal?.reason), {
-              once: true,
-            });
-            return pending.promise.finally(() => {
-              siblingSettled = true;
-            });
-          }) as typeof Deno.resolveDns;
-          await assertRejects(
-            () => resolveAddresses("public.example", caller.signal),
-            Error,
-            "resolver failure",
-          );
-          assertEquals(siblingSignal?.aborted, true);
-          assertEquals(siblingSettled, true);
-          assertEquals(caller.signal.aborted, false, "lookup failure must not abort its caller");
-        } finally {
-          pending.resolve([]);
-          Deno.resolveDns = original;
-        }
-      });
-    }
-  },
-);
-
-Deno.test("DNS caller cancellation aborts and settles both pending address families", async () => {
-  const original = Deno.resolveDns;
-  const caller = new AbortController();
-  const reason = new DOMException("Deadline expired", "AbortError");
-  const signals: AbortSignal[] = [];
-  const pending: ReturnType<typeof Promise.withResolvers<string[]>>[] = [];
-  let settled = 0;
-  try {
-    Deno.resolveDns = ((_host: string, _type: string, options?: Deno.ResolveDnsOptions) => {
-      assert(options?.signal);
-      const signal = options.signal;
-      signals.push(signal);
-      const lookup = Promise.withResolvers<string[]>();
-      pending.push(lookup);
-      signal.addEventListener("abort", () => lookup.reject(signal.reason), { once: true });
-      return lookup.promise.finally(() => {
-        settled++;
-      });
-    }) as typeof Deno.resolveDns;
-    const result = resolveAddresses("public.example", caller.signal);
-    caller.abort(reason);
-    const error = await assertRejects(() => result, DOMException, "Deadline expired");
-    assertEquals(error, reason);
-    assertEquals(signals.length, 2);
-    assert(signals.every((signal) => signal.aborted && signal.reason === reason));
-    assertEquals(settled, 2);
-  } finally {
-    for (const lookup of pending) lookup.resolve([]);
-    Deno.resolveDns = original;
+    expect(requests).toStrictEqual([publicV4]);
   }
 });
 
-Deno.test("DNS resolver starts no queries when its caller is already aborted", async () => {
-  const original = Deno.resolveDns;
+test("allowed redirects still yield HTML context through the protected transport", async () => {
+  const requests: string[] = [];
+  const fetch = createPublicFetch({
+    resolve: () => Promise.resolve([publicV4, publicV6]),
+    request: (url, address) => {
+      expect(address).toStrictEqual(publicV4);
+      requests.push(url.pathname);
+      return Promise.resolve(
+        url.pathname === "/start"
+          ? new Response(null, {
+              status: 302,
+              headers: { location: "https://second.example/page" },
+            })
+          : new Response(
+              "<html><head><title>Working</title></head><body>Public links work.</body></html>",
+              {
+                headers: { "content-type": "text/html" },
+              },
+            ),
+      );
+    },
+  });
+  const service = createLinkOpenService({} as AppConfig, { fetch });
+  expect(await service.open("http://public.example/start")).toStrictEqual({
+    ok: true,
+    page: { domain: "second.example", title: "Working", excerpt: "Public links work." },
+  });
+  expect(requests).toStrictEqual(["/start", "/page"]);
+});
+
+describe("partial family results are validated before connecting", () => {
+  const resolveWith = (records: string[]) => (hostname: string, signal?: AbortSignal) =>
+    resolveAddresses(hostname, signal, () =>
+      Promise.resolve(records.map((address) => ({ address }))),
+    );
+
+  test("an IPv4-only answer opens over IPv4", async () => {
+    const destinations: string[] = [];
+    const fetch = createPublicFetch({
+      resolve: resolveWith([publicV4]),
+      request: (_url, address) => {
+        destinations.push(address);
+        return Promise.resolve(new Response("ok"));
+      },
+    });
+    expect(await (await fetch("https://public.example/", {})).text()).toBe("ok");
+    expect(destinations).toStrictEqual([publicV4]);
+  });
+
+  test("a private address in either family blocks before any connection", async () => {
+    for (const answers of [
+      [publicV4, "fd00::1"],
+      ["10.0.0.1", publicV6],
+    ]) {
+      let requests = 0;
+      const fetch = createPublicFetch({
+        resolve: resolveWith(answers),
+        request: () => {
+          requests++;
+          return Promise.resolve(new Response());
+        },
+      });
+      await rejects(() => fetch("https://public.example/", {}), BlockedDestinationError);
+      expect(requests).toBe(0);
+    }
+  });
+});
+
+test("a hung DNS lookup ends at the caller's deadline with its reason", async () => {
+  const caller = new AbortController();
+  const reason = new DOMException("Deadline expired", "AbortError");
+  let started = 0;
+  const hung = () => {
+    started++;
+    return new Promise<never>(() => {});
+  };
+  const removed: string[] = [];
+  const remove = caller.signal.removeEventListener.bind(caller.signal);
+  caller.signal.removeEventListener = ((type: string, ...rest: [never]) => {
+    removed.push(type);
+    return remove(type, ...rest);
+  }) as typeof caller.signal.removeEventListener;
+  const result = resolveAddresses("public.example", caller.signal, hung);
+  caller.abort(reason);
+  const error = await rejects(() => result, DOMException, "Deadline expired");
+  expect(error).toBe(reason);
+  expect(started).toBe(1);
+  // The abort listener is removed once the wait ends.
+  expect(removed).toStrictEqual(["abort"]);
+});
+
+test("DNS resolver starts no lookup when its caller is already aborted", async () => {
   const caller = new AbortController();
   caller.abort();
-  let queries = 0;
-  try {
-    Deno.resolveDns = (() => {
-      queries++;
-      return Promise.resolve([]);
-    }) as typeof Deno.resolveDns;
-    await assertRejects(() => resolveAddresses("public.example", caller.signal), DOMException);
-    assertEquals(queries, 0);
-  } finally {
-    Deno.resolveDns = original;
-  }
+  let lookups = 0;
+  const lookup = () => {
+    lookups++;
+    return Promise.resolve([]);
+  };
+  await rejects(() => resolveAddresses("public.example", caller.signal, lookup), DOMException);
+  expect(lookups).toBe(0);
 });

@@ -4,6 +4,7 @@
     "node_modules/",
     "test_support/",
     "scripts/migration/",
+    "tests/",
     "src/utils/retry.test.ts",
     "src/features/poll/poll.test.ts",
     "src/features/stats/embed.test.ts",
@@ -20,7 +21,9 @@
     "src/services/usage.test.ts",
     "src/config.test.ts",
     "ai_service.test.ts",
-    "ai_service.tools.test.ts"
+    "ai_service.tools.test.ts",
+    "src/services/public_fetch.test.ts",
+    "src/services/link_open.test.ts"
   ],
   "imports": {
     "@aws-sdk/client-cost-explorer": "npm:@aws-sdk/client-cost-explorer@3.1146.0",
@@ -39,8 +42,7 @@
     "agent:stale-close": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/stale_close.ts",
     "agent:next-issue": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/next_issue.ts",
     "agent:mark-pr-open": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/mark_pr_open.ts",
-    "agent:run-once": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/run_once.ts",
-    "test:transport": "deno test --allow-env --allow-net=127.0.0.1,public.example,wrong.example tests/public_fetch.integration.ts tests/link_open.integration.ts"
+    "agent:run-once": "deno run --allow-run=gh --allow-env --allow-read --allow-write scripts/issue_agent/run_once.ts"
   },
   "fmt": {
     "useTabs": false,
@@ -57,6 +59,7 @@
   },
   "compilerOptions": {
     "strict": true,
-    "noImplicitAny": true
+    "noImplicitAny": true,
+    "types": ["./scripts/migration/deno_bun_types.d.ts"]
   }
 }

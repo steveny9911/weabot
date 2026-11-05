@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { notExcludedFromDeno, parseBaseline, parseJunitCounts } from "./gate.ts";
+import { notExcludedFromDeno, parseBaseline, parseJunitCounts, skipProblem } from "./gate.ts";
 
 test("parseBaseline reads the bun_expected column per file and skips totals", () => {
   const text = [
@@ -28,4 +28,11 @@ test("notExcludedFromDeno matches directory prefixes and exact files", () => {
       excludes,
     ),
   ).toStrictEqual(["src/config.test.ts"]);
+});
+
+test("skipProblem fails skips beyond the file's allowance", () => {
+  expect(skipProblem("a.test.ts", 0)).toBeUndefined();
+  expect(skipProblem("a.test.ts", 1)).toBe("a.test.ts: 1 skipped or todo tests (allowed: 0)");
+  expect(skipProblem("b.test.ts", 1, 1)).toBeUndefined();
+  expect(skipProblem("b.test.ts", 2, 1)).toBe("b.test.ts: 2 skipped or todo tests (allowed: 1)");
 });
