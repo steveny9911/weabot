@@ -87,7 +87,7 @@ async function main() {
   )
     throw new Error("Sandbox identity mismatch.");
   // Live runs persist duplicate protection across invocations; previews use disposable memory.
-  // A new file name: the old Deno KV file at /tmp/haru-reaction-sandbox.sqlite3 has another schema.
+  // A new file name, so Bun's tables and WAL mode never touch the old key-value file.
   const db = openDatabase(options.send ? "/tmp/haru-reaction-sandbox.bun.sqlite3" : ":memory:");
   try {
     console.log(

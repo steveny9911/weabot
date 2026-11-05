@@ -401,7 +401,7 @@ import a module that still uses Deno; shared types and helpers move first.
      "lint": "bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0"
      ```
 
-   - the `agent:*` scripts are added in slice 4.
+   - the `agent:*` scripts are added in slice 4 (done).
 3. **`bunfig.toml`:**
 
    ```toml
@@ -651,7 +651,15 @@ import a module that still uses Deno; shared types and helpers move first.
 
 **Verify**
 
-- `git grep -n -i deno -- ':!docs/'` finds nothing.
+- This finds nothing:
+
+  ```bash
+  git grep -n -i deno -- ':!docs/' ':!scripts/issue_agent/triage.ts' ':!bot_actions*.test.ts' ':!src/services/web_search.test.ts'
+  ```
+
+  The exceptions are deliberate: triage still recognizes "deno" in bug reports (behavior change 8),
+  and the test messages ask about Deno as sample user text.
+
 - Full suite at the exact expected counts.
 - The slice 3 smoke run is repeated on the final commit.
 - CI is green on `feat/bun`.
@@ -913,8 +921,8 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
 - **Sandbox and evaluation scripts:** `sandbox:discord`, `sandbox:events`, `sandbox:reactions`,
   `sandbox:autonomous` and `eval:reactions` (each loads `.env`). They use
   `openDatabase(":memory:")`; a live `sandbox:reactions --send` keeps its duplicate protection in
-  `/tmp/haru-reaction-sandbox.bun.sqlite3` (a new name, since the old Deno KV file at
-  `/tmp/haru-reaction-sandbox.sqlite3` has another schema). Never the production database.
+  `/tmp/haru-reaction-sandbox.bun.sqlite3` (a new name, so Bun's tables and WAL mode never touch the
+  old key-value file at `/tmp/haru-reaction-sandbox.sqlite3`). Never the production database.
 - **Tests:** the two script test files run on Bun at their baseline counts (3 and 2); the
   reaction-sandbox checks now also assert each error message. Total: 39 unit files, 674 tests;
   transport 43.
@@ -926,6 +934,16 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   `agent:closed-inactive` still `6E7781`), then stopped because this environment blocks GitHub
   GraphQL (`gh issue list`). **Still to do with real credentials:** a sandbox dry run past preflight
   and a full `agent:next-issue` listing.
+
+#### Slice 4 review follow-up
+
+- **Slice 5 Deno check:** the `git grep` now lists its deliberate exceptions (the triage pattern and
+  sample user text in two test files).
+- **Comment:** the reason for the new reaction sandbox file name is corrected (the old file would
+  have opened, but Bun would have written its tables and WAL mode into it).
+- **Left as is:** `Bun.spawn` does not pass the terminal's input to `gh`, where Deno's `Command`
+  did; no `gh` call reads input. A missing `gh` reports Bun's `Executable not found in $PATH`
+  message.
 
 ## Future work
 
