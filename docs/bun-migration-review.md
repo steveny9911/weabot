@@ -12,11 +12,11 @@ All experiments ran on Bun 1.4.4 (SQLite 3.53.4) on loopback only.
 
 ## Decisions (2026-11-05)
 
-| Question                              | Decision                                                                                        |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Proxy environment variables (issue 1) | Delete them from `process.env` at startup, with a test.                                         |
-| Event duplicate guards (issue 3)      | Add a revision column and compare it. Under review: see the data-model simplification question. |
-| Running canary `bun lint` (issue 14)  | `bunx bun@<exact canary> lint --max-warnings 0`, with the Bun install cache kept in CI.         |
+| Question                              | Decision                                                                                                                                                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Proxy environment variables (issue 1) | Delete them from `process.env` at startup, with a test.                                                                                                                                                                         |
+| Event duplicate guards (issue 3)      | Superseded by the simplified data model: event actions run under an in-memory per-guild lock, so no revision column is needed. Turn tokens and pending clarifications move to memory, so issues 2 and 4 become in-memory rules. |
+| Running canary `bun lint` (issue 14)  | `bunx bun@<exact canary> lint --max-warnings 0`, with the Bun install cache kept in CI.                                                                                                                                         |
 
 ## Summary
 
