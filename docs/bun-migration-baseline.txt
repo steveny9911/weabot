@@ -50,3 +50,14 @@ bun lint (1.4.4-canary.1+b9f2ec363, defaults):  0 errors, 2 warnings in 82 files
   - no-useless-escape     scripts/issue_agent/common.ts:185  ("\-" in a character class)
   - no-useless-assignment src/services/public_fetch.ts:103   (initial [] is always overwritten)
 Both fixed in the baseline commit; bun lint --max-warnings 0 then reports no problems.
+
+## assertion parity (std/assert assertEquals vs bun:test toStrictEqual, Bun 1.4.4)
+Same result: undefined property vs missing, sparse vs explicit undefined, class instance vs plain
+object, Dates, NaN, Map.
+Different:
+  Error objects with the same message      std: different   bun: equal
+  array with an extra own property         std: different   bun: equal
+  Uint8Array vs Buffer with same bytes     std: different   bun: equal
+  -0 vs 0                                  std: equal       bun: different
+  two invalid Dates                        std: equal       bun: different
+Repo impact: public_fetch.test.ts:327 compares a DOMException with assertEquals; use toBe.

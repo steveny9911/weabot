@@ -305,21 +305,21 @@ function that throws on any unstubbed network call.
 
 ### Rules
 
-| Deno                                                                              | Bun                                                                                                                           |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `Deno.test(name, fn)`                                                             | `test(name, fn)`                                                                                                              |
-| `t.step(name, fn)`                                                                | `describe(name, () => { for (...) test(...) })`. All 23 uses are independent loops. Bun cannot nest `test()` inside `test()`. |
-| `assertEquals(a, b)`                                                              | `expect(a).toStrictEqual(b)`. Use `toBe` for identity checks such as `public_fetch.test.ts:327` (comparing a `DOMException`). |
-| `assertStringIncludes(s, x)`                                                      | `expect(s).toContain(x)`                                                                                                      |
-| `assert(x)`                                                                       | `assert(x)` from `test_support/assert.ts`                                                                                     |
-| `assertRejects(...)`, `assertThrows(...)`                                         | `rejects(...)`, `throws(...)` from `test_support/assert.ts`, keeping the returned error where it is used (14 sites)           |
-| `assertMatch`, `assertGreater`                                                    | `toMatch`, `toBeGreaterThan`                                                                                                  |
-| `Deno.openKv(":memory:")`                                                         | `openDatabase(":memory:")`, one handle shared by the services under test                                                      |
-| `Deno.env.set` / `delete`                                                         | `process.env.X = "..."` / `delete process.env.X`. Never assign `undefined`, which stores the string `"undefined"`.            |
-| Replacing `Deno.cron` (`scheduler.autonomous.test.ts`, `poll_collection.test.ts`) | Pass a fake cron registrar                                                                                                    |
-| Replacing `Deno.resolveDns` (`public_fetch.test.ts`)                              | Pass a fake lookup                                                                                                            |
-| `Deno.serve`, `Deno.listen`, `Deno.Conn` (integration tests)                      | `Bun.serve` (with an explicit `idleTimeout`) or `node:net`                                                                    |
-| Fetch stubs typed `typeof fetch`                                                  | Type injected fetchers as `(input: RequestInfo \| URL, init?: RequestInit) => Promise<Response>`                              |
+| Deno                                                                              | Bun                                                                                                                                                                     |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Deno.test(name, fn)`                                                             | `test(name, fn)`                                                                                                                                                        |
+| `t.step(name, fn)`                                                                | `describe(name, () => { for (...) test(...) })`. All 23 uses are independent loops. Bun cannot nest `test()` inside `test()`.                                           |
+| `assertEquals(a, b)`                                                              | `expect(a).toStrictEqual(b)`. Use `toBe` for identity checks such as `public_fetch.test.ts:327` (comparing a `DOMException`).                                           |
+| `assertStringIncludes(s, x)`                                                      | `expect(s).toContain(x)`                                                                                                                                                |
+| `assert(x)`                                                                       | `assert(x)` from `test_support/assert.ts`                                                                                                                               |
+| `assertRejects(...)`, `assertThrows(...)`                                         | `rejects(...)`, `throws(...)` from `test_support/assert.ts`, keeping the returned error where it is used (14 sites)                                                     |
+| `assertMatch`, `assertGreater`                                                    | `toMatch`, `toBeGreaterThan`                                                                                                                                            |
+| `Deno.openKv(":memory:")`                                                         | `openDatabase(":memory:")`, one handle shared by the services under test                                                                                                |
+| `Deno.env.set` / `delete`                                                         | `process.env.X = "..."` / `delete process.env.X`. Never assign `undefined`, which stores the string `"undefined"`.                                                      |
+| Replacing `Deno.cron` (`scheduler.autonomous.test.ts`, `poll_collection.test.ts`) | Pass a fake cron registrar                                                                                                                                              |
+| Replacing `Deno.resolveDns` (`public_fetch.test.ts`)                              | Pass a fake lookup                                                                                                                                                      |
+| `Deno.serve`, `Deno.listen`, `Deno.Conn` (integration tests)                      | `Bun.serve` (with an explicit `idleTimeout`) or `node:net`                                                                                                              |
+| Fetch stubs typed `typeof fetch`                                                  | Type injected fetchers as `(input: string \| URL \| Request, init?: RequestInit) => Promise<Response>` (`RequestInfo` is a DOM type that `@types/bun` does not provide) |
 
 **Tests tied to Deno KV are rewritten as behavior tests.** This covers `rate_limit.test.ts` and the
 KV-inspecting parts of `storage.test.ts`, `poll_collection.test.ts` and
@@ -657,6 +657,33 @@ Not part of this plan.
 - **`deploy_aws.sh`.** It still runs `cloudformation deploy` without `ExistingAmiId`. Fix that, or
   use only the app-only deploy path.
 - **Rollback.** Redeploy `deno-final` with the old unit. The Deno KV file is still on the instance.
+
+## Slice log
+
+### Slice 0 (done)
+
+Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
+
+- **Baseline** (`docs/bun-migration-baseline.txt`): 643 Deno tests and steps over 33 files, 630
+  expected under Bun; transport 45 and 35. `deno lint` reported nothing. Canary `bun lint` reported
+  two warnings (a useless regex escape and a useless initial assignment); both were fixed, and
+  `bun lint --max-warnings 0` is clean.
+- **Deno coexistence:**
+  - With a `package.json` present, Deno expects a `node_modules` folder. `deno.json` now sets
+    `"nodeModulesDir": "none"`, so Deno keeps using its own cache.
+  - `deno.json` `exclude` lists the Bun-only paths. **Each slice adds its converted test files to
+    this list**, because they import `bun:test`.
+- **Gate:** `bun run migration:gate` type-checks and tests the files listed in
+  `scripts/migration/ported.json` and fails on missing files or count mismatches. Each slice adds
+  its converted test files there.
+- **Script names:** `bun check` and `bun fmt` run the same-named `package.json` script when one
+  exists. Both scripts call the real tool, so this is harmless; the gate uses
+  `bun check --no-script`.
+- **`RequestInfo`:** not provided by `@types/bun`. Use `string | URL | Request`.
+- **Assertion parity:** recorded in the baseline file. One repo site needs `toBe`
+  (`public_fetch.test.ts:327`).
+- **Not yet verified:** the CI run on GitHub (the Bun job, `setup-bun` reading `packageManager`, and
+  the cache). It runs on the push of this slice.
 
 ## Future work
 
