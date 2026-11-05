@@ -3,10 +3,10 @@ import {
   commentOnIssue,
   ensureAgentLabels,
   getStateLabels,
+  type GhIssue,
   issueHasLabel,
   listOpenIssues,
   setIssueStateLabel,
-  type GhIssue,
 } from "./common.ts";
 
 function parseArgs(args: string[]): { claim: boolean } {

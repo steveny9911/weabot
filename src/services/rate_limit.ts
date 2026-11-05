@@ -1,171 +1,179 @@
 /**
- * Rate Limit Service
+ * Persistent AI usage counters and atomic request admission.
  *
- * Handles rate limiting for AI requests to prevent API cost overruns.
- * Uses Deno KV for persistent storage of usage data.
+ * The daily budget is a soft threshold on reported usage: admitted requests may
+ * finish above it. It is not a reservation or a strict cap on in-flight tokens.
  */
 
 import type { AppConfig } from "../config.ts";
 
-/** Result of a rate limit check */
 export interface RateLimitResult {
   allowed: boolean;
   remaining: number;
   resetInMs: number;
 }
 
-/** Result of a budget check */
+export type RequestAdmission =
+  & RateLimitResult
+  & (
+    | { allowed: true }
+    | { allowed: false; reason: "user_limit" | "daily_budget" }
+  );
+
 export interface BudgetResult {
   allowed: boolean;
   tokensRemaining: number;
 }
 
-/** Usage statistics for monitoring */
 export interface UsageStats {
   dailyTokensUsed: number;
   dailyTokenBudget: number;
   requestsToday: number;
 }
 
-/** Rate limit service interface for dependency injection */
 export interface RateLimitService {
-  /** Check if a user is within their rate limit */
+  /** Atomically check limits and count one accepted request. */
+  admitRequest(userId: string, options?: { enforceUserLimit?: boolean }): Promise<RequestAdmission>;
+  /** Read-only snapshot; use admitRequest to authorize generation. */
   checkUserRateLimit(userId: string): Promise<RateLimitResult>;
-
-  /** Record that a user made an AI request */
+  /** Unconditionally count a request, without authorizing it. */
   recordUserRequest(userId: string): Promise<void>;
-
-  /** Check if we're within the daily token budget */
+  /** Read-only soft budget snapshot, excluding unreported in-flight usage. */
   checkDailyBudget(): Promise<BudgetResult>;
-
-  /** Record token usage from an AI response */
+  /** Record reported tokens in the UTC day when this method is called. */
   recordTokenUsage(tokens: number): Promise<void>;
-
-  /** Get current usage stats for monitoring */
   getUsageStats(): Promise<UsageStats>;
 }
 
-/**
- * Creates a rate limit service backed by Deno KV.
- */
+const MINUTE_TTL_MS = 2 * 60_000;
+const DAILY_TTL_MS = 48 * 60 * 60_000;
+const MAX_COMMIT_ATTEMPTS = 100;
+
+/** Bounded jittered backoff avoids spinning or silently losing a failed update. */
+async function retryConflict(attempt: number): Promise<void> {
+  if (attempt >= MAX_COMMIT_ATTEMPTS) {
+    throw new Error("AI usage transaction failed after repeated conflicts");
+  }
+  await new Promise((resolve) =>
+    setTimeout(resolve, 1 + Math.random() * Math.min(32, 2 ** Math.min(attempt, 5)))
+  );
+}
+
+/** Numeric CAS updates preserve pre-existing KV values and expiration periods. */
 export function createRateLimitService(
   kv: Deno.Kv,
   config: AppConfig,
+  now: () => number = Date.now,
 ): RateLimitService {
-  /**
-   * Get the current minute key for rate limiting.
-   * Format: "YYYY-MM-DDTHH:MM" (e.g., "2026-01-18T14:30")
-   */
-  function getCurrentMinuteKey(): string {
-    const now = new Date();
-    return now.toISOString().slice(0, 16); // "2026-01-18T14:30"
+  function bucket(time = now()) {
+    const iso = new Date(time).toISOString();
+    return {
+      minute: iso.slice(0, 16),
+      date: iso.slice(0, 10),
+      resetInMs: 60_000 - (time % 60_000),
+    };
   }
 
-  /**
-   * Get the current date key for daily budgets.
-   * Format: "YYYY-MM-DD" (e.g., "2026-01-18")
-   */
-  function getCurrentDateKey(): string {
-    const now = new Date();
-    return now.toISOString().slice(0, 10); // "2026-01-18"
-  }
-
-  /**
-   * Calculate milliseconds until the next minute.
-   */
-  function msUntilNextMinute(): number {
-    const now = new Date();
-    const next_minute = new Date(now);
-    next_minute.setMinutes(next_minute.getMinutes() + 1, 0, 0);
-    return next_minute.getTime() - now.getTime();
+  async function countRequest(
+    userId: string,
+    enforceBudget: boolean,
+    enforceUserLimit: boolean,
+  ): Promise<RequestAdmission> {
+    for (let attempt = 1;; attempt++) {
+      const current = bucket();
+      const userKey = ["ai_usage", "user", userId, current.minute];
+      const requestsKey = ["ai_usage", "daily_requests", current.date];
+      const tokensKey = ["ai_usage", "daily_tokens", current.date];
+      const [user, requests, tokens] = await kv.getMany<[number, number, number]>([
+        userKey,
+        requestsKey,
+        tokensKey,
+      ]);
+      // An asynchronous read or conflict retry must not admit into an old minute.
+      const latest = bucket();
+      if (latest.minute !== current.minute) {
+        await retryConflict(attempt);
+        continue;
+      }
+      const count = user.value ?? 0;
+      const result = {
+        remaining: Math.max(0, config.aiRateLimitPerUser - count),
+        resetInMs: latest.resetInMs,
+      };
+      if (enforceUserLimit && count >= config.aiRateLimitPerUser) {
+        return { ...result, allowed: false, reason: "user_limit" };
+      }
+      if (enforceBudget && (tokens.value ?? 0) >= config.aiDailyTokenBudget) {
+        return { ...result, allowed: false, reason: "daily_budget" };
+      }
+      const transaction = kv.atomic().check(user, requests)
+        .set(userKey, count + 1, { expireIn: MINUTE_TTL_MS })
+        .set(requestsKey, (requests.value ?? 0) + 1, { expireIn: DAILY_TTL_MS });
+      // If completed usage changed during admission, retry the budget check.
+      if (enforceBudget) transaction.check(tokens);
+      if ((await transaction.commit()).ok) {
+        return { ...result, allowed: true, remaining: Math.max(0, result.remaining - 1) };
+      }
+      await retryConflict(attempt);
+    }
   }
 
   return {
-    async checkUserRateLimit(userId: string): Promise<RateLimitResult> {
-      const minute_key = getCurrentMinuteKey();
-      const kv_key = ["ai_usage", "user", userId, minute_key];
+    admitRequest(userId, options) {
+      return countRequest(userId, true, options?.enforceUserLimit ?? true);
+    },
 
-      const entry = await kv.get<number>(kv_key);
-      const current_count = entry.value ?? 0;
-
-      const allowed = current_count < config.aiRateLimitPerUser;
-      const remaining = Math.max(0, config.aiRateLimitPerUser - current_count);
-      const reset_in_ms = msUntilNextMinute();
-
+    async checkUserRateLimit(userId) {
+      const current = bucket();
+      const entry = await kv.get<number>(["ai_usage", "user", userId, current.minute]);
+      const count = entry.value ?? 0;
       return {
-        allowed,
-        remaining,
-        resetInMs: reset_in_ms,
+        allowed: count < config.aiRateLimitPerUser,
+        remaining: Math.max(0, config.aiRateLimitPerUser - count),
+        resetInMs: current.resetInMs,
       };
     },
 
-    async recordUserRequest(userId: string): Promise<void> {
-      const minute_key = getCurrentMinuteKey();
-      const kv_key = ["ai_usage", "user", userId, minute_key];
-
-      // Get current count and increment
-      const entry = await kv.get<number>(kv_key);
-      const current_count = entry.value ?? 0;
-
-      // Set with expiration (2 minutes to be safe, since we key by minute)
-      await kv.set(kv_key, current_count + 1, {
-        expireIn: 2 * 60 * 1000, // 2 minutes in ms
-      });
-
-      // Also increment daily request counter
-      const date_key = getCurrentDateKey();
-      const daily_requests_key = ["ai_usage", "daily_requests", date_key];
-      const daily_entry = await kv.get<number>(daily_requests_key);
-      const daily_count = daily_entry.value ?? 0;
-
-      await kv.set(daily_requests_key, daily_count + 1, {
-        expireIn: 48 * 60 * 60 * 1000, // 48 hours in ms
-      });
+    async recordUserRequest(userId) {
+      await countRequest(userId, false, false);
     },
 
-    async checkDailyBudget(): Promise<BudgetResult> {
-      const date_key = getCurrentDateKey();
-      const kv_key = ["ai_usage", "daily_tokens", date_key];
-
-      const entry = await kv.get<number>(kv_key);
-      const tokens_used = entry.value ?? 0;
-
-      const allowed = tokens_used < config.aiDailyTokenBudget;
-      const tokens_remaining = Math.max(0, config.aiDailyTokenBudget - tokens_used);
-
+    async checkDailyBudget() {
+      const entry = await kv.get<number>(["ai_usage", "daily_tokens", bucket().date]);
+      const used = entry.value ?? 0;
       return {
-        allowed,
-        tokensRemaining: tokens_remaining,
+        allowed: used < config.aiDailyTokenBudget,
+        tokensRemaining: Math.max(0, config.aiDailyTokenBudget - used),
       };
     },
 
-    async recordTokenUsage(tokens: number): Promise<void> {
-      const date_key = getCurrentDateKey();
-      const kv_key = ["ai_usage", "daily_tokens", date_key];
-
-      const entry = await kv.get<number>(kv_key);
-      const current_total = entry.value ?? 0;
-
-      await kv.set(kv_key, current_total + tokens, {
-        expireIn: 48 * 60 * 60 * 1000, // 48 hours in ms
-      });
+    async recordTokenUsage(tokens) {
+      if (!Number.isSafeInteger(tokens) || tokens < 0) {
+        throw new RangeError("Reported token usage must be a non-negative safe integer");
+      }
+      // Pin the recording day before retries; one update cannot cross buckets.
+      const key = ["ai_usage", "daily_tokens", bucket().date];
+      for (let attempt = 1;; attempt++) {
+        const entry = await kv.get<number>(key);
+        const total = (entry.value ?? 0) + tokens;
+        if (!Number.isSafeInteger(total)) throw new RangeError("AI token counter overflow");
+        const result = await kv.atomic().check(entry)
+          .set(key, total, { expireIn: DAILY_TTL_MS }).commit();
+        if (result.ok) return;
+        await retryConflict(attempt);
+      }
     },
 
-    async getUsageStats(): Promise<UsageStats> {
-      const date_key = getCurrentDateKey();
-
-      // Get daily tokens used
-      const tokens_entry = await kv.get<number>(["ai_usage", "daily_tokens", date_key]);
-      const daily_tokens_used = tokens_entry.value ?? 0;
-
-      // Get daily request count
-      const requests_entry = await kv.get<number>(["ai_usage", "daily_requests", date_key]);
-      const requests_today = requests_entry.value ?? 0;
-
+    async getUsageStats() {
+      const date = bucket().date;
+      const [tokens, requests] = await kv.getMany<[number, number]>([
+        ["ai_usage", "daily_tokens", date],
+        ["ai_usage", "daily_requests", date],
+      ]);
       return {
-        dailyTokensUsed: daily_tokens_used,
+        dailyTokensUsed: tokens.value ?? 0,
         dailyTokenBudget: config.aiDailyTokenBudget,
-        requestsToday: requests_today,
+        requestsToday: requests.value ?? 0,
       };
     },
   };

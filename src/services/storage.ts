@@ -6,7 +6,13 @@
  */
 
 import type { Mood } from "../types/bot.ts";
-import type { DailyStats, PollRecord, VoteRecord } from "../types/storage.ts";
+import type {
+  AutonomousParticipationRecord,
+  ContextResetRecord,
+  DailyStats,
+  PollRecord,
+  VoteRecord,
+} from "../types/storage.ts";
 
 /** Storage service interface for dependency injection */
 export interface StorageService {
@@ -45,6 +51,52 @@ export interface StorageService {
 
   /** Mark a poll as collected */
   markPollCollected(messageId: string): Promise<void>;
+
+  /** Persist the latest context reset for one Discord channel or thread. */
+  setContextReset(record: ContextResetRecord): Promise<void>;
+
+  /** Read the latest context reset for one Discord channel or thread. */
+  getContextReset(channelId: string): Promise<ContextResetRecord | null>;
+
+  /** Read the latest autonomous attempt for one Discord channel or thread. */
+  getAutonomousParticipation(channelId: string): Promise<AutonomousParticipationRecord | null>;
+
+  /** Atomically consume a new human message watermark and the channel cooldown. */
+  claimAutonomousParticipation(
+    record: AutonomousParticipationRecord,
+    cooldownMs: number,
+  ): Promise<boolean>;
+
+  /** Extend cooldown from completion without replacing a newer message claim. */
+  finishAutonomousParticipation(
+    channelId: string,
+    latestHumanMessageId: string,
+    finishedAt: number,
+    reactionEmoji?: string,
+  ): Promise<void>;
+}
+
+export type ContextStorageService = Pick<
+  StorageService,
+  "setContextReset" | "getContextReset"
+>;
+
+const MAX_PARTICIPATION_COMMIT_ATTEMPTS = 10;
+
+/** Fail closed when equal timestamps cannot establish a newer Discord message. */
+export function isNewerHumanMessage(
+  candidate: Pick<AutonomousParticipationRecord, "latestHumanMessageId" | "latestHumanTimestampMs">,
+  previous: Pick<AutonomousParticipationRecord, "latestHumanMessageId" | "latestHumanTimestampMs">,
+): boolean {
+  if (candidate.latestHumanMessageId === previous.latestHumanMessageId) return false;
+  if (candidate.latestHumanTimestampMs !== previous.latestHumanTimestampMs) {
+    return candidate.latestHumanTimestampMs > previous.latestHumanTimestampMs;
+  }
+  if (
+    !/^\d+$/.test(candidate.latestHumanMessageId) ||
+    !/^\d+$/.test(previous.latestHumanMessageId)
+  ) return false;
+  return BigInt(candidate.latestHumanMessageId) > BigInt(previous.latestHumanMessageId);
 }
 
 /**
@@ -69,11 +121,12 @@ export function createStorageService(kv: Deno.Kv): StorageService {
         timestamp: Date.now(),
       };
 
-      // Store by date and user (for daily lookups)
-      await kv.set(["votes", channelId, date, userId], record);
-
-      // Store in user's history (for consecutive checks)
-      await kv.set(["user_votes", channelId, userId, date], record);
+      // Keep both indexes consistent. Stable keys make collection retries idempotent.
+      const result = await kv.atomic()
+        .set(["votes", channelId, date, userId], record)
+        .set(["user_votes", channelId, userId, date], record)
+        .commit();
+      if (!result.ok) throw new Error("Could not persist vote and user history");
     },
 
     async getUserHistory(channelId, userId, limit = 30) {
@@ -225,6 +278,77 @@ export function createStorageService(kv: Deno.Kv): StorageService {
         await kv.set(["pending_polls", messageId], updated);
         console.log(`[STORAGE] Marked poll ${messageId} as collected`);
       }
+    },
+
+    async setContextReset(record) {
+      await kv.set(["context_resets", record.channelId], record);
+    },
+
+    async getContextReset(channelId) {
+      const entry = await kv.get<ContextResetRecord>(["context_resets", channelId]);
+      return entry.value;
+    },
+
+    async getAutonomousParticipation(channelId) {
+      const entry = await kv.get<AutonomousParticipationRecord>([
+        "autonomous_participation",
+        channelId,
+      ]);
+      return entry.value;
+    },
+
+    async claimAutonomousParticipation(record, cooldownMs) {
+      if (
+        !record.channelId || !record.latestHumanMessageId ||
+        !Number.isSafeInteger(record.attemptedAt) || record.attemptedAt < 0 ||
+        !Number.isSafeInteger(record.latestHumanTimestampMs) || record.latestHumanTimestampMs < 0 ||
+        !Number.isFinite(cooldownMs) || cooldownMs < 0
+      ) throw new RangeError("Invalid autonomous participation attempt");
+
+      const key = ["autonomous_participation", record.channelId];
+      for (let attempt = 0; attempt < MAX_PARTICIPATION_COMMIT_ATTEMPTS; attempt++) {
+        const entry = await kv.get<AutonomousParticipationRecord>(key);
+        if (
+          entry.value &&
+          (!isNewerHumanMessage(record, entry.value) ||
+            record.attemptedAt - entry.value.attemptedAt < cooldownMs)
+        ) return false;
+        const preserved = entry.value?.lastReactionEmoji && !record.lastReactionEmoji
+          ? { ...record, lastReactionEmoji: entry.value.lastReactionEmoji }
+          : record;
+        const result = await kv.atomic().check(entry).set(key, preserved).commit();
+        if (result.ok) return true;
+      }
+      throw new Error("Autonomous participation transaction failed after repeated conflicts");
+    },
+
+    async finishAutonomousParticipation(
+      channelId,
+      latestHumanMessageId,
+      finishedAt,
+      reactionEmoji,
+    ) {
+      if (!Number.isSafeInteger(finishedAt) || finishedAt < 0) {
+        throw new RangeError("Invalid autonomous participation completion time");
+      }
+      const key = ["autonomous_participation", channelId];
+      for (let attempt = 0; attempt < MAX_PARTICIPATION_COMMIT_ATTEMPTS; attempt++) {
+        const entry = await kv.get<AutonomousParticipationRecord>(key);
+        if (!entry.value || entry.value.latestHumanMessageId !== latestHumanMessageId) return;
+        const attemptedAt = Math.max(entry.value.attemptedAt, finishedAt);
+        if (
+          attemptedAt === entry.value.attemptedAt &&
+          (!reactionEmoji || reactionEmoji === entry.value.lastReactionEmoji)
+        ) return;
+        const result = await kv.atomic().check(entry)
+          .set(key, {
+            ...entry.value,
+            attemptedAt,
+            ...(reactionEmoji ? { lastReactionEmoji: reactionEmoji } : {}),
+          }).commit();
+        if (result.ok) return;
+      }
+      throw new Error("Autonomous participation completion failed after repeated conflicts");
     },
   };
 }

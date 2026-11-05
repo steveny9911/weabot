@@ -11,10 +11,12 @@ import {
 import type { AiResult } from "./ai_service.ts";
 import type { BotDependencies } from "./bot_actions.ts";
 import type { AppConfig } from "./src/config.ts";
+import { createRateLimitService } from "./src/services/rate_limit.ts";
 import type { BudgetResult, RateLimitResult, UsageStats } from "./src/services/rate_limit.ts";
 import type { LinkOpenError } from "./src/services/link_open.ts";
 import type { SearchResult } from "./src/services/web_search.ts";
 import { aszHaruGreetingGifPool } from "./src/features/reaction_gif.ts";
+import type { ContextResetRecord } from "./src/types/storage.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -29,10 +31,19 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
     linkOpenEnabled: true,
+    autonomousChatEnabled: false,
+    autonomousChatChannelIds: ["chan-1"],
+    autonomousChatMinHumanMessages: 4,
+    autonomousChatActivityWindowMinutes: 20,
+    autonomousChatCooldownMinutes: 1,
+    autonomousChatReplyChance: 0.35,
+    autonomousChatMaxContextMessages: 40,
     ...overrides,
   };
 }
@@ -157,6 +168,7 @@ function createDeps(
   const link_calls: string[] = [];
   const web_search_calls: string[] = [];
   const recorded_tokens: number[] = [];
+  const context_resets = new Map<string, ContextResetRecord>();
   let request_count = 0;
 
   const deps: BotDependencies = {
@@ -168,6 +180,15 @@ function createDeps(
       },
     },
     rateLimitService: {
+      async admitRequest(userId) {
+        const rate = await this.checkUserRateLimit(userId);
+        if (!rate.allowed) return { ...rate, allowed: false, reason: "user_limit" };
+        if (!(await this.checkDailyBudget()).allowed) {
+          return { ...rate, allowed: false, reason: "daily_budget" };
+        }
+        await this.recordUserRequest(userId);
+        return { ...rate, allowed: true };
+      },
       checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
         return Promise.resolve(
           overrides.rateLimitResult ?? {
@@ -211,6 +232,15 @@ function createDeps(
             },
           },
         );
+      },
+    },
+    storageService: {
+      setContextReset(record: ContextResetRecord): Promise<void> {
+        context_resets.set(record.channelId, record);
+        return Promise.resolve();
+      },
+      getContextReset(channelId: string): Promise<ContextResetRecord | null> {
+        return Promise.resolve(context_resets.get(channelId) ?? null);
       },
     },
     webSearchService: {
@@ -273,7 +303,7 @@ Deno.test("saveContext stores image attachment URLs in context", async () => {
   }
 });
 
-Deno.test("saveContext treats image by filename/size hints even without content_type", async () => {
+Deno.test("saveContext uses image filenames without trusting dimension-only hints", async () => {
   const channel_id = "channel-images-2";
   const config = createMockConfig();
   const mock = mockFetchMessages([
@@ -304,7 +334,6 @@ Deno.test("saveContext treats image by filename/size hints even without content_
     assertEquals(ctx.length, 1);
     assertEquals(ctx[0]["imageUrls"], [
       "https://media.discordapp.net/attachments/3/4/dog.jpg",
-      "https://cdn.discordapp.com/attachments/3/4/not-image.bin",
     ]);
   } finally {
     mock.restore();
@@ -644,7 +673,7 @@ Deno.test("saveContext handles trigger inclusion, proxy_url image extraction, an
   }
 });
 
-Deno.test("saveContext sets null timestamp when source message has no timestamp fields", async () => {
+Deno.test("saveContext excludes source messages without usable timestamps", async () => {
   const channel_id = "channel-no-timestamp";
   const mock = mockFetchMessages([{
     id: "m-no-ts",
@@ -655,8 +684,7 @@ Deno.test("saveContext sets null timestamp when source message has no timestamp 
   try {
     await saveContext(createMockConfig(), channel_id, 5);
     const ctx = getContext(channel_id) ?? [];
-    assertEquals(ctx.length, 1);
-    assertEquals(ctx[0]["timestamp"], null);
+    assertEquals(ctx, []);
   } finally {
     mock.restore();
   }
@@ -766,8 +794,8 @@ Deno.test("handleMessage exits when message payload is missing", async () => {
   }
 });
 
-Deno.test("handleMessage handles reset command and clears cached context", async () => {
-  const config = createMockConfig();
+Deno.test("handleMessage persists reset and does not reload pre-reset Discord history", async () => {
+  const config = createMockConfig({ webSearchEnabled: false });
   const preload_fetch = mockFetchMessages([{
     id: "ctx-1",
     content: "cached line",
@@ -781,7 +809,28 @@ Deno.test("handleMessage handles reset command and clears cached context", async
     preload_fetch.restore();
   }
 
-  const fetch_mock = mockDiscordApiFetch();
+  const fetch_mock = mockDiscordApiFetch({
+    recentMessages: [
+      {
+        id: "msg-after-reset",
+        content: "<@12345> what do you remember?",
+        author: { id: "user-1", username: "alice", bot: false },
+        timestamp: "2026-03-01T12:01:00.000Z",
+      },
+      {
+        id: "msg-trigger",
+        content: "<@12345> \\reset",
+        author: { id: "user-1", username: "alice", bot: false },
+        timestamp: "2026-03-01T12:00:00.000Z",
+      },
+      {
+        id: "old-before-reset",
+        content: "this must stay forgotten",
+        author: { id: "user-2", username: "bob", bot: false },
+        timestamp: "2026-03-01T11:59:00.000Z",
+      },
+    ],
+  });
   try {
     const ctx = createDeps(config);
     const reset_message = {
@@ -791,8 +840,23 @@ Deno.test("handleMessage handles reset command and clears cached context", async
     await handleMessage(reset_message, ctx.deps);
 
     assertEquals(getContext("chan-reset"), undefined);
-    assertEquals(fetch_mock.postedMessages.length, 1);
+    assertEquals(await ctx.deps.storageService.getContextReset("chan-reset"), {
+      channelId: "chan-reset",
+      messageId: "msg-trigger",
+      resetAt: Date.parse("2026-03-01T12:00:00.000Z"),
+    });
     assertStringIncludes(fetch_mock.postedMessages[0], "cleared our chat context");
+
+    await handleMessage({
+      ...createMentionMessage("<@12345> what do you remember?"),
+      id: "msg-after-reset",
+      channel_id: "chan-reset",
+      timestamp: "2026-03-01T12:01:00.000Z",
+    }, ctx.deps);
+
+    assertEquals(ctx.aiCalls.length, 1);
+    assertEquals(ctx.aiCalls[0].map((entry) => entry["id"]), ["msg-after-reset"]);
+    assertEquals(fetch_mock.postedMessages.length, 2);
   } finally {
     fetch_mock.restore();
   }
@@ -1032,5 +1096,123 @@ Deno.test("getBotUserId static import still returns a cached id", async () => {
     assertEquals(typeof result, "string");
   } finally {
     fetch_mock.restore();
+  }
+});
+
+Deno.test("handleMessage admits exactly one concurrent mention for one remaining allowance", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const config = createMockConfig({ aiRateLimitPerUser: 1 });
+    const fixture = createDeps(config);
+    fixture.deps.rateLimitService = createRateLimitService(
+      kv,
+      config,
+      () => Date.parse("2026-09-05T12:34:00Z"),
+    );
+    await Promise.all(
+      Array.from(
+        { length: 12 },
+        () => handleMessage(createMentionMessage("<@12345> hello"), fixture.deps),
+      ),
+    );
+    assertEquals(fixture.aiCalls.length, 1);
+    assertEquals(
+      fetchMock.postedMessages.filter((message) => message.includes("speedy")).length,
+      11,
+    );
+    assertEquals(fetchMock.postedMessages.filter((message) => message === "AI reply").length, 1);
+    assertEquals(await fixture.deps.rateLimitService.getUsageStats(), {
+      dailyTokensUsed: 9,
+      dailyTokenBudget: config.aiDailyTokenBudget,
+      requestsToday: 1,
+    });
+  } finally {
+    fetchMock.restore();
+    kv.close();
+  }
+});
+
+Deno.test("usage command bypasses AI budgets and does not mutate conversation context", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(createMockConfig({ aiEnabled: false }), {
+    rateLimitResult: { allowed: false, remaining: 0, resetInMs: 1000 },
+    budgetResult: { allowed: false, tokensRemaining: 0 },
+  });
+  let reads = 0;
+  state.deps.usageService = {
+    getMonthToDate() {
+      reads++;
+      return Promise.resolve({
+        start: "2026-10-01T00:00:00Z",
+        asOf: "2026-10-06T00:00:00Z",
+        openaiScope: "organization",
+        awsCost: { ok: true, value: { amount: 1, currency: "USD" } },
+        openaiCost: { ok: true, value: { amount: 2, currency: "USD" } },
+        tokens: { ok: true, value: { input: 100, cached: 20, output: 10 } },
+      });
+    },
+  };
+  const context = getContext("chan-1");
+  try {
+    await handleMessage(createMentionMessage(" <@!12345> \\UsAgE "), state.deps);
+    assertEquals(reads, 1);
+    assertEquals(state.aiCalls.length, 0);
+    assertEquals(state.requestCount, 0);
+    assertEquals(state.recordedTokens, []);
+    assertEquals(getContext("chan-1"), context);
+    assertStringIncludes(mock.postedMessages[0], "**AWS cost:** $1.00");
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("usage requires a mention and configured channel and ignores bots", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(createMockConfig({ aiEnabled: false }));
+  let reads = 0;
+  state.deps.usageService = {
+    getMonthToDate() {
+      reads++;
+      throw new Error("unexpected");
+    },
+  };
+  try {
+    await handleMessage({ ...createMentionMessage("\\usage"), mentions: [] }, state.deps);
+    await handleMessage(
+      { ...createMentionMessage("<@12345> \\usage"), author: { bot: true } },
+      state.deps,
+    );
+    await handleMessage(
+      { ...createMentionMessage("<@12345> \\usage"), channel_id: "other" },
+      state.deps,
+    );
+    await handleMessage(createMentionMessage("<@12345> \\usage-extra"), state.deps);
+    await handleMessage(createMentionMessage("<@12345> discuss \\usage"), state.deps);
+    assertEquals(reads, 0);
+    assertEquals(mock.postedMessages, ["Usage is available in configured bot channels only."]);
+  } finally {
+    mock.restore();
+  }
+});
+
+Deno.test("usage handles unavailable service and unexpected service failures", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(createMockConfig());
+  try {
+    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
+    state.deps.usageService = {
+      getMonthToDate() {
+        throw new Error("secret");
+      },
+    };
+    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
+    assertEquals(mock.postedMessages, [
+      "Usage reporting is unavailable right now.",
+      "Usage reporting is unavailable right now.",
+    ]);
+    assertEquals(state.aiCalls.length, 0);
+  } finally {
+    mock.restore();
   }
 });

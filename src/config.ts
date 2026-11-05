@@ -9,6 +9,8 @@
 /** Application configuration interface */
 export interface AppConfig {
   discordToken: string;
+  /** HTTP administration is disabled unless this bearer token is configured. */
+  adminHttpToken?: string;
   channelId: string;
   channelIds: string[];
   timeZone: string;
@@ -22,12 +24,21 @@ export interface AppConfig {
   openaiApiKey: string | undefined;
   /** Max AI requests per user per minute (default: 2) */
   aiRateLimitPerUser: number;
-  /** Max tokens to use per day across all users (default: 10M, user has OpenAI spending limits) */
+  /** Soft daily threshold on reported tokens; in-flight requests may exceed it (default: 10M) */
   aiDailyTokenBudget: number;
   /** Max characters per input message before truncation; set to 0 to disable (default: 0) */
   aiMaxInputChars: number;
   /** Enable UwU-style text transformations (default: true) */
   aiEnableUwu: boolean;
+  /** Max messages retained from the current uninterrupted conversation (default: 40) */
+  aiContextMaxMessages: number;
+  /** Minutes of silence that starts a new conversation context (default: 20) */
+  aiContextInactivityMinutes: number;
+
+  /** Organization admin key for billing/usage reads; separate from the chat key. */
+  openaiAdminKey?: string;
+  /** Optional project filter applied to both OpenAI costs and token totals. */
+  usageOpenaiProjectId?: string;
 
   // Web Search
   /** Master switch for web search (default: false) */
@@ -40,6 +51,29 @@ export interface AppConfig {
   // Link Open
   /** Master switch for explicit link opening command (default: true) */
   linkOpenEnabled: boolean;
+
+  /** Explicit Discord event/invite tools (default: true). */
+  discordActionsEnabled?: boolean;
+  /** Optional server allowlist for event/invite actions; empty allows all joined servers. */
+  discordActionsGuildIds?: string[];
+
+  // Autonomous Chat
+  /** Allow Haru to speak without a direct mention during active conversations (default: false) */
+  autonomousChatEnabled: boolean;
+  /** Channels where autonomous chat is allowed (default: all configured channels) */
+  autonomousChatChannelIds: string[];
+  /** Minimum recent human messages before autonomous chat can join (default: 4) */
+  autonomousChatMinHumanMessages: number;
+  /** Minutes used to decide whether a channel is currently active (default: 20) */
+  autonomousChatActivityWindowMinutes: number;
+  /** Minutes Haru waits after speaking before speaking again (default: 1) */
+  autonomousChatCooldownMinutes: number;
+  /** Probability [0, 1] of replying when the channel is eligible (default: 0.35) */
+  autonomousChatReplyChance: number;
+  /** Max recent messages sent to the AI for autonomous replies (default: 40) */
+  autonomousChatMaxContextMessages: number;
+  /** Wait briefly for a human message burst to finish before consuming it. */
+  autonomousChatSettleSeconds?: number;
 }
 
 /**
@@ -56,6 +90,11 @@ function getEnvOrThrow(key: string): string {
   return value;
 }
 
+function nPositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /**
  * Loads and validates application configuration from environment variables.
  * Call this once at startup. If it returns, config is valid.
@@ -67,6 +106,12 @@ export function loadConfig(): AppConfig {
     (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
   const link_open_enabled = (Deno.env.get("LINK_OPEN_ENABLED") ?? "true").toLowerCase() !==
     "false";
+  const parsed_autonomous_chat_reply_chance = parseFloat(
+    Deno.env.get("AUTONOMOUS_CHAT_REPLY_CHANCE") ?? "0.35",
+  );
+  const autonomous_chat_reply_chance = Number.isFinite(parsed_autonomous_chat_reply_chance)
+    ? parsed_autonomous_chat_reply_chance
+    : 0.35;
   const channel_ids_raw = Deno.env.get("CHANNEL_IDS");
   const channel_id_single = Deno.env.get("CHANNEL_ID");
 
@@ -86,9 +131,14 @@ export function loadConfig(): AppConfig {
   }
 
   const channel_ids_unique = [...new Set(channel_ids)];
+  const autonomous_chat_channel_ids_raw = Deno.env.get("AUTONOMOUS_CHAT_CHANNEL_IDS");
+  const autonomous_chat_channel_ids = autonomous_chat_channel_ids_raw
+    ? autonomous_chat_channel_ids_raw.split(",").map((id) => id.trim()).filter(Boolean)
+    : channel_ids_unique;
 
   return {
     discordToken: getEnvOrThrow("DISCORD_TOKEN"),
+    adminHttpToken: Deno.env.get("ADMIN_HTTP_TOKEN")?.trim() || undefined,
     channelId: channel_ids_unique[0],
     channelIds: channel_ids_unique,
     timeZone: Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles",
@@ -101,6 +151,17 @@ export function loadConfig(): AppConfig {
     aiDailyTokenBudget: parseInt(Deno.env.get("AI_DAILY_TOKEN_BUDGET") ?? "10000000", 10),
     aiMaxInputChars: parseInt(Deno.env.get("AI_MAX_INPUT_CHARS") ?? "0", 10),
     aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
+    aiContextMaxMessages: Math.min(
+      100,
+      nPositiveInteger(Deno.env.get("AI_CONTEXT_MAX_MESSAGES"), 40),
+    ),
+    aiContextInactivityMinutes: nPositiveInteger(
+      Deno.env.get("AI_CONTEXT_INACTIVITY_MINUTES"),
+      20,
+    ),
+
+    openaiAdminKey: Deno.env.get("OPENAI_ADMIN_KEY")?.trim() || undefined,
+    usageOpenaiProjectId: Deno.env.get("USAGE_OPENAI_PROJECT_ID")?.trim() || undefined,
 
     // Web Search
     webSearchEnabled: web_search_enabled,
@@ -109,5 +170,33 @@ export function loadConfig(): AppConfig {
 
     // Link Open
     linkOpenEnabled: link_open_enabled,
+
+    discordActionsEnabled:
+      (Deno.env.get("DISCORD_ACTIONS_ENABLED") ?? "true").toLowerCase() === "true",
+    discordActionsGuildIds: (Deno.env.get("DISCORD_ACTIONS_GUILD_IDS") ?? "")
+      .split(",").map((id) => id.trim()).filter(Boolean),
+
+    // Autonomous Chat
+    autonomousChatEnabled: (Deno.env.get("AUTONOMOUS_CHAT_ENABLED") ?? "false").toLowerCase() ===
+      "true",
+    autonomousChatChannelIds: [...new Set(autonomous_chat_channel_ids)],
+    autonomousChatMinHumanMessages: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES") ?? "4",
+      10,
+    ),
+    autonomousChatActivityWindowMinutes: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES") ?? "20",
+      10,
+    ),
+    autonomousChatCooldownMinutes: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_COOLDOWN_MINUTES") ?? "1",
+      10,
+    ),
+    autonomousChatReplyChance: Math.min(1, Math.max(0, autonomous_chat_reply_chance)),
+    autonomousChatSettleSeconds: 8,
+    autonomousChatMaxContextMessages: parseInt(
+      Deno.env.get("AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES") ?? "40",
+      10,
+    ),
   };
 }

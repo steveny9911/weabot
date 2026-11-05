@@ -15,20 +15,34 @@ function withEnv(
   const allKeys = new Set([
     ...Object.keys(envVars),
     "DISCORD_TOKEN",
+    "ADMIN_HTTP_TOKEN",
     "CHANNEL_ID",
     "CHANNEL_IDS",
     "TIME_ZONE",
     "GLUE_ALERT_THRESHOLD",
     "AI_ENABLED",
     "OPENAI_API_KEY",
+    "OPENAI_ADMIN_KEY",
+    "USAGE_OPENAI_PROJECT_ID",
     "AI_RATE_LIMIT_PER_USER",
     "AI_DAILY_TOKEN_BUDGET",
     "AI_MAX_INPUT_CHARS",
     "ENABLE_UWU",
+    "AI_CONTEXT_MAX_MESSAGES",
+    "AI_CONTEXT_INACTIVITY_MINUTES",
     "WEB_SEARCH_ENABLED",
     "BRAVE_SEARCH_API_KEY",
     "WEB_SEARCH_MAX_RESULTS",
     "LINK_OPEN_ENABLED",
+    "DISCORD_ACTIONS_ENABLED",
+    "DISCORD_ACTIONS_GUILD_IDS",
+    "AUTONOMOUS_CHAT_ENABLED",
+    "AUTONOMOUS_CHAT_CHANNEL_IDS",
+    "AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES",
+    "AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES",
+    "AUTONOMOUS_CHAT_COOLDOWN_MINUTES",
+    "AUTONOMOUS_CHAT_REPLY_CHANCE",
+    "AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES",
   ]);
 
   for (const key of allKeys) {
@@ -195,32 +209,69 @@ Deno.test("loadConfig returns complete config with all values", () => {
       AI_DAILY_TOKEN_BUDGET: "50000",
       AI_MAX_INPUT_CHARS: "300",
       ENABLE_UWU: "false",
+      AI_CONTEXT_MAX_MESSAGES: "75",
+      AI_CONTEXT_INACTIVITY_MINUTES: "15",
       WEB_SEARCH_ENABLED: "true",
       BRAVE_SEARCH_API_KEY: "brave-key",
       WEB_SEARCH_MAX_RESULTS: "5",
       LINK_OPEN_ENABLED: "false",
+      AUTONOMOUS_CHAT_ENABLED: "true",
+      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2",
+      AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES: "6",
+      AUTONOMOUS_CHAT_ACTIVITY_WINDOW_MINUTES: "25",
+      AUTONOMOUS_CHAT_COOLDOWN_MINUTES: "45",
+      AUTONOMOUS_CHAT_REPLY_CHANCE: "0.2",
+      AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES: "60",
     },
     () => {
       const config = loadConfig();
       assertEquals(config, {
         discordToken: "secret-token",
+        adminHttpToken: undefined,
         channelId: "123456789",
         channelIds: ["123456789"],
         timeZone: "Asia/Tokyo",
         glueAlertThreshold: 5,
         aiEnabled: true,
         openaiApiKey: "sk-test-key",
+        openaiAdminKey: undefined,
+        usageOpenaiProjectId: undefined,
         aiRateLimitPerUser: 10,
         aiDailyTokenBudget: 50000,
         aiMaxInputChars: 300,
         aiEnableUwu: false,
+        aiContextMaxMessages: 75,
+        aiContextInactivityMinutes: 15,
         webSearchEnabled: true,
         webSearchApiKey: "brave-key",
         webSearchMaxResults: 5,
         linkOpenEnabled: false,
+        discordActionsEnabled: true,
+        discordActionsGuildIds: [],
+        autonomousChatEnabled: true,
+        autonomousChatChannelIds: ["auto-1", "auto-2"],
+        autonomousChatMinHumanMessages: 6,
+        autonomousChatActivityWindowMinutes: 25,
+        autonomousChatCooldownMinutes: 45,
+        autonomousChatReplyChance: 0.2,
+        autonomousChatMaxContextMessages: 60,
+        autonomousChatSettleSeconds: 8,
       });
     },
   );
+});
+
+Deno.test("Discord actions can be disabled or restricted to selected servers", () => {
+  withEnv({
+    DISCORD_TOKEN: "token",
+    CHANNEL_ID: "123",
+    DISCORD_ACTIONS_ENABLED: "false",
+    DISCORD_ACTIONS_GUILD_IDS: " sandbox, another, ",
+  }, () => {
+    const config = loadConfig();
+    assertEquals(config.discordActionsEnabled, false);
+    assertEquals(config.discordActionsGuildIds, ["sandbox", "another"]);
+  });
 });
 
 Deno.test("loadConfig uses AI defaults when not set", () => {
@@ -237,11 +288,48 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
       assertEquals(config.aiDailyTokenBudget, 10000000); // 10M tokens, user has OpenAI spending limits
       assertEquals(config.aiMaxInputChars, 0); // disabled by default
       assertEquals(config.aiEnableUwu, true);
+      assertEquals(config.aiContextMaxMessages, 40);
+      assertEquals(config.aiContextInactivityMinutes, 20);
       assertEquals(config.channelIds, ["channel"]);
       assertEquals(config.webSearchEnabled, false);
       assertEquals(config.webSearchApiKey, undefined);
       assertEquals(config.webSearchMaxResults, 3);
       assertEquals(config.linkOpenEnabled, true);
+      assertEquals(config.autonomousChatEnabled, false);
+      assertEquals(config.autonomousChatChannelIds, ["channel"]);
+      assertEquals(config.autonomousChatMinHumanMessages, 4);
+      assertEquals(config.autonomousChatActivityWindowMinutes, 20);
+      assertEquals(config.autonomousChatCooldownMinutes, 1);
+      assertEquals(config.autonomousChatReplyChance, 0.35);
+      assertEquals(config.autonomousChatMaxContextMessages, 40);
+    },
+  );
+});
+
+Deno.test("loadConfig defaults AUTONOMOUS_CHAT_CHANNEL_IDS to configured channels", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_IDS: "chan-1, chan-2",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.autonomousChatChannelIds, ["chan-1", "chan-2"]);
+    },
+  );
+});
+
+Deno.test("loadConfig supports AUTONOMOUS_CHAT_CHANNEL_IDS override", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_IDS: "chan-1, chan-2",
+      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2, auto-1",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.channelIds, ["chan-1", "chan-2"]);
+      assertEquals(config.autonomousChatChannelIds, ["auto-1", "auto-2"]);
     },
   );
 });
@@ -302,4 +390,69 @@ Deno.test("loadConfig handles LINK_OPEN_ENABLED=false", () => {
       assertEquals(config.linkOpenEnabled, false);
     },
   );
+});
+
+Deno.test("loadConfig clamps AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      AUTONOMOUS_CHAT_REPLY_CHANCE: "2",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.autonomousChatReplyChance, 1);
+    },
+  );
+});
+
+Deno.test("loadConfig defaults invalid AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      AUTONOMOUS_CHAT_REPLY_CHANCE: "sometimes",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.autonomousChatReplyChance, 0.35);
+    },
+  );
+});
+
+Deno.test("HTTP administration is disabled by default and accepts an explicit token", () => {
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123" }, () => {
+    assertEquals(loadConfig().adminHttpToken, undefined);
+  });
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "  " }, () => {
+    assertEquals(loadConfig().adminHttpToken, undefined);
+  });
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "secret" }, () => {
+    assertEquals(loadConfig().adminHttpToken, "secret");
+  });
+});
+
+Deno.test("usage billing configuration is separate from the chat key and trims blank values", () => {
+  withEnv({
+    DISCORD_TOKEN: "token",
+    CHANNEL_ID: "channel",
+    OPENAI_API_KEY: "chat-key",
+    OPENAI_ADMIN_KEY: " admin-key ",
+    USAGE_OPENAI_PROJECT_ID: " proj-test ",
+  }, () => {
+    const config = loadConfig();
+    assertEquals(config.openaiAdminKey, "admin-key");
+    assertEquals(config.usageOpenaiProjectId, "proj-test");
+    assertEquals(config.openaiApiKey, "chat-key");
+  });
+  withEnv({
+    DISCORD_TOKEN: "token",
+    CHANNEL_ID: "channel",
+    OPENAI_ADMIN_KEY: " ",
+    USAGE_OPENAI_PROJECT_ID: " ",
+  }, () => {
+    const config = loadConfig();
+    assertEquals(config.openaiAdminKey, undefined);
+    assertEquals(config.usageOpenaiProjectId, undefined);
+  });
 });

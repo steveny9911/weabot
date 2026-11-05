@@ -1,5 +1,8 @@
+import { createUsageService } from "./src/services/usage.ts";
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/services/discord.ts";
+import { createDiscordEventsClient } from "./src/services/discord_events.ts";
+import { createDiscordActionService } from "./src/features/discord_actions/mod.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
 import { createWebSearchService } from "./src/services/web_search.ts";
@@ -14,8 +17,10 @@ import type { BotDependencies } from "./bot_actions.ts";
 // Throws immediately if required env vars are missing (Fail Fast pattern)
 const config = loadConfig();
 
-// Initialize Deno KV for data persistence
-const kv = await Deno.openKv();
+// Production can pin the database to a persistent volume while local development
+// continues to use Deno's default per-project location.
+const kv_path = Deno.env.get("DENO_KV_PATH");
+const kv = await Deno.openKv(kv_path || undefined);
 const storage = createStorageService(kv);
 
 // Create the Discord API client
@@ -30,10 +35,17 @@ const link_open = createLinkOpenService(config);
 // Bundle dependencies for bot actions
 const bot_deps: BotDependencies = {
   config,
+  usageService: createUsageService(config),
   aiService: ai_service,
   rateLimitService: rate_limit,
   linkOpenService: link_open,
+  storageService: storage,
   webSearchService: web_search,
+  discordActionService: createDiscordActionService(
+    createDiscordEventsClient(config.discordToken),
+    kv,
+    config.timeZone,
+  ),
 };
 
 // Set up the date formatter with configured timezone
@@ -46,7 +58,7 @@ const date_formatter = new Intl.DateTimeFormat("en-US", {
 
 // --- Register Services ---
 startGateway(config, bot_deps);
-registerCronJobs(config, discord, storage, date_formatter);
+registerCronJobs(config, discord, storage, date_formatter, ai_service, rate_limit);
 createServer(config, discord, storage, date_formatter, rate_limit);
 
 // --- Startup Logging ---
@@ -62,6 +74,9 @@ console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()
 const max_input_label = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
 console.log(`   Max Input Chars: ${max_input_label}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
+console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
+console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);
+console.log(`   Discord Event/Invite Actions: ${config.discordActionsEnabled}`);
 if (!config.openaiApiKey) {
   console.log("   ⚠️  OPENAI_API_KEY not set - AI chat disabled");
 }
@@ -76,3 +91,12 @@ if (!config.webSearchApiKey) {
 console.log("");
 console.log("🔗 Link Open:");
 console.log(`   Enabled: ${config.linkOpenEnabled}`);
+console.log("");
+console.log("💬 Autonomous Chat:");
+console.log(`   Enabled: ${config.autonomousChatEnabled}`);
+console.log(`   Channels: ${config.autonomousChatChannelIds.join(", ")}`);
+console.log(`   Min Human Messages: ${config.autonomousChatMinHumanMessages}`);
+console.log(`   Activity Window: ${config.autonomousChatActivityWindowMinutes} minutes`);
+console.log(`   Cooldown: ${config.autonomousChatCooldownMinutes} minutes`);
+console.log(`   Reply Chance: ${config.autonomousChatReplyChance}`);
+console.log(`   Max Context Messages: ${config.autonomousChatMaxContextMessages}`);

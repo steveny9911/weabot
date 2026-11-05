@@ -85,19 +85,23 @@ CHANNEL_ID=your_channel_id_here
 TIME_ZONE=America/Los_Angeles
 GLUE_ALERT_THRESHOLD=7
 LINK_OPEN_ENABLED=true
+AI_CONTEXT_MAX_MESSAGES=40
+AI_CONTEXT_INACTIVITY_MINUTES=20
 
 # Multi-server (optional)
 # CHANNEL_IDS=channel_id_1,channel_id_2
 ```
 
-| Variable               | Required | Description                                                   |
-| ---------------------- | -------- | ------------------------------------------------------------- |
-| `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                        |
-| `CHANNEL_ID`           | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)            |
-| `CHANNEL_IDS`          | Yes*     | Comma-separated channel IDs for multi-server posting          |
-| `TIME_ZONE`            | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
-| `GLUE_ALERT_THRESHOLD` | No       | Days of consecutive "glue" before alert (default: `7`)        |
-| `LINK_OPEN_ENABLED`    | No       | Enable `\open` link command (default: `true`)                 |
+| Variable                        | Required | Description                                                   |
+| ------------------------------- | -------- | ------------------------------------------------------------- |
+| `DISCORD_TOKEN`                 | Yes      | Your Discord bot token                                        |
+| `CHANNEL_ID`                    | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)            |
+| `CHANNEL_IDS`                   | Yes*     | Comma-separated channel IDs for multi-server posting          |
+| `TIME_ZONE`                     | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
+| `GLUE_ALERT_THRESHOLD`          | No       | Days of consecutive "glue" before alert (default: `7`)        |
+| `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
+| `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
+| `AI_CONTEXT_INACTIVITY_MINUTES` | No       | Silence that starts a new context (default: `20`)             |
 
 _Set either `CHANNEL_ID` or `CHANNEL_IDS`._
 
@@ -127,31 +131,267 @@ You should see:
 Mention Haru to chat, or use a command:
 
 - `@Haru hello there`
-- `@Haru \reset` (clear chat context)
+- `@Haru \usage` (month-to-date costs and token totals)
+- `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
+
+### Activity-triggered participation
+
+When autonomous chat is enabled, Haru can choose a useful brief reply, one emoji reaction to a
+recent human message, or silence. A meme can get a simple acknowledgment without another chat
+message. Direct mentions and commands still use the normal reply path.
+
+The existing human activity threshold, random admission chance, token budget, configured channels,
+and cooldown apply to all autonomous participation. The latest considered human message and attempt
+time are persisted per channel in Deno KV, so replies, reactions, silence, errors, and restarts
+cannot repeatedly process the same conversation. Reaction targets exclude bots, webhooks, older
+handled messages, and messages Haru already reacted to. Nearby messages by one author are
+represented as a turn, with reply relationships intact. Connective fragments and trailing laughter
+do not become anchors for a completed joke. A fresh burst settles for eight seconds before
+consideration.
+
+Haru chooses a meaningful target and intent: amusement, dry amusement, appreciation, celebration,
+concern, or gentle disapproval. She may enjoy reciprocal teasing, but should not reward cruelty or
+laugh at distress. Ambiguous cases favor silence. Pudding and Bot Sandbox have reviewed, guild-local
+IDs for BocchiSip, RyoDisgust, Madge, UwU, shyggers, AYAYA, pog, and KEKW. Meanings describe the
+actual images and constrain sarcastic or mocking uses. Other servers, unavailable emotes, or role
+restrictions use intent-specific Unicode equivalents. No arbitrary emoji-name inference or
+external-server IDs are used. Variation within an intent prefers a different expression from the
+last delivered reaction; this preference persists across restarts. Reaction gateway events do not
+trigger chat.
+
+Haru needs View Channel and Read Message History in the configured channels, plus Add Reactions to
+introduce an emoji reaction. Missing permissions, deleted messages, unavailable emojis, rate limits,
+and ambiguous network failures quietly skip the reaction with a local diagnostic and no fallback
+message. Permissions are never changed automatically. `AUTONOMOUS_CHAT_REPLY_CHANCE` retains its
+name and now controls admission to choose any of the three actions.
+
+The conversation, target, guild permissions, and expression availability are checked again before a
+reaction write. Decision diagnostics contain IDs, bounded intent/reason codes, and delivery status;
+they omit raw chat content. Autonomous replies disable notification mentions.
+
+For model-quality cases covering the split joke, celebration, kindness, cruelty, and distress, with
+no Discord access:
+
+```bash
+deno run --env-file=.env --allow-env --allow-net=api.openai.com \
+  scripts/evaluate_reactions.ts --dry-run
+```
+
+For an explicit live sandbox test, post human-authored messages without an @Haru mention in Bot
+Sandbox **#bitconnect-memes**. Note the ID of the message immediately before the test. The runner
+only reads messages newer than that boundary, uses the production participation path, and starts no
+gateway, scheduler, or server. Test admission is explicitly 100% with a one-human-message threshold;
+production admission settings are unchanged. A preview makes no Discord writes. `--send` opts into
+one reply/reaction/silence decision and persists sandbox duplicate protection in a separate
+temporary KV.
+
+```bash
+deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
+  scripts/test_reactions_sandbox.ts --dry-run --after=BOUNDARY_MESSAGE_ID
+
+deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
+  --allow-read=/tmp --allow-write=/tmp \
+  scripts/test_reactions_sandbox.ts --send --after=BOUNDARY_MESSAGE_ID
+```
+
+The sandbox tool refuses other write destinations, DMs, and older targets. Verify Discord's actual
+reaction and bot-owned emoji ID after a live test; a valid silent choice does not prove transport.
+
+For a real AI smoke test using synthetic conversations and no Discord writes:
+
+```bash
+deno run --env-file=.env --allow-env --allow-net=api.openai.com \
+  scripts/test_autonomous_participation.ts
+```
+
+### AI usage limits
+
+`AI_RATE_LIMIT_PER_USER` counts admitted mention requests per user in fixed UTC minute buckets.
+Admission atomically checks and consumes the allowance, so concurrent mentions share the same limit.
+Rejected requests do not consume an allowance. Accepted requests count even if fetching context or
+links, generating a reply, or sending to Discord subsequently fails.
+
+`AI_DAILY_TOKEN_BUDGET` is a **soft threshold** on reported tokens across mentions and autonomous
+chat. Admission stops once recorded usage reaches it. Already admitted requests can finish above the
+threshold; there are no token reservations or strict limits on in-flight usage. For example, two
+requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget by
+199. Use provider spending controls if a strict spending limit is required.
+
+Reported tokens, including usage returned with failed generations, are recorded atomically. Tokens
+are charged to the UTC day when the response is recorded; requests count on their admission day.
+Requests spanning midnight may therefore appear in different daily request and token buckets.
+Autonomous chat uses the same budget check and request accounting, but remains exempt from the human
+per-user limit. Existing numeric KV counters remain compatible, with user buckets retained for two
+minutes and daily counters for 48 hours. A repeatedly conflicting transaction fails explicitly after
+bounded retries, so it never authorizes uncounted work.
+
+### Discord events and invitations
+
+Ask Haru directly in a server channel, for example:
+
+- `@Haru create a game night event tomorrow at 8 PM Pacific in General voice, ending at 10 PM.`
+- `@Haru create an event for a meetup at Central Park on September 12 at noon America/Vancouver, ending at 2 PM.`
+- `@Haru create an invite for the game night event, expiring in one day.`
+- `@Haru cancel the game night event.`
+- `@Haru cancel the event https://discord.com/events/SERVER_ID/EVENT_ID`
+
+Haru resolves the channel and local time, creates the event, and returns the actual Discord link.
+When essential details are missing, it asks a short question; mention Haru again with your answer.
+Unfinished requests are kept for 20 minutes and are scoped to the same user, server, and channel.
+`@Haru \reset` also clears your unfinished action request in that channel.
+
+Haru can cancel an existing event that has not started. Give its exact name or event link; if the
+name matches more than one event, she asks you to pick a link. Saying “never mind” or “cancel my
+request” abandons an unfinished request. Cancellation keeps her usual character and reports success
+only when Discord confirms it. Cancelling an event does not revoke its server invitation. A newer
+request or reset prevents a delayed reply from starting an older action. An action already sent to
+Discord can still finish and return its receipt.
+
+The event's creator needs Create Events or Manage Events; another user needs Manage Events. Haru
+applies these ownership checks independently to you and herself. Discord records events created
+through Haru as hers, so you need Manage Events to ask her to cancel them. Voice events also need
+View Channel and Connect; Stage events need View Channel and Stage moderator permissions. External
+events use server-level permissions. These checks apply independently to you and Haru.
+
+Both the requester and Haru need the appropriate Discord permissions:
+
+| Action         | Permissions                                                              |
+| -------------- | ------------------------------------------------------------------------ |
+| Voice event    | Create Events, View Channel, Connect in the voice channel                |
+| Stage event    | Create Events, View Channel, Manage Channels, Mute Members, Move Members |
+| External event | Create Events at server level; a location and end time are required      |
+| Server invite  | View Channel and Create Invite in the selected channel                   |
+
+Add these permissions to Haru's server role as needed. The initial message/view/embed permissions
+above do not grant event creation. A direct event link works for members with access; an event
+server invite can let new members join. Private-channel events use direct event links. Creating an
+invite does not send DMs, ping members, or RSVP on their behalf.
+
+`DISCORD_ACTIONS_ENABLED` defaults to `true`; set it to `false` to disable these tools.
+`DISCORD_ACTIONS_GUILD_IDS` optionally restricts tools to comma-separated server IDs. An empty list
+allows actions in joined servers, subject to requester and bot permissions. This setting restricts
+event/invite tools, not ordinary chat or scheduled jobs. `TIME_ZONE` supplies the default timezone
+when the user does not name one. Daylight saving gaps and repeated times require clarification.
+
+This version creates individual events and invitations and cancels scheduled events. Ending active
+events, cancelling recurring series or occurrences, other event edits/deletion, and bulk invitations
+are not exposed to the AI. Autonomous chat and opened web pages cannot invoke these tools. Mutation
+attempts are recorded in Deno KV; ambiguous network outcomes are not automatically retried.
+Read-only requests can retry a confirmed rate limit twice, respecting Discord's delay (up to 15
+seconds per wait). If Haru cannot confirm a write, inspect Discord before issuing another request.
+
+### Test event creation in Bot Sandbox
+
+For an interactive local instance in Bot Sandbox's `#general`:
+
+```bash
+deno run --unstable-kv --env-file=.env --allow-env \
+  --allow-net=discord.com,gateway.discord.gg,api.openai.com scripts/run_discord_sandbox.ts
+```
+
+Send `Haru local, create a game night event tomorrow at 8 PM in General voice, ending at 10 PM.`
+Then try `Haru local, cancel the game night event.` Use the same `Haru local,` prefix for
+clarification replies. Do not mention `@Haru`: the prefix isolates local testing when AWS uses the
+same bot identity. The runner accepts human messages only in that exact sandbox channel, uses
+in-memory state and the current test message as context, and does not start scheduled jobs,
+autonomous chat, or the HTTP server. Events and invitations are real; stop with Ctrl-C and remove
+test artifacts when finished. Normal mentions are ignored locally.
+
+The API smoke-test runner (`scripts/test_discord_events.ts`) uses the configured bot token and
+OpenAI key, but never starts the gateway, scheduled jobs, or HTTP server. It checks the exact Bot
+Sandbox server and General channels, uses an in-memory database, and explicitly simulates a request
+from the sandbox owner. It does not post chat messages. This permits API testing even when the bot
+identity is also used in production.
+
+```bash
+# Real AI interpretation and sandbox metadata; event/invite writes are simulated.
+deno run --unstable-kv --env-file=.env --allow-env \
+  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts --dry-run
+
+# Create and verify one real sandbox event and a 60-second, one-use invite, then clean up.
+deno run --unstable-kv --env-file=.env --allow-env \
+  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts
+```
+
+The runner prints the verified times, links, and cleanup results. Add `--keep` to the live command
+to leave the event visible. Only newly created test artifacts are eligible for cleanup; an invite
+that the bot cannot delete expires after 60 seconds. Use the sandbox runner above for interactive
+testing, or use a separate test bot identity with `dev`. The normal `dev` command also starts
+scheduled jobs and can respond in any server the bot can access.
+
+### Month-to-date usage
+
+`@Haru \usage` in a configured bot channel reports UTC month-to-date AWS cost, OpenAI API cost, and
+input/cache/output tokens. The reply shows its date range and scope, for example:
+
+```text
+📊 Usage — October 2026 (month to date)
+2026-10-01 → 2026-10-06 13:45 UTC
+AWS cost: $12.35
+OpenAI API cost: $3.50
+Input tokens: 1,234,567
+Cache tokens: 123,000
+Output tokens: 8,000
+```
+
+Values above are illustrative. AWS uses account-wide UnblendedCost; OpenAI costs cover all API
+products, while tokens cover model completions (including Responses). Totals include usage outside
+Haru. Cache tokens are included in input tokens, and provider data may lag. Missing credentials or
+failed queries show **Unavailable**; valid empty results show zero. Reports are cached for five
+minutes, share concurrent queries, refresh on month rollover, and use a fifteen-second deadline. The
+command works with AI disabled or its budget exhausted, without spending model tokens.
+
+Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `OPENAI_API_KEY`. Optionally
+set `USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. Enable AWS
+Cost Explorer and grant `ce:GetCostAndUsage` (included in the CloudFormation template). AWS uses
+environment credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`)
+or the EC2 role via IMDSv2; local AWS profiles are not used for credentials. For existing
+deployments, preserve the instance AMI as described below. Cost Explorer queries may incur charges.
+The report is visible to channel members.
+
+Sources:
+[OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage),
+[AWS GetCostAndUsage](https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html).
+
+---
 
 ## Testing the Bot
 
-Weabot provides HTTP endpoints for testing without waiting for scheduled jobs.
+Weabot provides HTTP endpoints for testing without waiting for scheduled jobs. All endpoints except
+`GET /health` are disabled by default. To enable them locally, set `ADMIN_HTTP_TOKEN` to a random
+secret in your environment before starting Haru. Send it as `Authorization: Bearer <token>` on every
+admin request. State-changing endpoints require POST. Keep this variable unset in production unless
+you explicitly need administration. Do not put the token in a URL.
+
+Link opening resolves and checks both address families on every redirect, then connects directly to
+one validated public IP. The original hostname remains the HTTP Host and verified TLS identity.
+Private/reserved addresses, mixed public/private DNS answers, and URL credentials are rejected. A
+single 8-second deadline covers DNS, connection setup, up to three redirects, response body reads,
+and decompression. Redirects and slowly arriving chunks do not reset the deadline. The 1 MiB body
+limit applies to decoded bytes. Abandoned bodies are canceled, readers released, and the deadline
+timer cleared on every exit; download and decoding errors return structured failures.
+`deno task test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI
+runs these checks on both the production Deno 2.6.0 runtime and the current Deno 2.x release.
 
 ### Available Endpoints
 
 **Trigger Endpoints** (post to Discord):
 
-| Endpoint                       | Description           |
-| ------------------------------ | --------------------- |
-| `GET /trigger_poll`            | Post a mood poll      |
-| `GET /trigger_stats?days=7`    | Post stats embed      |
-| `GET /trigger_alert?name=Test` | Post a wellness alert |
+| Endpoint                        | Description           |
+| ------------------------------- | --------------------- |
+| `POST /trigger_poll`            | Post a mood poll      |
+| `POST /trigger_stats?days=7`    | Post stats embed      |
+| `POST /trigger_alert?name=Test` | Post a wellness alert |
 
 **Data Endpoints** (view/modify data):
 
-| Endpoint                      | Description                |
-| ----------------------------- | -------------------------- |
-| `GET /vote?user=ID&mood=MOOD` | Record a test vote         |
-| `GET /stats?days=7`           | View stats as JSON         |
-| `GET /check-alerts`           | Check who's at risk        |
-| `GET /user-history?user=ID`   | View a user's vote history |
+| Endpoint                       | Description                |
+| ------------------------------ | -------------------------- |
+| `POST /vote?user=ID&mood=MOOD` | Record a test vote         |
+| `GET /stats?days=7`            | View stats as JSON         |
+| `GET /check-alerts`            | Check who's at risk        |
+| `GET /user-history?user=ID`    | View a user's vote history |
 
 **Other**:
 
@@ -163,38 +403,39 @@ Weabot provides HTTP endpoints for testing without waiting for scheduled jobs.
 
 1. **Start the bot**:
    ```bash
+   export ADMIN_HTTP_TOKEN="$(openssl rand -hex 32)"
    deno task dev
    ```
 
 2. **Test the poll**:
    ```bash
-   curl http://localhost:8000/trigger_poll
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_poll
    ```
    Check your Discord channel – a poll should appear!
 
 3. **Test the stats embed**:
    ```bash
-   curl http://localhost:8000/trigger_stats
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_stats
    ```
 
 4. **Test the wellness alert**:
    ```bash
    # Post a sample alert (customize name and days)
-   curl "http://localhost:8000/trigger_alert?name=TestUser&days=7"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/trigger_alert?name=TestUser&days=7"
    ```
 
 5. **Simulate votes** (for testing real alerts):
    ```bash
    # Record some votes to populate data
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-05"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=umazing&date=2025-12-06"
-   curl "http://localhost:8000/vote?user=test123&name=TestUser&mood=ok&date=2025-12-07"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/vote?user=test123&name=TestUser&mood=glue&date=2025-12-05"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/vote?user=test123&name=TestUser&mood=umazing&date=2025-12-06"
+   curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/vote?user=test123&name=TestUser&mood=ok&date=2025-12-07"
 
    # View stats as JSON
-   curl http://localhost:8000/stats?days=7
+   curl -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/stats?days=7
 
    # Check who's at risk
-   curl http://localhost:8000/check-alerts
+   curl -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/check-alerts
    ```
 
 ---
@@ -315,20 +556,63 @@ Suggested recurring loop:
 
 ---
 
-## Deployment
+## AWS Deployment
 
-Weabot is designed to run on [Deno Deploy](https://deno.com/deploy), which provides:
+The production deployment uses a small ARM EC2 instance in the account's default VPC. It has no
+inbound ports, is administered through AWS Systems Manager, restarts Haru after process or health
+check failures, and backs up Deno KV to a private versioned S3 bucket each day. The instance uses
+Standard CPU credits to avoid surplus CPU credit charges. Bursts spend earned credits; sustained CPU
+work slows toward the instance's baseline as credits run low, which can increase response and
+deployment times. See
+[AWS Standard mode](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-standard-mode.html).
 
-- Automatic HTTPS
-- Built-in Deno KV for data persistence
-- Cron job support
+Prerequisites:
 
-To deploy:
+- AWS CLI v2 with an authenticated profile
+- `jq` and `sqlite3`
+- A pushed Git commit that the EC2 instance can fetch
 
-1. Push your code to GitHub.
-2. Connect your repo to Deno Deploy.
-3. Set the environment variables in the Deno Deploy dashboard.
-4. Deploy!
+Deploy from the repository root, migrating the current local KV database if desired:
+
+```bash
+AWS_PROFILE=mochi-admin ./scripts/deploy_aws.sh \
+  --migrate-kv /path/to/deno/location_data/project/kv.sqlite3
+```
+
+For infrastructure updates that should preserve the running instance, set the CloudFormation
+`ExistingAmiId` parameter to that instance's current EC2 `ImageId`. The default empty value
+continues to use the latest Amazon Linux ARM AMI through `LatestAmiId` for new stacks. Because the
+public SSM parameter can resolve to a newer AMI during an update, leaving the override empty can
+cause an unrelated infrastructure change to replace the instance.
+
+The deployment helper does not discover or set `ExistingAmiId`. Before using it to update an
+existing unpinned stack, create an infrastructure change set with the current AMI override and
+preserve the other stack parameters. Inspect the change set to confirm the instance will not be
+replaced, then apply it. Keep the AMI override on later updates; change or clear it only for an
+intentional AMI upgrade.
+
+Useful operations:
+
+```bash
+# Show the instance ID and backup bucket
+aws cloudformation describe-stacks --profile mochi-admin --region us-west-2 \
+  --stack-name haru-bot --query 'Stacks[0].Outputs'
+
+# Read the AMI to use as ExistingAmiId when preserving this instance
+aws ec2 describe-instances --profile mochi-admin --region us-west-2 \
+  --instance-ids INSTANCE_ID --query 'Reservations[0].Instances[0].ImageId' --output text
+
+# Open a shell without SSH or an inbound firewall rule
+aws ssm start-session --profile mochi-admin --region us-west-2 --target INSTANCE_ID
+
+# Inside the instance
+sudo systemctl status haru
+sudo journalctl -u haru -n 100 --no-pager
+```
+
+Secrets from `.env` are copied to an encrypted SSM `SecureString`; they are never embedded in the
+CloudFormation template. The `/health` and manual trigger endpoints remain accessible only from the
+instance itself.
 
 ## Acknowledgments
 

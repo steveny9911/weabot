@@ -45,3 +45,19 @@ export interface PollRecord {
   expiresAt: number; // Timestamp when poll expires (createdAt + 24h)
   collected: boolean; // Whether results have been collected
 }
+
+/** Durable cutoff that prevents Discord history from reviving cleared context. */
+export interface ContextResetRecord {
+  channelId: string;
+  messageId: string;
+  resetAt: number;
+}
+
+/** Latest autonomous attempt, including silent decisions and failed Discord writes. */
+export interface AutonomousParticipationRecord {
+  channelId: string;
+  latestHumanMessageId: string;
+  attemptedAt: number;
+  latestHumanTimestampMs: number;
+  lastReactionEmoji?: string;
+}

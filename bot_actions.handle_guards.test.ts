@@ -17,10 +17,19 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
+    aiContextMaxMessages: 40,
+    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
     webSearchMaxResults: 3,
     linkOpenEnabled: true,
+    autonomousChatEnabled: false,
+    autonomousChatChannelIds: ["chan-1"],
+    autonomousChatMinHumanMessages: 4,
+    autonomousChatActivityWindowMinutes: 20,
+    autonomousChatCooldownMinutes: 1,
+    autonomousChatReplyChance: 0.35,
+    autonomousChatMaxContextMessages: 40,
     ...overrides,
   };
 }
@@ -37,6 +46,7 @@ Deno.test("handleMessage exits when bot id cannot be fetched", async () => {
       },
     },
     rateLimitService: {
+      admitRequest: () => Promise.resolve({ allowed: true, remaining: 1, resetInMs: 1000 }),
       checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
         return Promise.resolve({ allowed: true, remaining: 1, resetInMs: 1000 });
       },
@@ -63,6 +73,14 @@ Deno.test("handleMessage exits when bot id cannot be fetched", async () => {
           ok: false as const,
           error: "fetch_failed" as const,
         });
+      },
+    },
+    storageService: {
+      setContextReset(_record) {
+        return Promise.resolve();
+      },
+      getContextReset(_channelId) {
+        return Promise.resolve(null);
       },
     },
     webSearchService: {

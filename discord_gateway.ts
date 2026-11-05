@@ -14,7 +14,11 @@ const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
  * Starts the Discord Gateway WebSocket connection.
  * Receives real-time events and dispatches them to handlers.
  */
-export function startGateway(config: AppConfig, deps: BotDependencies): void {
+export function startGateway(
+  config: AppConfig,
+  deps: BotDependencies,
+  onMessage: typeof handleMessage = handleMessage,
+): void {
   if (!config.discordToken) {
     console.warn("DISCORD_TOKEN not set — gateway will not start");
     return;
@@ -125,7 +129,9 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
           // Log bot info and guilds on ready
           const user = d["user"] as Record<string, unknown> | undefined;
           const guilds = d["guilds"] as Array<Record<string, unknown>> | undefined;
-          console.log(`[GATEWAY] Bot ready as: ${user?.username}#${user?.discriminator} (${user?.id})`);
+          console.log(
+            `[GATEWAY] Bot ready as: ${user?.username}#${user?.discriminator} (${user?.id})`,
+          );
           console.log(`[GATEWAY] Connected to ${guilds?.length ?? 0} guild(s)`);
           sendOnlinePresence();
         } else if (op === 0 && t === "GUILD_CREATE" && d) {
@@ -134,7 +140,7 @@ export function startGateway(config: AppConfig, deps: BotDependencies): void {
           const guild_id = d["id"] as string | undefined;
           console.log(`[GATEWAY] Guild available: "${guild_name}" (${guild_id})`);
         } else if (op === 0 && t === "MESSAGE_CREATE" && d) {
-          await handleMessage(d as Record<string, unknown>, deps);
+          await onMessage(d as Record<string, unknown>, deps);
         } else if (op === 1) {
           sendHeartbeat();
         } else if (op === 11) {

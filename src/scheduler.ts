@@ -8,10 +8,14 @@
  */
 
 import type { AppConfig } from "./config.ts";
+import type { AiService } from "../ai_service.ts";
 import type { DiscordClient } from "./services/discord.ts";
+import type { RateLimitService } from "./services/rate_limit.ts";
 import type { StorageService } from "./services/storage.ts";
+import { collectExpiredPolls } from "./services/poll_collection.ts";
 import type { PollRecord } from "./types/storage.ts";
-import type { Mood } from "./types/bot.ts";
+import { getBotUserId } from "../bot_actions.ts";
+import { participateInChannel } from "./features/autonomous_chat/participate.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
 import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
@@ -23,13 +27,19 @@ import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
  * @param discord - Discord API client
  * @param storage - Storage service for vote data
  * @param dateFormatter - Date formatter for poll questions
+ * @param aiService - AI service for autonomous chat replies
+ * @param rateLimit - Rate limit service for AI budget tracking
  */
 export function registerCronJobs(
   config: AppConfig,
   discord: DiscordClient,
   storage: StorageService,
   dateFormatter: Intl.DateTimeFormat,
+  aiService: AiService,
+  rateLimit: RateLimitService,
 ): void {
+  let autonomous_chat_running = false;
+
   // =========================================================================
   // Daily Mood Poll
   // Schedule: 05:00 UTC = 21:00 PST / 22:00 PDT
@@ -152,59 +162,58 @@ export function registerCronJobs(
     console.log("[CRON] Checking for expired polls to collect...");
 
     try {
-      const expiredPolls = await storage.getExpiredPolls();
+      const result = await collectExpiredPolls(discord, storage);
+      console.log(
+        `[CRON] Poll collection: ${result.collected.length} collected, ${result.failed.length} pending retry`,
+      );
+    } catch (error) {
+      console.error("[CRON] Error in poll collection:", error);
+    }
+  });
 
-      if (expiredPolls.length === 0) {
-        console.log("[CRON] No expired polls to collect");
+  // =========================================================================
+  // Autonomous Chat
+  // Schedule: Every minute
+  // Joins active conversations only when explicitly enabled and guardrails pass.
+  // =========================================================================
+  Deno.cron("Autonomous Chat", "* * * * *", async () => {
+    if (!config.autonomousChatEnabled) return;
+    if (!config.aiEnabled || !config.openaiApiKey) {
+      console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
+      return;
+    }
+    if (autonomous_chat_running) {
+      console.log("[CRON] Autonomous chat skipped because previous run is still active");
+      return;
+    }
+
+    autonomous_chat_running = true;
+    try {
+      const bot_user_id = await getBotUserId(config);
+      if (!bot_user_id) {
+        console.error("[CRON] Autonomous chat skipped because bot user id is unavailable");
         return;
       }
 
-      console.log(`[CRON] Found ${expiredPolls.length} expired poll(s) to collect`);
-
-      for (const poll of expiredPolls) {
+      for (const channelId of config.autonomousChatChannelIds) {
         try {
-          console.log(`[CRON] Collecting results for poll ${poll.messageId} (${poll.date})`);
-
-          // Fetch voters for each answer
-          const answers = await discord.getPollVoters(poll.channelId, poll.messageId);
-
-          // Map answer text to mood
-          const moodMap: Record<string, Mood> = {
-            umazing: "umazing",
-            ok: "ok",
-            glue: "glue",
-          };
-
-          let totalVotes = 0;
-
-          for (const answer of answers) {
-            const mood = moodMap[answer.answerText.toLowerCase()];
-            if (!mood) {
-              console.log(`[CRON] Unknown answer text: ${answer.answerText}`);
-              continue;
-            }
-
-            for (const voter of answer.voters) {
-              await storage.recordVote(
-                poll.channelId,
-                voter.odUserId,
-                voter.odUserName,
-                mood,
-                poll.date,
-              );
-              totalVotes++;
-            }
-          }
-
-          // Mark poll as collected
-          await storage.markPollCollected(poll.messageId);
-          console.log(`[CRON] Collected ${totalVotes} vote(s) from poll ${poll.messageId}`);
-        } catch (pollError) {
-          console.error(`[CRON] Error collecting poll ${poll.messageId}:`, pollError);
+          const outcome = await participateInChannel(channelId, {
+            config,
+            discord,
+            storage,
+            ai: aiService,
+            rateLimit,
+            botId: bot_user_id,
+          });
+          console.log("[AUTONOMOUS OUTCOME]", JSON.stringify({ channelId, ...outcome }));
+        } catch {
+          console.warn(`[CRON] Autonomous chat skipped in ${channelId} after a channel error`);
         }
       }
     } catch (error) {
-      console.error("[CRON] Error in poll collection:", error);
+      console.error("[CRON] Error in autonomous chat:", error);
+    } finally {
+      autonomous_chat_running = false;
     }
   });
 
@@ -213,4 +222,5 @@ export function registerCronJobs(
   console.log("  - Daily Wellness Check (06:00 UTC)");
   console.log("  - Weekly Stats Summary (Sundays 06:00 UTC)");
   console.log("  - Poll Result Collection (every hour at :30)");
+  console.log("  - Autonomous Chat (every minute, disabled unless configured)");
 }

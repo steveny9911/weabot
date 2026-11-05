@@ -5,9 +5,11 @@
  * stats viewing, vote recording, and alert checking.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "./config.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { StorageService } from "./services/storage.ts";
+import { collectExpiredPolls } from "./services/poll_collection.ts";
 import type { RateLimitService } from "./services/rate_limit.ts";
 import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
@@ -15,23 +17,23 @@ import { DEFAULT_MOOD_CONFIG, type Mood } from "./types/bot.ts";
 import type { PollRecord } from "./types/storage.ts";
 
 /**
- * Creates and starts the HTTP server.
+ * Creates the HTTP request handler with health and authenticated administration.
  *
  * @param config - Application configuration
  * @param discord - Discord API client
  * @param storage - Storage service for vote persistence
  * @param dateFormatter - Date formatter for poll questions
  * @param rateLimit - Rate limit service for AI usage tracking (optional)
- * @returns The Deno server instance
+ * @returns The handler used by the production server and isolated tests
  */
-export function createServer(
+export function createRequestHandler(
   config: AppConfig,
   discord: DiscordClient,
   storage: StorageService,
   dateFormatter: Intl.DateTimeFormat,
   rateLimit?: RateLimitService,
 ) {
-  return Deno.serve(async (req) => {
+  return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
 
     // =========================================================================
@@ -39,6 +41,28 @@ export function createServer(
     // =========================================================================
     if (url.pathname === "/health") {
       return new Response("OK", { status: 200 });
+    }
+
+    // Health is the only unauthenticated route. Administrative routes are
+    // disabled everywhere until an operator explicitly configures a token.
+    if (!config.adminHttpToken) return new Response("Not found", { status: 404 });
+    const expected = new TextEncoder().encode(`Bearer ${config.adminHttpToken}`);
+    const supplied = new TextEncoder().encode(req.headers.get("authorization") ?? "");
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const writes = new Set([
+      "/trigger",
+      "/trigger_poll",
+      "/trigger_stats",
+      "/trigger_alert",
+      "/trigger_collect",
+      "/vote",
+      "/add-pending-poll",
+    ]);
+    const method = writes.has(url.pathname) ? "POST" : "GET";
+    if (req.method !== method) {
+      return new Response("Method not allowed", { status: 405, headers: { Allow: method } });
     }
 
     // =========================================================================
@@ -177,57 +201,32 @@ export function createServer(
       console.log("[SERVER] Triggering poll result collection...");
 
       try {
-        const expiredPolls = await storage.getExpiredPolls();
-
-        if (expiredPolls.length === 0) {
+        const { collected, failed } = await collectExpiredPolls(discord, storage);
+        if (collected.length === 0 && failed.length === 0) {
           return new Response("ℹ️ No expired polls to collect");
         }
-
-        const moodMap: Record<string, Mood> = {
-          umazing: "umazing",
-          ok: "ok",
-          glue: "glue",
-        };
-
-        let totalVotes = 0;
-        const results: string[] = [];
-
-        for (const poll of expiredPolls) {
-          const answers = await discord.getPollVoters(poll.channelId, poll.messageId);
-          let pollVotes = 0;
-
-          for (const answer of answers) {
-            const mood = moodMap[answer.answerText.toLowerCase()];
-            if (!mood) continue;
-
-            for (const voter of answer.voters) {
-              await storage.recordVote(
-                poll.channelId,
-                voter.odUserId,
-                voter.odUserName,
-                mood,
-                poll.date,
-              );
-              pollVotes++;
-            }
-          }
-
-          await storage.markPollCollected(poll.messageId);
-          results.push(`Poll ${poll.date}: ${pollVotes} votes`);
-          totalVotes += pollVotes;
-        }
-
+        const totalVotes = collected.reduce((total, result) => total + result.votes, 0);
+        const results = [
+          ...collected.map(({ poll, votes }) =>
+            `Poll ${poll.messageId} (${poll.date}): ${votes} votes`
+          ),
+          ...failed.map(({ poll }) =>
+            `Poll ${poll.messageId} (${poll.date}): failed; pending retry`
+          ),
+        ];
         return new Response(
-          `✅ Collected ${totalVotes} votes from ${expiredPolls.length} poll(s)\n\n${
+          `${
+            failed.length ? "❌" : "✅"
+          } Collected ${totalVotes} votes from ${collected.length} poll(s); ${failed.length} failed\n\n${
             results.join("\n")
           }`,
+          { status: failed.length ? 500 : 200 },
         );
       } catch (error) {
         console.error("[SERVER] Error collecting polls:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
       }
     }
-
 
     // =========================================================================
     // DATA ENDPOINTS - View/modify data without posting to Discord
@@ -351,7 +350,6 @@ export function createServer(
         return new Response(`❌ Error: ${error}`, { status: 500 });
       }
     }
-
 
     // =========================================================================
     // AI USAGE MONITORING
@@ -484,5 +482,16 @@ AI & MONITORING
 `,
       { status: 200 },
     );
-  });
+  };
+}
+
+/** Start the production HTTP server with the same policy used by handler tests. */
+export function createServer(
+  config: AppConfig,
+  discord: DiscordClient,
+  storage: StorageService,
+  dateFormatter: Intl.DateTimeFormat,
+  rateLimit?: RateLimitService,
+) {
+  return Deno.serve(createRequestHandler(config, discord, storage, dateFormatter, rateLimit));
 }

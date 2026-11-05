@@ -65,9 +65,11 @@ export function szExtractAutoSearchQuery(content: string | undefined): string | 
   ) {
     return null;
   }
-  if (/\b(what do you think|how do you feel|what's your favorite|should I)\b/i.test(
-    cleaned,
-  )) {
+  if (
+    /\b(what do you think|how do you feel|what's your favorite|should I)\b/i.test(
+      cleaned,
+    )
+  ) {
     return null;
   }
   if (
@@ -77,8 +79,7 @@ export function szExtractAutoSearchQuery(content: string | undefined): string | 
     return null;
   }
 
-  const questionLike =
-    /\?$/.test(cleaned) ||
+  const questionLike = /\?$/.test(cleaned) ||
     /^(who|what|when|where|why|how|define|explain|meaning of|difference between|compare|best|top)\b/i
       .test(cleaned) ||
     /\b(what is|who is|when is|where is|how to|define|explain|meaning of|difference between|compare|best|top)\b/i
