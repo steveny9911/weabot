@@ -1,4 +1,5 @@
 .env*
+!.env.example
 .cursor
 .vscode
 node_modules/

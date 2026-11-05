@@ -1,8 +1,8 @@
 {
   "$comment": "Test files ported to Bun. null = expect the bun_expected count from docs/bun-migration-baseline.txt; a number = explicit count for new or rewritten files (record the reason in the plan's test-count table). Removed in slice 5.",
   "unit": {
-    "test_support/assert.test.ts": 10,
-    "scripts/migration/gate.test.ts": 2
+    "test_support/assert.test.ts": 11,
+    "scripts/migration/gate.test.ts": 3
   },
   "transport": {}
 }

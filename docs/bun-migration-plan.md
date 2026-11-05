@@ -305,21 +305,21 @@ function that throws on any unstubbed network call.
 
 ### Rules
 
-| Deno                                                                              | Bun                                                                                                                                                                     |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Deno.test(name, fn)`                                                             | `test(name, fn)`                                                                                                                                                        |
-| `t.step(name, fn)`                                                                | `describe(name, () => { for (...) test(...) })`. All 23 uses are independent loops. Bun cannot nest `test()` inside `test()`.                                           |
-| `assertEquals(a, b)`                                                              | `expect(a).toStrictEqual(b)`. Use `toBe` for identity checks such as `public_fetch.test.ts:327` (comparing a `DOMException`).                                           |
-| `assertStringIncludes(s, x)`                                                      | `expect(s).toContain(x)`                                                                                                                                                |
-| `assert(x)`                                                                       | `assert(x)` from `test_support/assert.ts`                                                                                                                               |
-| `assertRejects(...)`, `assertThrows(...)`                                         | `rejects(...)`, `throws(...)` from `test_support/assert.ts`, keeping the returned error where it is used (14 sites)                                                     |
-| `assertMatch`, `assertGreater`                                                    | `toMatch`, `toBeGreaterThan`                                                                                                                                            |
-| `Deno.openKv(":memory:")`                                                         | `openDatabase(":memory:")`, one handle shared by the services under test                                                                                                |
-| `Deno.env.set` / `delete`                                                         | `process.env.X = "..."` / `delete process.env.X`. Never assign `undefined`, which stores the string `"undefined"`.                                                      |
-| Replacing `Deno.cron` (`scheduler.autonomous.test.ts`, `poll_collection.test.ts`) | Pass a fake cron registrar                                                                                                                                              |
-| Replacing `Deno.resolveDns` (`public_fetch.test.ts`)                              | Pass a fake lookup                                                                                                                                                      |
-| `Deno.serve`, `Deno.listen`, `Deno.Conn` (integration tests)                      | `Bun.serve` (with an explicit `idleTimeout`) or `node:net`                                                                                                              |
-| Fetch stubs typed `typeof fetch`                                                  | Type injected fetchers as `(input: string \| URL \| Request, init?: RequestInit) => Promise<Response>` (`RequestInfo` is a DOM type that `@types/bun` does not provide) |
+| Deno                                                                              | Bun                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Deno.test(name, fn)`                                                             | `test(name, fn)`                                                                                                                                                                                                 |
+| `t.step(name, fn)`                                                                | `describe(name, () => { for (...) test(...) })`. All 23 uses are independent loops. Bun cannot nest `test()` inside `test()`.                                                                                    |
+| `assertEquals(a, b)`                                                              | `expect(a).toStrictEqual(b)`. Use `toBe` for identity checks such as the "DNS caller cancellation aborts and settles both pending address families" test in `public_fetch.test.ts` (comparing a `DOMException`). |
+| `assertStringIncludes(s, x)`                                                      | `expect(s).toContain(x)`                                                                                                                                                                                         |
+| `assert(x)`                                                                       | `assert(x)` from `test_support/assert.ts`                                                                                                                                                                        |
+| `assertRejects(...)`, `assertThrows(...)`                                         | `rejects(...)`, `throws(...)` from `test_support/assert.ts`, keeping the returned error where it is used (14 sites)                                                                                              |
+| `assertMatch`, `assertGreater`                                                    | `toMatch`, `toBeGreaterThan`                                                                                                                                                                                     |
+| `Deno.openKv(":memory:")`                                                         | `openDatabase(":memory:")`, one handle shared by the services under test                                                                                                                                         |
+| `Deno.env.set` / `delete`                                                         | `process.env.X = "..."` / `delete process.env.X`. Never assign `undefined`, which stores the string `"undefined"`.                                                                                               |
+| Replacing `Deno.cron` (`scheduler.autonomous.test.ts`, `poll_collection.test.ts`) | Pass a fake cron registrar                                                                                                                                                                                       |
+| Replacing `Deno.resolveDns` (`public_fetch.test.ts`)                              | Pass a fake lookup                                                                                                                                                                                               |
+| `Deno.serve`, `Deno.listen`, `Deno.Conn` (integration tests)                      | `Bun.serve` (with an explicit `idleTimeout`) or `node:net`                                                                                                                                                       |
+| Fetch stubs typed `typeof fetch`                                                  | Type injected fetchers as `(input: string \| URL \| Request, init?: RequestInit) => Promise<Response>` (`RequestInfo` is a DOM type that `@types/bun` does not provide)                                          |
 
 **Tests tied to Deno KV are rewritten as behavior tests.** This covers `rate_limit.test.ts` and the
 KV-inspecting parts of `storage.test.ts`, `poll_collection.test.ts` and
@@ -680,10 +680,34 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   exists. Both scripts call the real tool, so this is harmless; the gate uses
   `bun check --no-script`.
 - **`RequestInfo`:** not provided by `@types/bun`. Use `string | URL | Request`.
-- **Assertion parity:** recorded in the baseline file. One repo site needs `toBe`
-  (`public_fetch.test.ts:327`).
-- **Not yet verified:** the CI run on GitHub (the Bun job, `setup-bun` reading `packageManager`, and
-  the cache). It runs on the push of this slice.
+- **Assertion parity:** recorded in the baseline file. One repo site needs `toBe` (the "DNS caller
+  cancellation aborts and settles both pending address families" test in `public_fetch.test.ts`).
+- **CI:** verified on GitHub (run 28): `setup-bun` read Bun 1.4.4 from `packageManager`, the cache
+  was saved, and all four jobs passed.
+- **`bun run test` fails until slice 5**, because it discovers unported Deno tests. Use
+  `bun run migration:gate` until then.
+
+#### Slice 0 review follow-up
+
+- **Gate:**
+  - fails on skipped or todo tests, which Bun counts as run;
+  - fails if a ported test file is missing from `deno.json` `exclude`;
+  - its parser is tested against a real Bun JUnit report.
+- **Test helpers:**
+  - the `fetch` guard now rejects like a real network failure instead of throwing synchronously;
+  - its comment states that only the global `fetch` is guarded;
+  - `throws()` refuses async functions and points to `rejects()`;
+  - the helper tests check the exact failure messages and call `realFetch` against a loopback
+    server.
+- **Config and docs:** `@types/bun` pinned to `~1.4.4`; `.gitignore` keeps `.env.example` trackable;
+  doc references name the test instead of a line number.
+- **Deferred:**
+  - `rejects<T>()` type overloads (a missing class allows any `T`);
+  - gate hardening (normalize a `./` prefix, unescape XML entities, run `process.execPath`, require
+    the repo root);
+  - the Node 20 deprecation warning for `actions/checkout@v4` and `actions/cache@v4`.
+- **Open:** guarding `Bun.fetch` and `Bun.dns.lookup` in the test preload. Revisit in slice 2, when
+  link checks start using `Bun.dns.lookup`.
 
 ## Future work
 

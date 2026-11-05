@@ -9,7 +9,7 @@
         "@smithy/credential-provider-imds": "^4.5.2",
       },
       "devDependencies": {
-        "@types/bun": "^1.4.4",
+        "@types/bun": "~1.4.4",
       },
     },
   },

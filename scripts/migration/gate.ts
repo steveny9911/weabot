@@ -28,12 +28,28 @@ export function parseBaseline(text: string): Map<string, number> {
   return counts;
 }
 
-export function parseJunitCounts(xml: string): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const match of xml.matchAll(/<testsuite name="([^"]+)" file="([^"]+)" tests="(\d+)"/g)) {
-    if (match[1] === match[2]) counts.set(match[2], Number(match[3]));
+export interface FileCounts {
+  tests: number;
+  skipped: number;
+}
+
+/** File-level suites only: nested describe suites carry a `line` attribute. */
+export function parseJunitCounts(xml: string): Map<string, FileCounts> {
+  const counts = new Map<string, FileCounts>();
+  for (const match of xml.matchAll(
+    /<testsuite name="([^"]+)" file="\1" tests="(\d+)"[^>]*?\bskipped="(\d+)"/g,
+  )) {
+    counts.set(match[1], { tests: Number(match[2]), skipped: Number(match[3]) });
   }
   return counts;
+}
+
+/** Converted test files import bun:test, so Deno must exclude them (deno.json `exclude`). */
+export function notExcludedFromDeno(files: string[], excludes: string[]): string[] {
+  return files.filter(
+    (file) =>
+      !excludes.some((entry) => (entry.endsWith("/") ? file.startsWith(entry) : file === entry)),
+  );
 }
 
 function run(command: string[]): number {
@@ -61,7 +77,11 @@ function testGroup(label: string, expected: Expected, baseline: Map<string, numb
     const want = expected[file] ?? baseline.get(file);
     const got = actual.get(file);
     if (want === undefined) problems.push(`${file}: no baseline count and no explicit count`);
-    else if (got !== want) problems.push(`${file}: expected ${want} tests, Bun ran ${got ?? 0}`);
+    else if (got?.tests !== want) {
+      problems.push(`${file}: expected ${want} tests, Bun ran ${got?.tests ?? 0}`);
+    }
+    // Bun counts skipped and todo tests in `tests`, so a skipped test would otherwise pass.
+    if (got && got.skipped > 0) problems.push(`${file}: ${got.skipped} skipped or todo tests`);
   }
   return problems;
 }
@@ -71,6 +91,12 @@ if (import.meta.main) {
   const baseline = parseBaseline(readFileSync(BASELINE_PATH, "utf8"));
   const all = [...Object.keys(ported.unit), ...Object.keys(ported.transport)];
   const problems = all.filter((file) => !existsSync(file)).map((file) => `${file}: file not found`);
+  const denoConfig = JSON.parse(readFileSync("deno.json", "utf8")) as { exclude?: string[] };
+  for (const file of notExcludedFromDeno(all, denoConfig.exclude ?? [])) {
+    problems.push(
+      `${file}: missing from deno.json "exclude" (the Deno job would fail on bun:test)`,
+    );
+  }
 
   if (run(["bun", "check", "--no-script", "--no-pretty", ...all]) !== 0) {
     problems.push("bun check reported type errors");

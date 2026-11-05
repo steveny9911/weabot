@@ -34,34 +34,24 @@ describe("rejects", () => {
     expect(error.status).toBe(404);
   });
 
-  test("fails when the message does not match", async () => {
-    let failed = false;
-    try {
-      await rejects(() => Promise.reject(new NotFoundError("boom")), NotFoundError, "zzz");
-    } catch {
-      failed = true;
-    }
-    expect(failed).toBe(true);
+  test("fails on a message mismatch", async () => {
+    await rejects(
+      () => rejects(() => Promise.reject(new NotFoundError("boom")), NotFoundError, "zzz"),
+      Error,
+      'Expected to contain: "zzz"',
+    );
   });
 
-  test("fails when the class does not match", async () => {
-    let failed = false;
-    try {
-      await rejects(() => Promise.reject(new Error("user missing")), NotFoundError);
-    } catch {
-      failed = true;
-    }
-    expect(failed).toBe(true);
+  test("fails on a class mismatch", async () => {
+    await rejects(
+      () => rejects(() => Promise.reject(new Error("user missing")), NotFoundError),
+      Error,
+      "toBeInstanceOf",
+    );
   });
 
   test("fails when the promise resolves", async () => {
-    let failed = false;
-    try {
-      await rejects(() => Promise.resolve(1));
-    } catch {
-      failed = true;
-    }
-    expect(failed).toBe(true);
+    await rejects(() => rejects(() => Promise.resolve(1)), Error, "but the promise resolved");
   });
 });
 
@@ -78,17 +68,29 @@ describe("throws", () => {
   });
 
   test("fails when the function returns", () => {
-    expect(() => throws(() => 1)).toThrow("to be thrown");
+    throws(() => throws(() => 1), Error, "but the function returned");
+  });
+
+  test("refuses async functions and points to rejects()", () => {
+    throws(
+      () =>
+        throws(async () => {
+          throw new Error("async failure");
+        }),
+      Error,
+      "use rejects() for async functions",
+    );
   });
 });
 
 describe("setup preload", () => {
-  test("blocks unstubbed network requests", () => {
-    expect(() => fetch("http://example.com/")).toThrow("Unstubbed network request");
+  test("unstubbed fetch rejects instead of reaching the network", async () => {
+    await rejects(() => fetch("http://example.com/"), Error, "Unstubbed network request");
   });
 
-  test("keeps the real fetch available for loopback tests", () => {
-    expect(typeof realFetch).toBe("function");
-    expect(realFetch).not.toBe(globalThis.fetch);
+  test("realFetch reaches a loopback server", async () => {
+    using server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("ok") });
+    const response = await realFetch(`http://127.0.0.1:${server.port}/`);
+    expect(await response.text()).toBe("ok");
   });
 });
