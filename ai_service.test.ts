@@ -4,7 +4,9 @@
  * Uses fetch mocking to verify API payload structure without making real calls.
  */
 
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { expect, test } from "bun:test";
+import { asFetch } from "./test_support/fetch.ts";
+import { assert } from "./test_support/assert.ts";
 import {
   type AiParticipationOptions,
   AUTONOMOUS_REACTION_EMOJIS,
@@ -60,7 +62,7 @@ function mockFetch(
   let lastRequest: { url: string; body: Record<string, unknown> } | null = null;
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = asFetch((input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const body = init?.body ? JSON.parse(init.body as string) : null;
     lastRequest = { url, body };
@@ -71,7 +73,7 @@ function mockFetch(
         headers: { "Content-Type": "application/json" },
       }),
     );
-  }) as typeof fetch;
+  });
 
   return {
     restore: () => {
@@ -87,24 +89,24 @@ async function withEnv(
 ): Promise<void> {
   const original: Record<string, string | undefined> = {};
   for (const key of Object.keys(vars)) {
-    original[key] = Deno.env.get(key);
+    original[key] = process.env[key];
   }
 
   try {
     for (const [key, value] of Object.entries(vars)) {
       if (value === undefined) {
-        Deno.env.delete(key);
+        delete process.env[key];
       } else {
-        Deno.env.set(key, value);
+        process.env[key] = value;
       }
     }
     await fn();
   } finally {
     for (const [key, value] of Object.entries(original)) {
       if (value === undefined) {
-        Deno.env.delete(key);
+        delete process.env[key];
       } else {
-        Deno.env.set(key, value);
+        process.env[key] = value;
       }
     }
   }
@@ -114,27 +116,27 @@ async function withEnv(
 // createAiService - Configuration Checks
 // =============================================================================
 
-Deno.test("generateReply returns error when AI is disabled", async () => {
+test("generateReply returns error when AI is disabled", async () => {
   const config = createMockConfig({ aiEnabled: false });
   const service = createAiService(config);
 
   const result = await service.generateReply([{ author: "user", content: "hello" }]);
 
-  assertEquals(result.ok, false);
+  expect(result.ok).toStrictEqual(false);
   if (!result.ok) {
-    assertEquals(result.error, "AI is disabled");
+    expect(result.error).toStrictEqual("AI is disabled");
   }
 });
 
-Deno.test("generateReply returns error when API key is missing", async () => {
+test("generateReply returns error when API key is missing", async () => {
   const config = createMockConfig({ openaiApiKey: undefined });
   const service = createAiService(config);
 
   const result = await service.generateReply([{ author: "user", content: "hello" }]);
 
-  assertEquals(result.ok, false);
+  expect(result.ok).toStrictEqual(false);
   if (!result.ok) {
-    assertEquals(result.error, "OPENAI_API_KEY not set");
+    expect(result.error).toStrictEqual("OPENAI_API_KEY not set");
   }
 });
 
@@ -142,7 +144,7 @@ Deno.test("generateReply returns error when API key is missing", async () => {
 // createAiService - API Request Structure
 // =============================================================================
 
-Deno.test("generateReply lets the saved prompt select the model", async () => {
+test("generateReply lets the saved prompt select the model", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -155,13 +157,13 @@ Deno.test("generateReply lets the saved prompt select the model", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.model, undefined);
+    expect(request?.body.model).toStrictEqual(undefined);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply sends chat builder prompt id without pinning version", async () => {
+test("generateReply sends chat builder prompt id without pinning version", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -174,7 +176,7 @@ Deno.test("generateReply sends chat builder prompt id without pinning version", 
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.prompt, {
+    expect(request?.body.prompt).toStrictEqual({
       id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
     });
   } finally {
@@ -182,7 +184,7 @@ Deno.test("generateReply sends chat builder prompt id without pinning version", 
   }
 });
 
-Deno.test("generateReply sends text format and store settings", async () => {
+test("generateReply sends text format and store settings", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -195,14 +197,14 @@ Deno.test("generateReply sends text format and store settings", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.text, { format: { type: "text" } });
-    assertEquals(request?.body.store, true);
+    expect(request?.body.text).toStrictEqual({ format: { type: "text" } });
+    expect(request?.body.store).toStrictEqual(true);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply does not send max_tokens parameter", async () => {
+test("generateReply does not send max_tokens parameter", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -215,13 +217,13 @@ Deno.test("generateReply does not send max_tokens parameter", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.max_tokens, undefined);
+    expect(request?.body.max_tokens).toStrictEqual(undefined);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply does not send temperature parameter", async () => {
+test("generateReply does not send temperature parameter", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -234,7 +236,7 @@ Deno.test("generateReply does not send temperature parameter", async () => {
     await service.generateReply([{ author: "user", content: "hello" }]);
 
     const request = mock.getLastRequest();
-    assertEquals(request?.body.temperature, undefined);
+    expect(request?.body.temperature).toStrictEqual(undefined);
   } finally {
     mock.restore();
   }
@@ -244,7 +246,7 @@ Deno.test("generateReply does not send temperature parameter", async () => {
 // createAiService - Input Processing
 // =============================================================================
 
-Deno.test("generateReply does not truncate input when limits are disabled", async () => {
+test("generateReply does not truncate input when limits are disabled", async () => {
   const mock = mockFetch({
     output_text: "Test response",
     usage: { total_tokens: 50 },
@@ -264,14 +266,14 @@ Deno.test("generateReply does not truncate input when limits are disabled", asyn
     const text_part = content_parts.find((part) => part["type"] === "input_text");
     const text = (text_part?.["text"] as string | undefined) ?? "";
 
-    assertStringIncludes(text, longMessage);
-    assertEquals(text.includes("..."), false);
+    expect(text).toContain(longMessage);
+    expect(text.includes("...")).toStrictEqual(false);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply includes image URLs as input_image blocks", async () => {
+test("generateReply includes image URLs as input_image blocks", async () => {
   const mock = mockFetch({
     output_text: "Looks great!",
     usage: { total_tokens: 60 },
@@ -302,10 +304,11 @@ Deno.test("generateReply includes image URLs as input_image blocks", async () =>
     const content_parts = input?.[0]?.content ?? [];
     const image_parts = content_parts.filter((part) => part["type"] === "input_image");
 
-    assertEquals(image_parts.length, 2);
-    assertEquals(image_parts[0]["image_url"], "https://cdn.discordapp.com/attachments/1/2/cat.png");
-    assertEquals(
-      image_parts[1]["image_url"],
+    expect(image_parts.length).toStrictEqual(2);
+    expect(image_parts[0]["image_url"]).toStrictEqual(
+      "https://cdn.discordapp.com/attachments/1/2/cat.png",
+    );
+    expect(image_parts[1]["image_url"]).toStrictEqual(
       "https://media.discordapp.net/attachments/3/4/dog.jpg",
     );
   } finally {
@@ -313,52 +316,48 @@ Deno.test("generateReply includes image URLs as input_image blocks", async () =>
   }
 });
 
-Deno.test(
-  "generateReply includes explicit Discord reply references in text and images",
-  async () => {
-    const mock = mockFetch({ output_text: "I remember", usage: { total_tokens: 25 } });
+test("generateReply includes explicit Discord reply references in text and images", async () => {
+  const mock = mockFetch({ output_text: "I remember", usage: { total_tokens: 25 } });
 
-    try {
-      const service = createAiService(createMockConfig());
-      await service.generateReply([
-        {
-          author: "alice",
-          content: "this one",
-          repliedTo: {
-            author: "bob",
-            content: "the old topic",
-            imageUrls: ["https://cdn.discordapp.com/old-topic.png"],
-          },
+  try {
+    const service = createAiService(createMockConfig());
+    await service.generateReply([
+      {
+        author: "alice",
+        content: "this one",
+        repliedTo: {
+          author: "bob",
+          content: "the old topic",
+          imageUrls: ["https://cdn.discordapp.com/old-topic.png"],
         },
-      ]);
+      },
+    ]);
 
-      const request = mock.getLastRequest();
-      const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-      const content_parts = input?.[0]?.content ?? [];
-      const text_part = content_parts.find((part) => part["type"] === "input_text");
-      const image_parts = content_parts.filter((part) => part["type"] === "input_image");
+    const request = mock.getLastRequest();
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const content_parts = input?.[0]?.content ?? [];
+    const text_part = content_parts.find((part) => part["type"] === "input_text");
+    const image_parts = content_parts.filter((part) => part["type"] === "input_image");
 
-      assertStringIncludes(
-        String(text_part?.["text"]),
-        "alice (replying to bob: the old topic [attached 1 image]): this one",
-      );
-      assertEquals(image_parts, [
-        {
-          type: "input_image",
-          image_url: "https://cdn.discordapp.com/old-topic.png",
-        },
-      ]);
-    } finally {
-      mock.restore();
-    }
-  },
-);
+    expect(String(text_part?.["text"])).toContain(
+      "alice (replying to bob: the old topic [attached 1 image]): this one",
+    );
+    expect(image_parts).toStrictEqual([
+      {
+        type: "input_image",
+        image_url: "https://cdn.discordapp.com/old-topic.png",
+      },
+    ]);
+  } finally {
+    mock.restore();
+  }
+});
 
 // =============================================================================
 // createAiService - Response Handling
 // =============================================================================
 
-Deno.test("generateReply returns success with text and token count", async () => {
+test("generateReply returns success with text and token count", async () => {
   const mock = mockFetch({
     // Use text that won't be stripped by the greeting sanitizer
     output_text: "That sounds like a great idea!",
@@ -371,17 +370,17 @@ Deno.test("generateReply returns success with text and token count", async () =>
 
     const result = await service.generateReply([{ author: "user", content: "hi" }]);
 
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertStringIncludes(result.text, "That sounds like a great idea!");
-      assertEquals(result.tokensUsed, 75);
+      expect(result.text).toContain("That sounds like a great idea!");
+      expect(result.tokensUsed).toStrictEqual(75);
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply extracts text from structured output content", async () => {
+test("generateReply extracts text from structured output content", async () => {
   const mock = mockFetch({
     output: [
       {
@@ -399,17 +398,17 @@ Deno.test("generateReply extracts text from structured output content", async ()
 
     const result = await service.generateReply([{ author: "user", content: "hi" }]);
 
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertStringIncludes(result.text, "Structured response text");
-      assertEquals(result.tokensUsed, 61);
+      expect(result.text).toContain("Structured response text");
+      expect(result.tokensUsed).toStrictEqual(61);
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply extracts text when content text uses value shape", async () => {
+test("generateReply extracts text when content text uses value shape", async () => {
   const mock = mockFetch({
     output: [
       {
@@ -427,41 +426,38 @@ Deno.test("generateReply extracts text when content text uses value shape", asyn
 
     const result = await service.generateReply([{ author: "user", content: "hi" }]);
 
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertStringIncludes(result.text, "Value-shaped text");
-      assertEquals(result.tokensUsed, 62);
+      expect(result.text).toContain("Value-shaped text");
+      expect(result.tokensUsed).toStrictEqual(62);
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test(
-  "generateReply returns explicit error when response has no extractable text",
-  async () => {
-    const mock = mockFetch({
-      output: [{ type: "message", role: "assistant", content: [{ type: "refusal" }] }],
-      usage: { total_tokens: 30 },
-    });
+test("generateReply returns explicit error when response has no extractable text", async () => {
+  const mock = mockFetch({
+    output: [{ type: "message", role: "assistant", content: [{ type: "refusal" }] }],
+    usage: { total_tokens: 30 },
+  });
 
-    try {
-      const config = createMockConfig();
-      const service = createAiService(config);
+  try {
+    const config = createMockConfig();
+    const service = createAiService(config);
 
-      const result = await service.generateReply([{ author: "user", content: "hi" }]);
+    const result = await service.generateReply([{ author: "user", content: "hi" }]);
 
-      assertEquals(result.ok, false);
-      if (!result.ok) {
-        assertEquals(result.error, "No text in OpenAI response");
-      }
-    } finally {
-      mock.restore();
+    expect(result.ok).toStrictEqual(false);
+    if (!result.ok) {
+      expect(result.error).toStrictEqual("No text in OpenAI response");
     }
-  },
-);
+  } finally {
+    mock.restore();
+  }
+});
 
-Deno.test("generateReply handles API error response", async () => {
+test("generateReply handles API error response", async () => {
   const mock = mockFetch({ error: { message: "Invalid request" } }, 400);
 
   try {
@@ -470,16 +466,16 @@ Deno.test("generateReply handles API error response", async () => {
 
     const result = await service.generateReply([{ author: "user", content: "hi" }]);
 
-    assertEquals(result.ok, false);
+    expect(result.ok).toStrictEqual(false);
     if (!result.ok) {
-      assertStringIncludes(result.error, "400");
+      expect(result.error).toContain("400");
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply applies UwU transformation when enabled", async () => {
+test("generateReply applies UwU transformation when enabled", async () => {
   const mock = mockFetch({
     // Use text that won't be stripped by the greeting sanitizer
     output_text: "That sounds fun!",
@@ -492,18 +488,18 @@ Deno.test("generateReply applies UwU transformation when enabled", async () => {
 
     const result = await service.generateReply([{ author: "user", content: "hi" }]);
 
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
       // Short replies with ! should get !~ and uwu
-      assertStringIncludes(result.text, "!~");
-      assertStringIncludes(result.text, "uwu");
+      expect(result.text).toContain("!~");
+      expect(result.text).toContain("uwu");
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply truncates input when aiMaxInputChars is set", async () => {
+test("generateReply truncates input when aiMaxInputChars is set", async () => {
   const mock = mockFetch({
     output_text: "ok",
     usage: { total_tokens: 20 },
@@ -519,13 +515,13 @@ Deno.test("generateReply truncates input when aiMaxInputChars is set", async () 
     const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
     const textPart = input?.[0]?.content?.find((part) => part["type"] === "input_text");
     const text = String(textPart?.["text"] ?? "");
-    assertStringIncludes(text, "this is...");
+    expect(text).toContain("this is...");
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply sanitizes greetings and apology phrasing", async () => {
+test("generateReply sanitizes greetings and apology phrasing", async () => {
   const mock = mockFetch({
     output_text: "Hello there, I'm sorry I cannot do that!",
     usage: { total_tokens: 22 },
@@ -534,72 +530,69 @@ Deno.test("generateReply sanitizes greetings and apology phrasing", async () => 
   try {
     const service = createAiService(createMockConfig());
     const result = await service.generateReply([{ author: "user", content: "help" }]);
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertEquals(result.text, "do that!");
+      expect(result.text).toStrictEqual("do that!");
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply returns error when fetch throws", async () => {
+test("generateReply returns error when fetch throws", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) => {
+  globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
     return Promise.reject(new Error("network down"));
-  }) as typeof fetch;
+  });
 
   try {
     const service = createAiService(createMockConfig());
     const result = await service.generateReply([{ author: "user", content: "hello" }]);
-    assertEquals(result.ok, false);
+    expect(result.ok).toStrictEqual(false);
     if (!result.ok) {
-      assertStringIncludes(result.error, "network down");
+      expect(result.error).toContain("network down");
     }
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-Deno.test(
-  "generateReplyFromMessages uses env config and returns legacy success shape",
-  async () => {
-    const mock = mockFetch({
-      output_text: "Legacy works",
-      usage: { total_tokens: 30 },
-    });
+test("generateReplyFromMessages uses env config and returns legacy success shape", async () => {
+  const mock = mockFetch({
+    output_text: "Legacy works",
+    usage: { total_tokens: 30 },
+  });
 
-    try {
-      await withEnv(
-        {
-          OPENAI_API_KEY: "sk-env",
-          DISCORD_TOKEN: "discord-env",
-          CHANNEL_IDS: "chan-1, chan-2",
-          CHANNEL_ID: "fallback-chan",
-          ENABLE_UWU: "false",
-          WEB_SEARCH_ENABLED: "true",
-          BRAVE_SEARCH_API_KEY: "brave-env",
-          WEB_SEARCH_MAX_RESULTS: "7",
-          LINK_OPEN_ENABLED: "true",
-        },
-        async () => {
-          const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
-          assertEquals(result.ok, true);
-          if (result.ok) {
-            assertEquals(result.text, "Legacy works");
-          }
+  try {
+    await withEnv(
+      {
+        OPENAI_API_KEY: "sk-env",
+        DISCORD_TOKEN: "discord-env",
+        CHANNEL_IDS: "chan-1, chan-2",
+        CHANNEL_ID: "fallback-chan",
+        ENABLE_UWU: "false",
+        WEB_SEARCH_ENABLED: "true",
+        BRAVE_SEARCH_API_KEY: "brave-env",
+        WEB_SEARCH_MAX_RESULTS: "7",
+        LINK_OPEN_ENABLED: "true",
+      },
+      async () => {
+        const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
+        expect(result.ok).toStrictEqual(true);
+        if (result.ok) {
+          expect(result.text).toStrictEqual("Legacy works");
+        }
 
-          const request = mock.getLastRequest();
-          assertEquals(request?.body.model, undefined);
-        },
-      );
-    } finally {
-      mock.restore();
-    }
-  },
-);
+        const request = mock.getLastRequest();
+        expect(request?.body.model).toStrictEqual(undefined);
+      },
+    );
+  } finally {
+    mock.restore();
+  }
+});
 
-Deno.test("generateReplyFromMessages returns error when OPENAI_API_KEY is missing", async () => {
+test("generateReplyFromMessages returns error when OPENAI_API_KEY is missing", async () => {
   await withEnv(
     {
       OPENAI_API_KEY: undefined,
@@ -614,15 +607,15 @@ Deno.test("generateReplyFromMessages returns error when OPENAI_API_KEY is missin
     },
     async () => {
       const result = await generateReplyFromMessages([{ author: "user", content: "hi" }]);
-      assertEquals(result.ok, false);
+      expect(result.ok).toStrictEqual(false);
       if (!result.ok) {
-        assertEquals(result.error, "OPENAI_API_KEY not set");
+        expect(result.error).toStrictEqual("OPENAI_API_KEY not set");
       }
     },
   );
 });
 
-Deno.test("generateReply handles malformed output shapes without extractable text", async () => {
+test("generateReply handles malformed output shapes without extractable text", async () => {
   {
     const mock = mockFetch({
       output: "not-an-array",
@@ -630,7 +623,7 @@ Deno.test("generateReply handles malformed output shapes without extractable tex
     try {
       const service = createAiService(createMockConfig());
       const result = await service.generateReply([{ author: "user", content: "hi" }]);
-      assertEquals(result, { ok: false, error: "No text in OpenAI response" });
+      expect(result).toStrictEqual({ ok: false, error: "No text in OpenAI response" });
     } finally {
       mock.restore();
     }
@@ -648,53 +641,49 @@ Deno.test("generateReply handles malformed output shapes without extractable tex
     try {
       const service = createAiService(createMockConfig());
       const result = await service.generateReply([{ author: "user", content: "hi" }]);
-      assertEquals(result, { ok: false, error: "No text in OpenAI response" });
+      expect(result).toStrictEqual({ ok: false, error: "No text in OpenAI response" });
     } finally {
       mock.restore();
     }
   }
 });
 
-Deno.test(
-  "generateReply caps image inputs to six unique URLs and ignores non-strings",
-  async () => {
-    const mock = mockFetch({
-      output_text: "ok",
-      usage: { total_tokens: 40 },
-    });
+test("generateReply caps image inputs to six unique URLs and ignores non-strings", async () => {
+  const mock = mockFetch({
+    output_text: "ok",
+    usage: { total_tokens: 40 },
+  });
 
-    try {
-      const service = createAiService(createMockConfig());
-      await service.generateReply([
-        {
-          author: "a",
-          content: "x",
-          imageUrls: [
-            "https://example.com/1.png",
-            "https://example.com/2.png",
-            123,
-            "https://example.com/3.png",
-            "https://example.com/4.png",
-            "https://example.com/5.png",
-            "https://example.com/6.png",
-            "https://example.com/7.png",
-          ],
-        },
-      ]);
+  try {
+    const service = createAiService(createMockConfig());
+    await service.generateReply([
+      {
+        author: "a",
+        content: "x",
+        imageUrls: [
+          "https://example.com/1.png",
+          "https://example.com/2.png",
+          123,
+          "https://example.com/3.png",
+          "https://example.com/4.png",
+          "https://example.com/5.png",
+          "https://example.com/6.png",
+          "https://example.com/7.png",
+        ],
+      },
+    ]);
 
-      const request = mock.getLastRequest();
-      const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-      const image_parts =
-        input?.[0]?.content?.filter((part) => part["type"] === "input_image") ?? [];
-      assertEquals(image_parts.length, 6);
-      assertEquals(image_parts[5]["image_url"], "https://example.com/6.png");
-    } finally {
-      mock.restore();
-    }
-  },
-);
+    const request = mock.getLastRequest();
+    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
+    const image_parts = input?.[0]?.content?.filter((part) => part["type"] === "input_image") ?? [];
+    expect(image_parts.length).toStrictEqual(6);
+    expect(image_parts[5]["image_url"]).toStrictEqual("https://example.com/6.png");
+  } finally {
+    mock.restore();
+  }
+});
 
-Deno.test("a reply to a video cannot poison subsequent text-only AI requests", async () => {
+test("a reply to a video cannot poison subsequent text-only AI requests", async () => {
   const mock = mockFetch({ output_text: "Still here!", usage: { total_tokens: 12 } });
   const messages = [
     {
@@ -730,22 +719,19 @@ Deno.test("a reply to a video cannot poison subsequent text-only AI requests", a
       inactivityGapMs: 20 * 60_000,
     }).map(oToAiContextMessage);
     const result = await createAiService(createMockConfig()).generateReply(context);
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     const input = mock.getLastRequest()?.body.input as Array<{
       content: Array<Record<string, unknown>>;
     }>;
-    assertEquals(
-      input[0].content.filter((part) => part.type === "input_image"),
-      [],
-    );
-    assertStringIncludes(String(input[0].content[0].text), "replying to Bob: The pond");
-    assertStringIncludes(String(input[0].content[0].text), "Are you okay?");
+    expect(input[0].content.filter((part) => part.type === "input_image")).toStrictEqual([]);
+    expect(String(input[0].content[0].text)).toContain("replying to Bob: The pond");
+    expect(String(input[0].content[0].text)).toContain("Are you okay?");
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("generateReply falls back to unknown author/content and zero token usage", async () => {
+test("generateReply falls back to unknown author/content and zero token usage", async () => {
   const mock = mockFetch({
     output_text: "Works",
   });
@@ -754,47 +740,44 @@ Deno.test("generateReply falls back to unknown author/content and zero token usa
     const service = createAiService(createMockConfig());
     const result = await service.generateReply([{}]);
 
-    assertEquals(result.ok, true);
+    expect(result.ok).toStrictEqual(true);
     if (result.ok) {
-      assertEquals(result.tokensUsed, 0);
+      expect(result.tokensUsed).toStrictEqual(0);
     }
 
     const request = mock.getLastRequest();
     const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
     const textPart = input?.[0]?.content?.find((part) => part["type"] === "input_text");
-    assertStringIncludes(String(textPart?.["text"] ?? ""), "unknown: ");
+    expect(String(textPart?.["text"] ?? "")).toContain("unknown: ");
   } finally {
     mock.restore();
   }
 });
 
-Deno.test(
-  "generateReplyFromMessages supports CHANNEL_ID fallback when CHANNEL_IDS is missing",
-  async () => {
-    const mock = mockFetch({
-      output_text: "fallback works",
-      usage: { total_tokens: 15 },
-    });
+test("generateReplyFromMessages supports CHANNEL_ID fallback when CHANNEL_IDS is missing", async () => {
+  const mock = mockFetch({
+    output_text: "fallback works",
+    usage: { total_tokens: 15 },
+  });
 
-    try {
-      await withEnv(
-        {
-          OPENAI_API_KEY: "sk-env",
-          CHANNEL_IDS: undefined,
-          CHANNEL_ID: "chan-fallback",
-          BRAVE_SEARCH_API_KEY: undefined,
-          WEB_SEARCH_ENABLED: undefined,
-        },
-        async () => {
-          const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
-          assertEquals(result.ok, true);
-        },
-      );
-    } finally {
-      mock.restore();
-    }
-  },
-);
+  try {
+    await withEnv(
+      {
+        OPENAI_API_KEY: "sk-env",
+        CHANNEL_IDS: undefined,
+        CHANNEL_ID: "chan-fallback",
+        BRAVE_SEARCH_API_KEY: undefined,
+        WEB_SEARCH_ENABLED: undefined,
+      },
+      async () => {
+        const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
+        expect(result.ok).toStrictEqual(true);
+      },
+    );
+  } finally {
+    mock.restore();
+  }
+});
 
 // =============================================================================
 // Autonomous participation
@@ -824,365 +807,334 @@ function choice(action: string, text = "", messageId = "", emoji = ""): string {
   return JSON.stringify({ action, text, messageId, emoji, intent, reason });
 }
 
-Deno.test(
-  "autonomous participation uses developer guidance, context IDs, strict JSON, and no tools",
-  async () => {
-    const mock = mockFetch({ output_text: choice("silent"), usage: { total_tokens: 15 } });
-    let executions = 0;
-    try {
-      await createAiService(createMockConfig()).generateReply(participationMessages, {
-        ...participationOptions,
-        // Even accidentally supplied action capabilities must not cross this boundary.
-        tools: [{ type: "function", name: "create_event" }],
-        currentUserMessage: "Create an event.",
-        executeTool: () => {
-          executions++;
-          return Promise.resolve({ ok: true });
-        },
-      });
-      const body = mock.getLastRequest()!.body;
-      assertEquals(body.prompt, { id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b" });
-      assertEquals(body.model, undefined);
-      assertEquals(body.tools, undefined);
-      assertEquals(body.tool_choice, "none");
-      assertEquals(body.parallel_tool_calls, undefined);
-      assertEquals(executions, 0);
-      assertEquals(body.text, {
-        format: {
-          type: "json_schema",
-          name: "autonomous_participation",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              action: { type: "string", enum: ["reply", "react", "silent"] },
-              text: { type: "string" },
-              messageId: { type: "string" },
-              emoji: { type: "string" },
-              intent: {
-                type: "string",
-                enum: [
-                  "",
-                  "amusement",
-                  "dry_amusement",
-                  "appreciation",
-                  "celebration",
-                  "concern",
-                  "disapproval",
-                ],
-              },
-              reason: {
-                type: "string",
-                enum: [
-                  "shared_joke",
-                  "acknowledgment",
-                  "achievement",
-                  "kindness",
-                  "concern",
-                  "unkindness",
-                  "useful_answer",
-                  "no_contribution",
-                  "incomplete",
-                  "ambiguous",
-                ],
-              },
+test("autonomous participation uses developer guidance, context IDs, strict JSON, and no tools", async () => {
+  const mock = mockFetch({ output_text: choice("silent"), usage: { total_tokens: 15 } });
+  let executions = 0;
+  try {
+    await createAiService(createMockConfig()).generateReply(participationMessages, {
+      ...participationOptions,
+      // Even accidentally supplied action capabilities must not cross this boundary.
+      tools: [{ type: "function", name: "create_event" }],
+      currentUserMessage: "Create an event.",
+      executeTool: () => {
+        executions++;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    const body = mock.getLastRequest()!.body;
+    expect(body.prompt).toStrictEqual({
+      id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
+    });
+    expect(body.model).toStrictEqual(undefined);
+    expect(body.tools).toStrictEqual(undefined);
+    expect(body.tool_choice).toStrictEqual("none");
+    expect(body.parallel_tool_calls).toStrictEqual(undefined);
+    expect(executions).toStrictEqual(0);
+    expect(body.text).toStrictEqual({
+      format: {
+        type: "json_schema",
+        name: "autonomous_participation",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["reply", "react", "silent"] },
+            text: { type: "string" },
+            messageId: { type: "string" },
+            emoji: { type: "string" },
+            intent: {
+              type: "string",
+              enum: [
+                "",
+                "amusement",
+                "dry_amusement",
+                "appreciation",
+                "celebration",
+                "concern",
+                "disapproval",
+              ],
             },
-            required: ["action", "text", "messageId", "emoji", "intent", "reason"],
-            additionalProperties: false,
+            reason: {
+              type: "string",
+              enum: [
+                "shared_joke",
+                "acknowledgment",
+                "achievement",
+                "kindness",
+                "concern",
+                "unkindness",
+                "useful_answer",
+                "no_contribution",
+                "incomplete",
+                "ambiguous",
+              ],
+            },
           },
+          required: ["action", "text", "messageId", "emoji", "intent", "reason"],
+          additionalProperties: false,
+        },
+      },
+    });
+    const input = body.input as Array<Record<string, unknown>>;
+    expect(input.length).toStrictEqual(2);
+    expect(input[0].role).toStrictEqual("developer");
+    const guidance = String(input[0].content);
+    expect(guidance).toContain(participationOptions.instructions);
+    expect(guidance).toContain("Keep the persona from the saved prompt");
+    expect(guidance).toContain('["100","101"]');
+    for (const emoji of AUTONOMOUS_REACTION_EMOJIS) expect(guidance).toContain(emoji);
+    const content = input[1].content as Array<Record<string, unknown>>;
+    expect(String(content[0].text)).toContain("[message ID: 100] alice:");
+    expect(String(content[0].text)).toContain("[message ID: 101] bob:");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("autonomous reply preserves its text without greeting removal or UwU rewriting", async () => {
+  const text = "Hello there! I couldn't resist that horse joke.";
+  const mock = mockFetch({
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: choice("reply", text) }],
+      },
+    ],
+    status: "completed",
+    usage: { total_tokens: 30 },
+  });
+  try {
+    const result = await createAiService(createMockConfig({ aiEnableUwu: true })).generateReply(
+      participationMessages,
+      participationOptions,
+    );
+    expect(result).toStrictEqual({
+      ok: true,
+      text,
+      tokensUsed: 30,
+      participation: { action: "reply", text, reason: "no_contribution" },
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("autonomous reactions accept the fixed Unicode palette and return no fallback text", async () => {
+  expect(AUTONOMOUS_REACTION_EMOJIS).toStrictEqual(["😄", "😂", "🤣", "❤️", "👍", "🎉", "🐴"]);
+  for (const emoji of AUTONOMOUS_REACTION_EMOJIS) {
+    const mock = mockFetch({
+      output_text: choice("react", "", "100", emoji),
+      usage: { total_tokens: 25 },
+    });
+    try {
+      const result = await createAiService(createMockConfig({ aiEnableUwu: true })).generateReply(
+        participationMessages,
+        participationOptions,
+      );
+      expect(result).toStrictEqual({
+        ok: true,
+        text: "",
+        tokensUsed: 25,
+        participation: {
+          action: "react",
+          messageId: "100",
+          emoji,
+          intent:
+            emoji === "🎉"
+              ? "celebration"
+              : emoji === "❤️" || emoji === "👍"
+                ? "appreciation"
+                : "amusement",
+          reason: "acknowledgment",
         },
       });
-      const input = body.input as Array<Record<string, unknown>>;
-      assertEquals(input.length, 2);
-      assertEquals(input[0].role, "developer");
-      const guidance = String(input[0].content);
-      assertStringIncludes(guidance, participationOptions.instructions);
-      assertStringIncludes(guidance, "Keep the persona from the saved prompt");
-      assertStringIncludes(guidance, '["100","101"]');
-      for (const emoji of AUTONOMOUS_REACTION_EMOJIS) assertStringIncludes(guidance, emoji);
-      const content = input[1].content as Array<Record<string, unknown>>;
-      assertStringIncludes(String(content[0].text), "[message ID: 100] alice:");
-      assertStringIncludes(String(content[0].text), "[message ID: 101] bob:");
     } finally {
       mock.restore();
     }
-  },
-);
+  }
+});
 
-Deno.test(
-  "autonomous reply preserves its text without greeting removal or UwU rewriting",
-  async () => {
-    const text = "Hello there! I couldn't resist that horse joke.";
-    const mock = mockFetch({
+test("autonomous silence returns empty text and still records reported token usage", async () => {
+  const mock = mockFetch({ output_text: choice("silent"), usage: { total_tokens: 17 } });
+  try {
+    const result = await createAiService(createMockConfig({ aiEnableUwu: true })).generateReply(
+      participationMessages,
+      participationOptions,
+    );
+    expect(result).toStrictEqual({
+      ok: true,
+      text: "",
+      tokensUsed: 17,
+      participation: { action: "silent", reason: "no_contribution" },
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("autonomous replies enforce the 280-character boundary without truncating into chatter", async () => {
+  for (const length of [280, 281]) {
+    const text = "x".repeat(length);
+    const mock = mockFetch({ output_text: choice("reply", text), usage: { total_tokens: 29 } });
+    try {
+      const result = await createAiService(createMockConfig()).generateReply(
+        participationMessages,
+        participationOptions,
+      );
+      expect(result).toStrictEqual(
+        length === 280
+          ? {
+              ok: true,
+              text,
+              tokensUsed: 29,
+              participation: { action: "reply", text, reason: "no_contribution" },
+            }
+          : { ok: true, text: "", tokensUsed: 29, participation: { action: "silent" } },
+      );
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
+test("autonomous invalid choices fail closed for content, targets, emojis, and mixed actions", async () => {
+  const invalid = [
+    "I'll just laugh along!",
+    "```json\n" + choice("react", "", "100", "😂") + "\n```",
+    "{",
+    "null",
+    "[]",
+    choice("send", "Not an allowed action"),
+    choice("reply"),
+    choice("reply", "   "),
+    choice("reply", "A comment", "100", "😂"),
+    choice("react", "Extra chatter", "100", "😂"),
+    choice("react", "", "999", "😂"),
+    choice("react", "", "100", "😈"),
+    choice("react", "", "100", "<:horse:123>"),
+    choice("react", "", "100", "😂 😂"),
+    choice("react", "", "100", "❤"),
+    choice("silent", "Explaining why I'm silent"),
+    JSON.stringify({ action: "react", text: "", messageId: "100", emoji: "😂", extra: true }),
+    JSON.stringify({ action: "react", text: "", messageId: 100, emoji: "😂" }),
+    JSON.stringify({ action: "silent" }),
+  ];
+  for (const output_text of invalid) {
+    const mock = mockFetch({ output_text, usage: { total_tokens: 21 } });
+    try {
+      const result = await createAiService(createMockConfig()).generateReply(
+        participationMessages,
+        participationOptions,
+      );
+      // The case is part of the compared value so a failure shows which output_text broke.
+      expect({ output_text, result }).toStrictEqual({
+        output_text,
+        result: {
+          ok: true,
+          text: "",
+          tokensUsed: 21,
+          participation: { action: "silent" },
+        },
+      });
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
+test("autonomous reactions require targets present in both allowed IDs and the actual context", async () => {
+  const mock = mockFetch({
+    output_text: choice("react", "", "999", "😂"),
+    usage: { total_tokens: 9 },
+  });
+  try {
+    const result = await createAiService(createMockConfig()).generateReply(participationMessages, {
+      ...participationOptions,
+      allowedMessageIds: ["999"],
+    });
+    expect(result).toStrictEqual({
+      ok: true,
+      text: "",
+      tokensUsed: 9,
+      participation: { action: "silent" },
+    });
+    const input = mock.getLastRequest()!.body.input as Array<Record<string, unknown>>;
+    expect(String(input[0].content)).toContain("select a messageId from []");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("autonomous empty, incomplete, refused, and unexpected outputs remain silent with usage", async () => {
+  const validChoice = choice("reply", "This text must not be sent.");
+  const payloads = [
+    { output_text: "" },
+    { output: "unexpected" },
+    { output: [null] },
+    { output_text: validChoice, status: "incomplete" },
+    { output_text: validChoice, status: "failed" },
+    { output_text: validChoice, status: "in_progress" },
+    {
+      output_text: validChoice,
+      output: [{ type: "message", role: "assistant", content: [{ type: "refusal" }] }],
+    },
+    {
+      output_text: validChoice,
+      output: [{ type: "function_call", name: "create_event", call_id: "call1", arguments: "{}" }],
+    },
+    {
       output: [
         {
           type: "message",
           role: "assistant",
-          status: "completed",
-          content: [{ type: "output_text", text: choice("reply", text) }],
+          status: "incomplete",
+          content: [{ type: "output_text", text: validChoice }],
         },
       ],
-      status: "completed",
-      usage: { total_tokens: 30 },
-    });
-    try {
-      const result = await createAiService(createMockConfig({ aiEnableUwu: true })).generateReply(
-        participationMessages,
-        participationOptions,
-      );
-      assertEquals(result, {
-        ok: true,
-        text,
-        tokensUsed: 30,
-        participation: { action: "reply", text, reason: "no_contribution" },
-      });
-    } finally {
-      mock.restore();
-    }
-  },
-);
-
-Deno.test(
-  "autonomous reactions accept the fixed Unicode palette and return no fallback text",
-  async () => {
-    assertEquals(AUTONOMOUS_REACTION_EMOJIS, ["😄", "😂", "🤣", "❤️", "👍", "🎉", "🐴"]);
-    for (const emoji of AUTONOMOUS_REACTION_EMOJIS) {
-      const mock = mockFetch({
-        output_text: choice("react", "", "100", emoji),
-        usage: { total_tokens: 25 },
-      });
-      try {
-        const result = await createAiService(createMockConfig({ aiEnableUwu: true })).generateReply(
-          participationMessages,
-          participationOptions,
-        );
-        assertEquals(result, {
-          ok: true,
-          text: "",
-          tokensUsed: 25,
-          participation: {
-            action: "react",
-            messageId: "100",
-            emoji,
-            intent:
-              emoji === "🎉"
-                ? "celebration"
-                : emoji === "❤️" || emoji === "👍"
-                  ? "appreciation"
-                  : "amusement",
-            reason: "acknowledgment",
-          },
-        });
-      } finally {
-        mock.restore();
-      }
-    }
-  },
-);
-
-Deno.test(
-  "autonomous silence returns empty text and still records reported token usage",
-  async () => {
-    const mock = mockFetch({ output_text: choice("silent"), usage: { total_tokens: 17 } });
-    try {
-      const result = await createAiService(createMockConfig({ aiEnableUwu: true })).generateReply(
-        participationMessages,
-        participationOptions,
-      );
-      assertEquals(result, {
-        ok: true,
-        text: "",
-        tokensUsed: 17,
-        participation: { action: "silent", reason: "no_contribution" },
-      });
-    } finally {
-      mock.restore();
-    }
-  },
-);
-
-Deno.test(
-  "autonomous replies enforce the 280-character boundary without truncating into chatter",
-  async () => {
-    for (const length of [280, 281]) {
-      const text = "x".repeat(length);
-      const mock = mockFetch({ output_text: choice("reply", text), usage: { total_tokens: 29 } });
-      try {
-        const result = await createAiService(createMockConfig()).generateReply(
-          participationMessages,
-          participationOptions,
-        );
-        assertEquals(
-          result,
-          length === 280
-            ? {
-                ok: true,
-                text,
-                tokensUsed: 29,
-                participation: { action: "reply", text, reason: "no_contribution" },
-              }
-            : { ok: true, text: "", tokensUsed: 29, participation: { action: "silent" } },
-        );
-      } finally {
-        mock.restore();
-      }
-    }
-  },
-);
-
-Deno.test(
-  "autonomous invalid choices fail closed for content, targets, emojis, and mixed actions",
-  async () => {
-    const invalid = [
-      "I'll just laugh along!",
-      "```json\n" + choice("react", "", "100", "😂") + "\n```",
-      "{",
-      "null",
-      "[]",
-      choice("send", "Not an allowed action"),
-      choice("reply"),
-      choice("reply", "   "),
-      choice("reply", "A comment", "100", "😂"),
-      choice("react", "Extra chatter", "100", "😂"),
-      choice("react", "", "999", "😂"),
-      choice("react", "", "100", "😈"),
-      choice("react", "", "100", "<:horse:123>"),
-      choice("react", "", "100", "😂 😂"),
-      choice("react", "", "100", "❤"),
-      choice("silent", "Explaining why I'm silent"),
-      JSON.stringify({ action: "react", text: "", messageId: "100", emoji: "😂", extra: true }),
-      JSON.stringify({ action: "react", text: "", messageId: 100, emoji: "😂" }),
-      JSON.stringify({ action: "silent" }),
-    ];
-    for (const output_text of invalid) {
-      const mock = mockFetch({ output_text, usage: { total_tokens: 21 } });
-      try {
-        const result = await createAiService(createMockConfig()).generateReply(
-          participationMessages,
-          participationOptions,
-        );
-        assertEquals(
-          result,
-          {
-            ok: true,
-            text: "",
-            tokensUsed: 21,
-            participation: { action: "silent" },
-          },
-          output_text,
-        );
-      } finally {
-        mock.restore();
-      }
-    }
-  },
-);
-
-Deno.test(
-  "autonomous reactions require targets present in both allowed IDs and the actual context",
-  async () => {
-    const mock = mockFetch({
-      output_text: choice("react", "", "999", "😂"),
-      usage: { total_tokens: 9 },
-    });
+    },
+  ];
+  for (const payload of payloads) {
+    const mock = mockFetch({ ...payload, usage: { total_tokens: 19 } });
     try {
       const result = await createAiService(createMockConfig()).generateReply(
         participationMessages,
-        {
-          ...participationOptions,
-          allowedMessageIds: ["999"],
-        },
+        participationOptions,
       );
-      assertEquals(result, {
+      expect(result).toStrictEqual({
         ok: true,
         text: "",
-        tokensUsed: 9,
+        tokensUsed: 19,
         participation: { action: "silent" },
       });
-      const input = mock.getLastRequest()!.body.input as Array<Record<string, unknown>>;
-      assertStringIncludes(String(input[0].content), "select a messageId from []");
     } finally {
       mock.restore();
     }
-  },
-);
+  }
+});
 
-Deno.test(
-  "autonomous empty, incomplete, refused, and unexpected outputs remain silent with usage",
-  async () => {
-    const validChoice = choice("reply", "This text must not be sent.");
-    const payloads = [
-      { output_text: "" },
-      { output: "unexpected" },
-      { output: [null] },
-      { output_text: validChoice, status: "incomplete" },
-      { output_text: validChoice, status: "failed" },
-      { output_text: validChoice, status: "in_progress" },
-      {
-        output_text: validChoice,
-        output: [{ type: "message", role: "assistant", content: [{ type: "refusal" }] }],
-      },
-      {
-        output_text: validChoice,
-        output: [
-          { type: "function_call", name: "create_event", call_id: "call1", arguments: "{}" },
-        ],
-      },
-      {
-        output: [
-          {
-            type: "message",
-            role: "assistant",
-            status: "incomplete",
-            content: [{ type: "output_text", text: validChoice }],
-          },
-        ],
-      },
-    ];
-    for (const payload of payloads) {
-      const mock = mockFetch({ ...payload, usage: { total_tokens: 19 } });
-      try {
-        const result = await createAiService(createMockConfig()).generateReply(
-          participationMessages,
-          participationOptions,
-        );
-        assertEquals(result, {
-          ok: true,
-          text: "",
-          tokensUsed: 19,
-          participation: { action: "silent" },
-        });
-      } finally {
-        mock.restore();
-      }
+test("autonomous malformed provider payloads fail closed without token or text fabrication", async () => {
+  for (const payload of [null, [], "not an object", 42]) {
+    const mock = mockFetch(payload as unknown as Record<string, unknown>);
+    try {
+      const result = await createAiService(createMockConfig()).generateReply(
+        participationMessages,
+        participationOptions,
+      );
+      expect(result).toStrictEqual({
+        ok: true,
+        text: "",
+        tokensUsed: 0,
+        participation: { action: "silent" },
+      });
+    } finally {
+      mock.restore();
     }
-  },
-);
+  }
+});
 
-Deno.test(
-  "autonomous malformed provider payloads fail closed without token or text fabrication",
-  async () => {
-    for (const payload of [null, [], "not an object", 42]) {
-      const mock = mockFetch(payload as unknown as Record<string, unknown>);
-      try {
-        const result = await createAiService(createMockConfig()).generateReply(
-          participationMessages,
-          participationOptions,
-        );
-        assertEquals(result, {
-          ok: true,
-          text: "",
-          tokensUsed: 0,
-          participation: { action: "silent" },
-        });
-      } finally {
-        mock.restore();
-      }
-    }
-  },
-);
-
-Deno.test("autonomous HTTP errors retain provider-reported token usage", async () => {
+test("autonomous HTTP errors retain provider-reported token usage", async () => {
   const mock = mockFetch(
     {
       error: { message: "Request failed" },
@@ -1195,17 +1147,17 @@ Deno.test("autonomous HTTP errors retain provider-reported token usage", async (
       participationMessages,
       participationOptions,
     );
-    assertEquals(result.ok, false);
+    expect(result.ok).toStrictEqual(false);
     if (!result.ok) {
-      assertStringIncludes(result.error, "OpenAI error 500");
-      assertEquals(result.tokensUsed, 13);
+      expect(result.error).toContain("OpenAI error 500");
+      expect(result.tokensUsed).toStrictEqual(13);
     }
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("autonomous custom emotes require the exact supplied intent and expression", async () => {
+test("autonomous custom emotes require the exact supplied intent and expression", async () => {
   const options = {
     ...participationOptions,
     reactionChoices: [
@@ -1239,7 +1191,7 @@ Deno.test("autonomous custom emotes require the exact supplied intent and expres
         options,
       );
       assert(result.ok);
-      assertEquals(result.participation?.action, accepted ? "react" : "silent");
+      expect(result.participation?.action).toStrictEqual(accepted ? "react" : "silent");
     } finally {
       mock.restore();
     }

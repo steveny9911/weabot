@@ -1,4 +1,6 @@
-import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { expect, test } from "bun:test";
+import { asFetch } from "../../test_support/fetch.ts";
+import { assert, rejects } from "../../test_support/assert.ts";
 import { createDiscordClient } from "./discord.ts";
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>): {
@@ -6,10 +8,10 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
 } {
   const original_fetch = globalThis.fetch;
 
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = asFetch((input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     return Promise.resolve(handler(url, init));
-  }) as typeof fetch;
+  });
 
   return {
     restore: () => {
@@ -18,20 +20,19 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
   };
 }
 
-Deno.test("addReaction encodes its route and sends an authorized bodyless PUT", async () => {
+test("addReaction encodes its route and sends an authorized bodyless PUT", async () => {
   let requests = 0;
   const fetch_mock = mockFetch((url, init) => {
     requests++;
-    assertEquals(
-      url,
+    expect(url).toStrictEqual(
       "https://discord.com/api/v10/channels/channel%2Fone/messages/message%3Ftwo/reactions/%E2%9D%A4%EF%B8%8F/@me",
     );
-    assertEquals(init?.method, "PUT");
-    assertEquals((init?.headers as Record<string, string>).Authorization, "Bot test-token");
-    assertEquals(init?.body, undefined);
-    assertEquals(init?.redirect, "error");
+    expect(init?.method).toStrictEqual("PUT");
+    expect((init?.headers as Record<string, string>).Authorization).toStrictEqual("Bot test-token");
+    expect(init?.body).toStrictEqual(undefined);
+    expect(init?.redirect).toStrictEqual("error");
     assert(init?.signal instanceof AbortSignal);
-    assertEquals(init.signal.aborted, false);
+    expect(init.signal.aborted).toStrictEqual(false);
     return new Response(null, { status: 204 });
   });
 
@@ -41,8 +42,8 @@ Deno.test("addReaction encodes its route and sends an authorized bodyless PUT", 
       "message?two",
       "❤️",
     );
-    assertEquals(response.status, 204);
-    assertEquals(requests, 1);
+    expect(response.status).toStrictEqual(204);
+    expect(requests).toStrictEqual(1);
   } finally {
     fetch_mock.restore();
   }
@@ -54,28 +55,28 @@ for (const [name, status, code] of [
   ["rate limit", 429, 0],
   ["server error", 500, 0],
 ] as const) {
-  Deno.test(`addReaction returns ${name} without retrying or sending fallback text`, async () => {
+  test(`addReaction returns ${name} without retrying or sending fallback text`, async () => {
     let requests = 0;
     const expected = Response.json({ code }, { status });
     const fetch_mock = mockFetch((_url, init) => {
       requests++;
-      assertEquals(init?.method, "PUT");
+      expect(init?.method).toStrictEqual("PUT");
       return expected;
     });
 
     try {
       const response = await createDiscordClient("token").addReaction("channel", "message", "😂");
-      assertEquals(response, expected);
-      assertEquals(response.status, status);
-      assertEquals(await response.json(), { code });
-      assertEquals(requests, 1);
+      expect(response).toStrictEqual(expected);
+      expect(response.status).toStrictEqual(status);
+      expect(await response.json()).toStrictEqual({ code });
+      expect(requests).toStrictEqual(1);
     } finally {
       fetch_mock.restore();
     }
   });
 }
 
-Deno.test("addReaction propagates network failure without retrying", async () => {
+test("addReaction propagates network failure without retrying", async () => {
   let requests = 0;
   const fetch_mock = mockFetch(() => {
     requests++;
@@ -83,18 +84,18 @@ Deno.test("addReaction propagates network failure without retrying", async () =>
   });
 
   try {
-    await assertRejects(
+    await rejects(
       () => createDiscordClient("token").addReaction("channel", "message", "😂"),
       TypeError,
       "connection failed",
     );
-    assertEquals(requests, 1);
+    expect(requests).toStrictEqual(1);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("getRecentMessages clamps limit and maps Discord message payloads", async () => {
+test("getRecentMessages clamps limit and maps Discord message payloads", async () => {
   let requested_url = "";
   const fetch_mock = mockFetch((url) => {
     requested_url = url;
@@ -130,8 +131,8 @@ Deno.test("getRecentMessages clamps limit and maps Discord message payloads", as
     const discord = createDiscordClient("token");
     const messages = await discord.getRecentMessages("channel-1", 500);
 
-    assertStringIncludes(requested_url, "/channels/channel-1/messages?limit=100");
-    assertEquals(messages, [
+    expect(requested_url).toContain("/channels/channel-1/messages?limit=100");
+    expect(messages).toStrictEqual([
       {
         id: "msg-1",
         authorId: "user-1",
@@ -147,13 +148,13 @@ Deno.test("getRecentMessages clamps limit and maps Discord message payloads", as
   }
 });
 
-Deno.test("getRecentMessages returns an empty array for Discord errors", async () => {
+test("getRecentMessages returns an empty array for Discord errors", async () => {
   const fetch_mock = mockFetch(() => new Response("nope", { status: 403 }));
 
   try {
     const discord = createDiscordClient("token");
     const messages = await discord.getRecentMessages("channel-1", 20);
-    assertEquals(messages, []);
+    expect(messages).toStrictEqual([]);
   } finally {
     fetch_mock.restore();
   }
@@ -180,27 +181,27 @@ function json(value: unknown): Response {
   return Response.json(value);
 }
 
-Deno.test("getPollVoters accepts finalized zero-vote answers and absent zero counts", async () => {
+test("getPollVoters accepts finalized zero-vote answers and absent zero counts", async () => {
   const requests: string[] = [];
   const fetch_mock = mockFetch((url, init) => {
     requests.push(url);
-    assertEquals((init?.headers as Record<string, string>).Authorization, "Bot test-token");
+    expect((init?.headers as Record<string, string>).Authorization).toStrictEqual("Bot test-token");
     return json(url.includes("/messages/") ? pollMessage([]) : { users: [] });
   });
   try {
-    assertEquals(await createDiscordClient("test-token").getPollVoters("channel", "poll"), [
+    expect(await createDiscordClient("test-token").getPollVoters("channel", "poll")).toStrictEqual([
       { answerId: 1, answerText: "umazing", voters: [] },
       { answerId: 2, answerText: "ok", voters: [] },
       { answerId: 3, answerText: "glue", voters: [] },
     ]);
-    assertEquals(requests.length, 4);
-    assertStringIncludes(requests[1], "/answers/1?limit=100");
+    expect(requests.length).toStrictEqual(4);
+    expect(requests[1]).toContain("/answers/1?limit=100");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("getPollVoters paginates every answer using exact snowflake cursors", async () => {
+test("getPollVoters paginates every answer using exact snowflake cursors", async () => {
   const base = 90071992547409930n;
   const users = Array.from({ length: 205 }, (_, i) => ({
     id: (base + BigInt(i)).toString(),
@@ -218,18 +219,18 @@ Deno.test("getPollVoters paginates every answer using exact snowflake cursors", 
   });
   try {
     const result = await createDiscordClient("token").getPollVoters("channel", "poll");
-    assertEquals(result[0].voters.length, 205);
-    assertEquals(result[0].voters[0].odUserName, "Display name");
-    assertEquals(result[0].voters[204].odUserName, "user-204");
-    assertStringIncludes(requests[2], `after=${base + 99n}`);
-    assertStringIncludes(requests[3], `after=${base + 199n}`);
-    assertEquals(requests.length, 6);
+    expect(result[0].voters.length).toStrictEqual(205);
+    expect(result[0].voters[0].odUserName).toStrictEqual("Display name");
+    expect(result[0].voters[204].odUserName).toStrictEqual("user-204");
+    expect(requests[2]).toContain(`after=${base + 99n}`);
+    expect(requests[3]).toContain(`after=${base + 199n}`);
+    expect(requests.length).toStrictEqual(6);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("getPollVoters checks the empty page after exactly 100 voters", async () => {
+test("getPollVoters checks the empty page after exactly 100 voters", async () => {
   let answerRequests = 0;
   const fetch_mock = mockFetch((url) => {
     if (url.includes("/messages/")) return json(pollMessage([100, 0, 0]));
@@ -242,9 +243,9 @@ Deno.test("getPollVoters checks the empty page after exactly 100 voters", async 
   });
   try {
     const answers = await createDiscordClient("token").getPollVoters("channel", "poll");
-    assertEquals(answers[0].voters.length, 100);
-    assertEquals(answers[0].voters[0].odUserName, "1");
-    assertEquals(answerRequests, 2);
+    expect(answers[0].voters.length).toStrictEqual(100);
+    expect(answers[0].voters[0].odUserName).toStrictEqual("1");
+    expect(answerRequests).toStrictEqual(2);
   } finally {
     fetch_mock.restore();
   }
@@ -295,10 +296,10 @@ const malformedMessages: [string, unknown][] = [
 ];
 
 for (const [name, message] of malformedMessages) {
-  Deno.test(`getPollVoters rejects ${name}`, async () => {
+  test(`getPollVoters rejects ${name}`, async () => {
     const fetch_mock = mockFetch(() => json(message));
     try {
-      await assertRejects(
+      await rejects(
         () => createDiscordClient("token").getPollVoters("channel", "poll"),
         Error,
         "poll poll in channel channel",
@@ -323,12 +324,12 @@ const malformedVoters: [string, unknown][] = [
   ["too many users for finalized tally", { users: [{ id: "1" }, { id: "2" }] }],
 ];
 for (const [name, voters] of malformedVoters) {
-  Deno.test(`getPollVoters rejects ${name}`, async () => {
+  test(`getPollVoters rejects ${name}`, async () => {
     const fetch_mock = mockFetch((url) =>
       json(url.includes("/messages/") ? pollMessage([1, 0, 0]) : voters),
     );
     try {
-      await assertRejects(
+      await rejects(
         () => createDiscordClient("token").getPollVoters("channel", "poll"),
         Error,
         "answer 1",
@@ -340,43 +341,40 @@ for (const [name, voters] of malformedVoters) {
 }
 
 for (const stage of ["message", "first answer", "later answer", "later page"] as const) {
-  Deno.test(
-    `getPollVoters rejects HTTP failure at ${stage} without returning partial data`,
-    async () => {
-      const fetch_mock = mockFetch((url) => {
-        if (url.includes("/messages/")) {
-          return stage === "message"
-            ? new Response("Forbidden", { status: 403 })
-            : json(pollMessage(stage === "later page" ? [101, 0, 0] : [0, 0, 0]));
-        }
-        if (
-          (stage === "first answer" && url.includes("/answers/1?")) ||
-          (stage === "later answer" && url.includes("/answers/2?")) ||
-          (stage === "later page" && url.includes("after="))
-        )
-          return new Response("Forbidden", { status: 403 });
-        return json({
-          users:
-            stage === "later page"
-              ? Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) }))
-              : [],
-        });
-      });
-      try {
-        const error = await assertRejects(
-          () => createDiscordClient("token").getPollVoters("channel", "poll"),
-          Error,
-          "poll poll in channel channel",
-        );
-        assertStringIncludes(String(error.cause), "HTTP 403");
-      } finally {
-        fetch_mock.restore();
+  test(`getPollVoters rejects HTTP failure at ${stage} without returning partial data`, async () => {
+    const fetch_mock = mockFetch((url) => {
+      if (url.includes("/messages/")) {
+        return stage === "message"
+          ? new Response("Forbidden", { status: 403 })
+          : json(pollMessage(stage === "later page" ? [101, 0, 0] : [0, 0, 0]));
       }
-    },
-  );
+      if (
+        (stage === "first answer" && url.includes("/answers/1?")) ||
+        (stage === "later answer" && url.includes("/answers/2?")) ||
+        (stage === "later page" && url.includes("after="))
+      )
+        return new Response("Forbidden", { status: 403 });
+      return json({
+        users:
+          stage === "later page"
+            ? Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) }))
+            : [],
+      });
+    });
+    try {
+      const error = await rejects(
+        () => createDiscordClient("token").getPollVoters("channel", "poll"),
+        Error,
+        "poll poll in channel channel",
+      );
+      expect(String(error.cause)).toContain("HTTP 403");
+    } finally {
+      fetch_mock.restore();
+    }
+  });
 }
 
-Deno.test("getPollVoters rejects non-advancing pagination instead of looping", async () => {
+test("getPollVoters rejects non-advancing pagination instead of looping", async () => {
   const fetch_mock = mockFetch((url) =>
     json(
       url.includes("/messages/")
@@ -387,7 +385,7 @@ Deno.test("getPollVoters rejects non-advancing pagination instead of looping", a
     ),
   );
   try {
-    await assertRejects(
+    await rejects(
       () => createDiscordClient("token").getPollVoters("channel", "poll"),
       Error,
       "repeated voter",
@@ -398,14 +396,14 @@ Deno.test("getPollVoters rejects non-advancing pagination instead of looping", a
 });
 
 for (const stage of ["message", "voters"]) {
-  Deno.test(`getPollVoters includes poll context for invalid JSON in ${stage}`, async () => {
+  test(`getPollVoters includes poll context for invalid JSON in ${stage}`, async () => {
     const fetch_mock = mockFetch((url) =>
       stage === "message" || !url.includes("/messages/")
         ? new Response("invalid json")
         : json(pollMessage()),
     );
     try {
-      await assertRejects(
+      await rejects(
         () => createDiscordClient("token").getPollVoters("channel", "poll"),
         Error,
         "poll poll in channel channel",
@@ -416,11 +414,11 @@ for (const stage of ["message", "voters"]) {
   });
 }
 
-Deno.test("single-message revalidation rejects wrong IDs and missing messages", async () => {
+test("single-message revalidation rejects wrong IDs and missing messages", async () => {
   const original = globalThis.fetch;
   try {
     const client = createDiscordClient("test-token");
-    globalThis.fetch = () =>
+    globalThis.fetch = asFetch(() =>
       Promise.resolve(
         Response.json({
           id: "wrong",
@@ -428,11 +426,14 @@ Deno.test("single-message revalidation rejects wrong IDs and missing messages", 
           content: "Changed",
           timestamp: "2026-10-13T22:06:00Z",
         }),
-      );
-    assertEquals(await client.getMessage!("channel", "target"), null);
-    globalThis.fetch = () => Promise.resolve(Response.json({ code: 10008 }, { status: 404 }));
-    assertEquals(await client.getMessage!("channel", "target"), null);
-    globalThis.fetch = () =>
+      ),
+    );
+    expect(await client.getMessage!("channel", "target")).toStrictEqual(null);
+    globalThis.fetch = asFetch(() =>
+      Promise.resolve(Response.json({ code: 10008 }, { status: 404 })),
+    );
+    expect(await client.getMessage!("channel", "target")).toStrictEqual(null);
+    globalThis.fetch = asFetch(() =>
       Promise.resolve(
         Response.json({
           id: "target",
@@ -441,8 +442,9 @@ Deno.test("single-message revalidation rejects wrong IDs and missing messages", 
           timestamp: "2026-10-13T22:06:00Z",
           reactions: [{ me: true }],
         }),
-      );
-    assertEquals((await client.getMessage!("channel", "target"))?.hasOwnReaction, true);
+      ),
+    );
+    expect((await client.getMessage!("channel", "target"))?.hasOwnReaction).toStrictEqual(true);
   } finally {
     globalThis.fetch = original;
   }

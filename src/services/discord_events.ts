@@ -1,5 +1,7 @@
 /** Discord scheduled events, invites, and the permissions needed to manage them. */
 
+import type { Fetcher } from "../types/fetch.ts";
+
 const API_BASE = "https://discord.com/api/v10";
 
 export interface DiscordRole {
@@ -91,15 +93,17 @@ export interface DiscordEventsClient {
 
 /** Safe to show to a user; raw responses and transport errors may contain secrets. */
 export class DiscordApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status = 0,
-    public readonly uncertain = false,
-    /** Seconds until Discord allows another request, when known. */
-    public readonly retryAfter?: number,
-  ) {
+  readonly status: number;
+  readonly uncertain: boolean;
+  /** Seconds until Discord allows another request, when known. */
+  readonly retryAfter?: number;
+
+  constructor(message: string, status = 0, uncertain = false, retryAfter?: number) {
     super(message);
     this.name = "DiscordApiError";
+    this.status = status;
+    this.uncertain = uncertain;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -248,12 +252,12 @@ function responseError(response: Response, data: unknown, mutation: boolean): Di
 export function createDiscordEventsClient(
   token: string,
   options: {
-    fetch?: typeof fetch;
+    fetch?: Fetcher;
     timeoutMs?: number;
     sleep?: (milliseconds: number) => Promise<void>;
   } = {},
 ): DiscordEventsClient {
-  const request_fetch = options.fetch ?? globalThis.fetch;
+  const request_fetch: Fetcher = options.fetch ?? globalThis.fetch;
   const timeout_ms = options.timeoutMs ?? 15_000;
   const sleep =
     options.sleep ??

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import { decideAutonomousChatReply, type RecentDiscordMessage } from "./mod.ts";
 
 const NOW_MS = Date.parse("2026-06-11T20:00:00.000Z");
@@ -44,14 +44,14 @@ function decide(
   });
 }
 
-Deno.test("decideAutonomousChatReply skips when there is not enough recent human activity", () => {
+test("decideAutonomousChatReply skips when there is not enough recent human activity", () => {
   const decision = decide([message("m1", "u1", 4), message("m2", "u2", 3), message("m3", "u3", 2)]);
 
-  assertEquals(decision.shouldReply, false);
-  assertEquals(decision.reason, "only 3 recent human message(s)");
+  expect(decision.shouldReply).toStrictEqual(false);
+  expect(decision.reason).toStrictEqual("only 3 recent human message(s)");
 });
 
-Deno.test("decideAutonomousChatReply skips while Haru cooldown is active", () => {
+test("decideAutonomousChatReply skips while Haru cooldown is active", () => {
   const decision = decide([
     message("m1", "u1", 10),
     message("m2", "u2", 9),
@@ -62,11 +62,11 @@ Deno.test("decideAutonomousChatReply skips while Haru cooldown is active", () =>
     message("m7", "u6", 4),
   ]);
 
-  assertEquals(decision.shouldReply, false);
-  assertEquals(decision.reason, "cooldown active");
+  expect(decision.shouldReply).toStrictEqual(false);
+  expect(decision.reason).toStrictEqual("cooldown active");
 });
 
-Deno.test("decideAutonomousChatReply skips when nobody spoke after Haru", () => {
+test("decideAutonomousChatReply skips when nobody spoke after Haru", () => {
   const decision = decide(
     [
       message("m1", "u1", 55),
@@ -78,11 +78,11 @@ Deno.test("decideAutonomousChatReply skips when nobody spoke after Haru", () => 
     { activityWindowMs: 120 * 60_000 },
   );
 
-  assertEquals(decision.shouldReply, false);
-  assertEquals(decision.reason, "no human message after Haru");
+  expect(decision.shouldReply).toStrictEqual(false);
+  expect(decision.reason).toStrictEqual("no human message after Haru");
 });
 
-Deno.test("decideAutonomousChatReply skips when the random gate misses", () => {
+test("decideAutonomousChatReply skips when the random gate misses", () => {
   const decision = decide(
     [
       message("m1", "u1", 4),
@@ -93,11 +93,11 @@ Deno.test("decideAutonomousChatReply skips when the random gate misses", () => {
     { replyChance: 0.25, random: () => 0.9 },
   );
 
-  assertEquals(decision.shouldReply, false);
-  assertEquals(decision.reason, "random gate skipped");
+  expect(decision.shouldReply).toStrictEqual(false);
+  expect(decision.reason).toStrictEqual("random gate skipped");
 });
 
-Deno.test("decideAutonomousChatReply returns capped oldest-to-newest context when eligible", () => {
+test("decideAutonomousChatReply returns capped oldest-to-newest context when eligible", () => {
   const decision = decide(
     [
       message("m1", "u1", 5, "one"),
@@ -109,15 +109,12 @@ Deno.test("decideAutonomousChatReply returns capped oldest-to-newest context whe
     { maxContextMessages: 3 },
   );
 
-  assertEquals(decision.shouldReply, true);
-  assertEquals(decision.reason, "active conversation eligible");
-  assertEquals(
-    decision.contextMessages.map((context) => context.id),
-    ["m3", "m4", "m5"],
-  );
+  expect(decision.shouldReply).toStrictEqual(true);
+  expect(decision.reason).toStrictEqual("active conversation eligible");
+  expect(decision.contextMessages.map((context) => context.id)).toStrictEqual(["m3", "m4", "m5"]);
 });
 
-Deno.test("decideAutonomousChatReply excludes messages before an inactivity gap", () => {
+test("decideAutonomousChatReply excludes messages before an inactivity gap", () => {
   const decision = decide([
     message("stale-1", "u1", 45, "old topic"),
     message("m1", "u1", 8, "one"),
@@ -126,14 +123,16 @@ Deno.test("decideAutonomousChatReply excludes messages before an inactivity gap"
     message("m4", "u4", 2, "four"),
   ]);
 
-  assertEquals(decision.shouldReply, true);
-  assertEquals(
-    decision.contextMessages.map((context) => context.id),
-    ["m1", "m2", "m3", "m4"],
-  );
+  expect(decision.shouldReply).toStrictEqual(true);
+  expect(decision.contextMessages.map((context) => context.id)).toStrictEqual([
+    "m1",
+    "m2",
+    "m3",
+    "m4",
+  ]);
 });
 
-Deno.test("decideAutonomousChatReply honors a persisted context reset", () => {
+test("decideAutonomousChatReply honors a persisted context reset", () => {
   const decision = decide(
     [
       message("old-1", "u1", 8, "old topic"),
@@ -146,14 +145,16 @@ Deno.test("decideAutonomousChatReply honors a persisted context reset", () => {
     { resetAfterMs: NOW_MS - 5 * 60_000 },
   );
 
-  assertEquals(decision.shouldReply, true);
-  assertEquals(
-    decision.contextMessages.map((context) => context.id),
-    ["m1", "m2", "m3", "m4"],
-  );
+  expect(decision.shouldReply).toStrictEqual(true);
+  expect(decision.contextMessages.map((context) => context.id)).toStrictEqual([
+    "m1",
+    "m2",
+    "m3",
+    "m4",
+  ]);
 });
 
-Deno.test("autonomous participation shares cooldown with reactions and needs fresh humans", () => {
+test("autonomous participation shares cooldown with reactions and needs fresh humans", () => {
   const messages = [
     message("m1", "u1", 4),
     message("m2", "u2", 3),
@@ -166,58 +167,53 @@ Deno.test("autonomous participation shares cooldown with reactions and needs fre
     latestHumanTimestampMs: NOW_MS - 60_000,
     attemptedAt: NOW_MS - 60_000,
   };
-  assertEquals(
-    decide(messages, { lastParticipation: previous }).reason,
+  expect(decide(messages, { lastParticipation: previous }).reason).toStrictEqual(
     "participation cooldown active",
   );
-  assertEquals(
+  expect(
     decide(messages, {
       lastParticipation: { ...previous, attemptedAt: NOW_MS - 40 * 60_000 },
     }).reason,
-    "conversation already considered",
-  );
+  ).toStrictEqual("conversation already considered");
 });
 
-Deno.test(
-  "autonomous reaction targets are fresh humans visible in context without our reaction",
-  () => {
-    const decision = decide(
-      [
-        message("old", "u1", 8),
-        message("m1", "u1", 4),
-        message("m2", "u2", 3, "meme", { hasOwnReaction: true }),
-        message("other-bot", "bot2", 2.5, "ping", { authorBot: true }),
-        message("m3", "u3", 2),
-        message("m4", "u4", 1),
-      ],
-      {
-        maxContextMessages: 5,
-        lastParticipation: {
-          channelId: "channel",
-          latestHumanMessageId: "old",
-          latestHumanTimestampMs: NOW_MS - 8 * 60_000,
-          attemptedAt: NOW_MS - 40 * 60_000,
-        },
+test("autonomous reaction targets are fresh humans visible in context without our reaction", () => {
+  const decision = decide(
+    [
+      message("old", "u1", 8),
+      message("m1", "u1", 4),
+      message("m2", "u2", 3, "meme", { hasOwnReaction: true }),
+      message("other-bot", "bot2", 2.5, "ping", { authorBot: true }),
+      message("m3", "u3", 2),
+      message("m4", "u4", 1),
+    ],
+    {
+      maxContextMessages: 5,
+      lastParticipation: {
+        channelId: "channel",
+        latestHumanMessageId: "old",
+        latestHumanTimestampMs: NOW_MS - 8 * 60_000,
+        attemptedAt: NOW_MS - 40 * 60_000,
       },
-    );
-    assertEquals(decision.shouldReply, true);
-    assertEquals(decision.latestHumanMessage?.id, "m4");
-    assertEquals(decision.reactionMessageIds, ["m1", "m3", "m4"]);
-  },
-);
+    },
+  );
+  expect(decision.shouldReply).toStrictEqual(true);
+  expect(decision.latestHumanMessage?.id).toStrictEqual("m4");
+  expect(decision.reactionMessageIds).toStrictEqual(["m1", "m3", "m4"]);
+});
 
-Deno.test("bot messages and reactions never supply required human activity", () => {
+test("bot messages and reactions never supply required human activity", () => {
   const decision = decide([
     message("m1", "u1", 4, "meme", { hasOwnReaction: true }),
     message("m2", "haru", 3, "hi", { authorBot: true }),
     message("m3", "bot2", 2, "hi", { authorBot: true }),
     message("m4", "bot3", 1, "hi", { authorBot: true }),
   ]);
-  assertEquals(decision.shouldReply, false);
-  assertEquals(decision.reason, "only 1 recent human message(s)");
+  expect(decision.shouldReply).toStrictEqual(false);
+  expect(decision.reason).toStrictEqual("only 1 recent human message(s)");
 });
 
-Deno.test("same-millisecond snowflakes preserve the newest human watermark and target", () => {
+test("same-millisecond snowflakes preserve the newest human watermark and target", () => {
   const messages = [message("200", "u2", 1), message("100", "u1", 1)];
   const decision = decide(messages, {
     minHumanMessages: 1,
@@ -228,7 +224,7 @@ Deno.test("same-millisecond snowflakes preserve the newest human watermark and t
       attemptedAt: NOW_MS - 40 * 60_000,
     },
   });
-  assertEquals(decision.shouldReply, true);
-  assertEquals(decision.latestHumanMessage?.id, "200");
-  assertEquals(decision.reactionMessageIds, ["200"]);
+  expect(decision.shouldReply).toStrictEqual(true);
+  expect(decision.latestHumanMessage?.id).toStrictEqual("200");
+  expect(decision.reactionMessageIds).toStrictEqual(["200"]);
 });

@@ -709,6 +709,35 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
 - **Open:** guarding `Bun.fetch` and `Bun.dns.lookup` in the test preload. Revisit in slice 2, when
   link checks start using `Bun.dns.lookup`.
 
+### Slice 1 (done)
+
+- **17 test files converted** (the plan's "19" counted the two transport files from slice 2):
+  `retry`, `poll`, `stats/embed`, `reaction_gif`, `reactions`, `chat_context`,
+  `autonomous_chat/turns`, `autonomous_chat`, `discord_actions/time`, `discord`, `discord_events`,
+  `web_search`, `reaction_context`, `usage`, `config`, `ai_service`, `ai_service.tools`.
+- **Counts:**
+  - Bun runs 281 tests for these files, matching the baseline. With the 14 infrastructure tests,
+    that is 295.
+  - Deno still runs the other 16 files: 301 tests (54 steps), i.e. 355 testcases. 355 plus the
+    converted files' 288 Deno testcases is the 643 baseline.
+- **Method:** a one-off TypeScript-AST codemod (not committed) rewrote `Deno.test`, the five
+  assertion functions, `Deno.env.*` and the seven `t.step` groups. It refused anything it could not
+  rewrite safely. One `assertEquals` failure message (naming the loop case) was kept by comparing
+  `{ output_text, result }` instead of dropping it.
+- **Source changes:**
+  - `Deno.env.get` becomes `process.env` in `config.ts`, `ai_service.ts` and `usage.ts`.
+  - `usage.ts`: the Deno `--allow-sys` user-agent workaround is removed; the provider deadline is
+    injectable (`timeoutMs`), so its test takes 50 ms instead of 15 s.
+  - `DiscordApiError` uses plain fields instead of constructor parameter properties.
+  - `StorageService`, `ContextStorageService` and `isNewerHumanMessage` moved to
+    `src/types/storage.ts`; `storage.ts` re-exports them.
+- **New:**
+  - `src/types/fetch.ts`: the `Fetcher` type for injected fetchers.
+  - `test_support/fetch.ts`: `asFetch(stub)` for `globalThis.fetch` stubs, because Bun's
+    `typeof fetch` requires a `preconnect` method.
+- **Found:** Bun's types make `Response.json()` return `Promise<unknown>` (Deno's return `any`), so
+  `discord.ts` needed two type assertions. Expect more of these in later slices.
+
 ## Future work
 
 - Switch to stable `bun lint` when it ships.

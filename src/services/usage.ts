@@ -8,6 +8,7 @@ import {
 } from "@aws-sdk/client-cost-explorer";
 import { fromInstanceMetadata } from "@smithy/credential-provider-imds";
 import type { AppConfig } from "../config.ts";
+import type { Fetcher } from "../types/fetch.ts";
 
 export type UsageValue<T> = { ok: true; value: T } | { ok: false; reason: string };
 export interface TokenTotals {
@@ -32,7 +33,9 @@ export interface UsageService {
 }
 interface UsageDependencies {
   now?: () => Date;
-  fetch?: typeof fetch;
+  fetch?: Fetcher;
+  /** Shared deadline for all provider requests (default 15 s); tests use a short one. */
+  timeoutMs?: number;
   awsRequestHandler?: CostExplorerClientConfig["requestHandler"];
   awsSend?: (
     input: GetCostAndUsageCommandInput,
@@ -41,7 +44,7 @@ interface UsageDependencies {
 }
 
 const CACHE_MS = 5 * 60 * 1000;
-const TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 function number(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Invalid number");
@@ -70,7 +73,8 @@ async function available<T>(read: () => Promise<T>): Promise<UsageValue<T>> {
 
 export function createUsageService(config: AppConfig, deps: UsageDependencies = {}): UsageService {
   const now = deps.now ?? (() => new Date());
-  const fetcher = deps.fetch ?? fetch;
+  const fetcher: Fetcher = deps.fetch ?? fetch;
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   // Use env credentials locally and IMDSv2 on EC2 rather than the default
   // credential chain, which can invoke subprocesses or require credential files.
   const roleCredentials = fromInstanceMetadata({
@@ -81,17 +85,15 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
   const client = new CostExplorerClient({
     region: "us-east-1",
     maxAttempts: 2,
-    // The SDK's default agent reads node:os.release(), requiring Deno --allow-sys.
-    defaultUserAgentProvider: () => Promise.resolve([["weabot", "1"]]),
     requestHandler: deps.awsRequestHandler,
     credentials: () => {
-      const accessKeyId = Deno.env.get("AWS_ACCESS_KEY_ID");
-      const secretAccessKey = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+      const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+      const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
       if (accessKeyId && secretAccessKey) {
         return Promise.resolve({
           accessKeyId,
           secretAccessKey,
-          sessionToken: Deno.env.get("AWS_SESSION_TOKEN"),
+          sessionToken: process.env.AWS_SESSION_TOKEN,
         });
       }
       return roleCredentials();
@@ -190,7 +192,7 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
 
   async function load(start: Date, end: Date): Promise<MonthlyUsage> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const signal = controller.signal;
     const missing = { ok: false as const, reason: "OPENAI_ADMIN_KEY not configured" };
     try {

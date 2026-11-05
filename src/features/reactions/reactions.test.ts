@@ -1,4 +1,5 @@
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
+import { assert } from "../../../test_support/assert.ts";
 import {
   availableReactions,
   isAllowedReaction,
@@ -21,7 +22,7 @@ function context(guildId = "589723496473690132"): ReactionContext {
     ],
   };
 }
-Deno.test("server repertoire resolves reviewed IDs only within that server", () => {
+test("server repertoire resolves reviewed IDs only within that server", () => {
   assert(
     reactionChoices(context(), undefined, () => 0).some(
       (c) => c.emoji === "BocchiSip:1559742515698081933",
@@ -30,21 +31,21 @@ Deno.test("server repertoire resolves reviewed IDs only within that server", () 
   assert(availableReactions(context("782856078907277332")).every((c) => !c.emoji.includes(":")));
   assert(availableReactions(context("unknown")).every((c) => !c.emoji.includes(":")));
 });
-Deno.test("role restrictions, availability, and missing inventory choose fitting Unicode", () => {
+test("role restrictions, availability, and missing inventory choose fitting Unicode", () => {
   const c = context();
   c.emojis[0].available = false;
   c.emojis[1].roles = ["other"];
   c.emojis[2].roles = ["other"];
   const choices = reactionChoices(c, undefined, () => 0);
-  assertEquals(choices.find((c) => c.intent === "dry_amusement")?.emoji, "😅");
-  assertEquals(choices.find((c) => c.intent === "disapproval")?.emoji, "😒");
+  expect(choices.find((c) => c.intent === "dry_amusement")?.emoji).toStrictEqual("😅");
+  expect(choices.find((c) => c.intent === "disapproval")?.emoji).toStrictEqual("😒");
   c.emojis[1].roles = ["member"];
   assert(reactionChoices(c, undefined, () => 0).some((c) => c.emoji.startsWith("RyoDisgust:")));
 });
-Deno.test("no channel reaction permissions expose no expressions", () => {
-  assertEquals(reactionChoices({ ...context(), canReact: false }), []);
+test("no channel reaction permissions expose no expressions", () => {
+  expect(reactionChoices({ ...context(), canReact: false })).toStrictEqual([]);
 });
-Deno.test("variation excludes last expression within a meaning and never changes stance", () => {
+test("variation excludes last expression within a meaning and never changes stance", () => {
   const first = reactionChoices(context(), undefined, () => 0).find(
     (c) => c.intent === "appreciation",
   )!;
@@ -52,11 +53,11 @@ Deno.test("variation excludes last expression within a meaning and never changes
     (c) => c.intent === "appreciation",
   )!;
   assert(first.emoji !== next.emoji);
-  assertEquals(next.intent, first.intent);
+  expect(next.intent).toStrictEqual(first.intent);
   assert(!isAllowedReaction(next.emoji, "amusement", [next]));
-  assertEquals(reactionChoices(null, undefined, () => NaN).length, 6);
+  expect(reactionChoices(null, undefined, () => NaN).length).toStrictEqual(6);
 });
-Deno.test("a renamed reviewed ID keeps its meaning but an unreviewed same-name ID does not", () => {
+test("a renamed reviewed ID keeps its meaning but an unreviewed same-name ID does not", () => {
   const c = context();
   c.emojis[0].name = "SipRename";
   assert(availableReactions(c).some((c) => c.emoji === "SipRename:1559742515698081933"));

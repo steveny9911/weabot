@@ -5,94 +5,22 @@
  * Uses dependency injection pattern for testability.
  */
 
-import type { Mood } from "../types/bot.ts";
-import type {
-  AutonomousParticipationRecord,
-  ContextResetRecord,
-  DailyStats,
-  PollRecord,
-  VoteRecord,
+import {
+  type AutonomousParticipationRecord,
+  type ContextResetRecord,
+  type DailyStats,
+  isNewerHumanMessage,
+  type PollRecord,
+  type StorageService,
+  type VoteRecord,
 } from "../types/storage.ts";
 
-/** Storage service interface for dependency injection */
-export interface StorageService {
-  /** Record a user's vote */
-  recordVote(
-    channelId: string,
-    userId: string,
-    userName: string,
-    mood: Mood,
-    date: string,
-  ): Promise<void>;
-
-  /** Get a user's vote history (most recent first) */
-  getUserHistory(channelId: string, userId: string, limit?: number): Promise<VoteRecord[]>;
-
-  /** Get aggregated stats for a date range */
-  getStats(channelId: string, startDate: string, endDate: string): Promise<DailyStats[]>;
-
-  /** Get all votes for a specific date */
-  getVotesForDate(channelId: string, date: string): Promise<VoteRecord[]>;
-
-  /** Check if a user has consecutive "glue" votes */
-  getConsecutiveGlueCount(channelId: string, userId: string): Promise<number>;
-
-  /** Get all users who have hit the glue threshold */
-  getUsersAtRisk(channelId: string, threshold: number): Promise<VoteRecord[][]>;
-
-  /** Save a pending poll for later result collection */
-  savePendingPoll(poll: PollRecord): Promise<void>;
-
-  /** Get all polls that have expired but not yet collected */
-  getExpiredPolls(): Promise<PollRecord[]>;
-
-  /** Get all pending polls (not yet collected) */
-  getAllPendingPolls(): Promise<PollRecord[]>;
-
-  /** Mark a poll as collected */
-  markPollCollected(messageId: string): Promise<void>;
-
-  /** Persist the latest context reset for one Discord channel or thread. */
-  setContextReset(record: ContextResetRecord): Promise<void>;
-
-  /** Read the latest context reset for one Discord channel or thread. */
-  getContextReset(channelId: string): Promise<ContextResetRecord | null>;
-
-  /** Read the latest autonomous attempt for one Discord channel or thread. */
-  getAutonomousParticipation(channelId: string): Promise<AutonomousParticipationRecord | null>;
-
-  /** Atomically consume a new human message watermark and the channel cooldown. */
-  claimAutonomousParticipation(
-    record: AutonomousParticipationRecord,
-    cooldownMs: number,
-  ): Promise<boolean>;
-
-  /** Extend cooldown from completion without replacing a newer message claim. */
-  finishAutonomousParticipation(
-    channelId: string,
-    latestHumanMessageId: string,
-    finishedAt: number,
-    reactionEmoji?: string,
-  ): Promise<void>;
-}
-
-export type ContextStorageService = Pick<StorageService, "setContextReset" | "getContextReset">;
+// Re-exported for existing importers; the definitions live in src/types/storage.ts so that
+// code ported to Bun can use them without importing this Deno KV implementation.
+export { isNewerHumanMessage };
+export type { ContextStorageService, StorageService } from "../types/storage.ts";
 
 const MAX_PARTICIPATION_COMMIT_ATTEMPTS = 10;
-
-/** Fail closed when equal timestamps cannot establish a newer Discord message. */
-export function isNewerHumanMessage(
-  candidate: Pick<AutonomousParticipationRecord, "latestHumanMessageId" | "latestHumanTimestampMs">,
-  previous: Pick<AutonomousParticipationRecord, "latestHumanMessageId" | "latestHumanTimestampMs">,
-): boolean {
-  if (candidate.latestHumanMessageId === previous.latestHumanMessageId) return false;
-  if (candidate.latestHumanTimestampMs !== previous.latestHumanTimestampMs) {
-    return candidate.latestHumanTimestampMs > previous.latestHumanTimestampMs;
-  }
-  if (!/^\d+$/.test(candidate.latestHumanMessageId) || !/^\d+$/.test(previous.latestHumanMessageId))
-    return false;
-  return BigInt(candidate.latestHumanMessageId) > BigInt(previous.latestHumanMessageId);
-}
 
 /**
  * Creates a storage service backed by Deno KV.

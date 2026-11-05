@@ -4,8 +4,7 @@ import {
   selectActiveConversation,
 } from "../chat_context/mod.ts";
 import { conversationTurns, isIncompleteFragment } from "./turns.ts";
-import type { AutonomousParticipationRecord } from "../../types/storage.ts";
-import { isNewerHumanMessage } from "../../services/storage.ts";
+import { type AutonomousParticipationRecord, isNewerHumanMessage } from "../../types/storage.ts";
 
 export type { RecentDiscordMessage } from "../chat_context/mod.ts";
 

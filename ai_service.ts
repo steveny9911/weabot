@@ -693,14 +693,13 @@ export async function generateReplyFromMessages(
   messages: Array<Record<string, unknown>>,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   // Create a minimal config from environment for legacy callers
-  const web_search_api_key = Deno.env.get("BRAVE_SEARCH_API_KEY");
+  const web_search_api_key = process.env.BRAVE_SEARCH_API_KEY;
   const web_search_enabled =
-    (
-      Deno.env.get("WEB_SEARCH_ENABLED") ?? (web_search_api_key ? "true" : "false")
-    ).toLowerCase() !== "false";
-  const link_open_enabled = (Deno.env.get("LINK_OPEN_ENABLED") ?? "true").toLowerCase() !== "false";
-  const channel_ids_raw = Deno.env.get("CHANNEL_IDS");
-  const channel_id_single = Deno.env.get("CHANNEL_ID") ?? "";
+    (process.env.WEB_SEARCH_ENABLED ?? (web_search_api_key ? "true" : "false")).toLowerCase() !==
+    "false";
+  const link_open_enabled = (process.env.LINK_OPEN_ENABLED ?? "true").toLowerCase() !== "false";
+  const channel_ids_raw = process.env.CHANNEL_IDS;
+  const channel_id_single = process.env.CHANNEL_ID ?? "";
   const channel_ids = channel_ids_raw
     ? channel_ids_raw
         .split(",")
@@ -711,22 +710,22 @@ export async function generateReplyFromMessages(
       : [];
 
   const legacy_config: AppConfig = {
-    discordToken: Deno.env.get("DISCORD_TOKEN") ?? "",
-    channelId: Deno.env.get("CHANNEL_ID") ?? "",
+    discordToken: process.env.DISCORD_TOKEN ?? "",
+    channelId: process.env.CHANNEL_ID ?? "",
     channelIds: channel_ids.length > 0 ? channel_ids : [channel_id_single],
-    timeZone: Deno.env.get("TIME_ZONE") ?? "America/Los_Angeles",
+    timeZone: process.env.TIME_ZONE ?? "America/Los_Angeles",
     glueAlertThreshold: 7,
     aiEnabled: true,
-    openaiApiKey: Deno.env.get("OPENAI_API_KEY"),
+    openaiApiKey: process.env.OPENAI_API_KEY,
     aiRateLimitPerUser: 5,
     aiDailyTokenBudget: 10000000,
     aiMaxInputChars: 0,
-    aiEnableUwu: (Deno.env.get("ENABLE_UWU") ?? "true").toLowerCase() !== "false",
+    aiEnableUwu: (process.env.ENABLE_UWU ?? "true").toLowerCase() !== "false",
     aiContextMaxMessages: 40,
     aiContextInactivityMinutes: 20,
     webSearchEnabled: web_search_enabled,
     webSearchApiKey: web_search_api_key,
-    webSearchMaxResults: parseInt(Deno.env.get("WEB_SEARCH_MAX_RESULTS") ?? "3", 10),
+    webSearchMaxResults: parseInt(process.env.WEB_SEARCH_MAX_RESULTS ?? "3", 10),
     linkOpenEnabled: link_open_enabled,
     autonomousChatEnabled: false,
     autonomousChatChannelIds: channel_ids.length > 0 ? channel_ids : [channel_id_single],

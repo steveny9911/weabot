@@ -139,7 +139,7 @@ export function createDiscordClient(token: string): DiscordClient {
         return dmChannelResponse;
       }
 
-      const dmChannel = await dmChannelResponse.json();
+      const dmChannel = (await dmChannelResponse.json()) as { id: string };
       const channelId = dmChannel.id;
 
       // Then send the message to that channel
@@ -192,7 +192,7 @@ export function createDiscordClient(token: string): DiscordClient {
           await response.body?.cancel();
           return null;
         }
-        const data = await response.json();
+        const data = (await response.json()) as Record<string, unknown> | null;
         return data && typeof data === "object" && data.id === messageId
           ? oMapDiscordMessage(data)
           : null;

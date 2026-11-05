@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import {
   oMapDiscordMessage,
   oToAiContextMessage,
@@ -8,7 +8,7 @@ import {
 
 const START_MS = Date.parse("2026-08-27T12:00:00.000Z");
 
-Deno.test("Discord mapping ignores webhook activity and preserves our reaction summary", () => {
+test("Discord mapping ignores webhook activity and preserves our reaction summary", () => {
   const mapped = oMapDiscordMessage({
     id: "meme",
     content: "lol",
@@ -17,10 +17,12 @@ Deno.test("Discord mapping ignores webhook activity and preserves our reaction s
     webhook_id: "webhook",
     reactions: [{ emoji: { name: "😂" }, me: true }],
   });
-  assertEquals(mapped.authorBot, true);
-  assertEquals(mapped.hasOwnReaction, true);
-  assertEquals(oToAiContextMessage(mapped).hasOwnReaction, undefined);
-  assertEquals(oMapDiscordMessage({ reactions: [null, { me: false }] }).hasOwnReaction, undefined);
+  expect(mapped.authorBot).toStrictEqual(true);
+  expect(mapped.hasOwnReaction).toStrictEqual(true);
+  expect(oToAiContextMessage(mapped).hasOwnReaction).toStrictEqual(undefined);
+  expect(oMapDiscordMessage({ reactions: [null, { me: false }] }).hasOwnReaction).toStrictEqual(
+    undefined,
+  );
 });
 
 function message(id: string, minute: number): RecentDiscordMessage {
@@ -35,31 +37,25 @@ function message(id: string, minute: number): RecentDiscordMessage {
   };
 }
 
-Deno.test("selectActiveConversation keeps a sustained conversation up to its cap", () => {
+test("selectActiveConversation keeps a sustained conversation up to its cap", () => {
   const selected = selectActiveConversation(
     [message("m5", 5), message("m1", 1), message("m3", 3), message("m4", 4), message("m2", 2)],
     { maxMessages: 4, inactivityGapMs: 20 * 60_000 },
   );
 
-  assertEquals(
-    selected.map(({ id }) => id),
-    ["m2", "m3", "m4", "m5"],
-  );
+  expect(selected.map(({ id }) => id)).toStrictEqual(["m2", "m3", "m4", "m5"]);
 });
 
-Deno.test("selectActiveConversation starts over after a meaningful inactivity gap", () => {
+test("selectActiveConversation starts over after a meaningful inactivity gap", () => {
   const selected = selectActiveConversation(
     [message("old-1", 1), message("old-2", 2), message("new-1", 30), message("new-2", 31)],
     { maxMessages: 40, inactivityGapMs: 20 * 60_000 },
   );
 
-  assertEquals(
-    selected.map(({ id }) => id),
-    ["new-1", "new-2"],
-  );
+  expect(selected.map(({ id }) => id)).toStrictEqual(["new-1", "new-2"]);
 });
 
-Deno.test("selectActiveConversation excludes messages at or before reset cutoff", () => {
+test("selectActiveConversation excludes messages at or before reset cutoff", () => {
   const selected = selectActiveConversation(
     [message("old", 1), message("reset", 2), message("new", 3)],
     {
@@ -69,13 +65,10 @@ Deno.test("selectActiveConversation excludes messages at or before reset cutoff"
     },
   );
 
-  assertEquals(
-    selected.map(({ id }) => id),
-    ["new"],
-  );
+  expect(selected.map(({ id }) => id)).toStrictEqual(["new"]);
 });
 
-Deno.test("Discord reply mapping carries an explicit older reference into AI context", () => {
+test("Discord reply mapping carries an explicit older reference into AI context", () => {
   const mapped = oMapDiscordMessage({
     id: "reply-1",
     content: "that one",
@@ -89,7 +82,7 @@ Deno.test("Discord reply mapping carries an explicit older reference into AI con
     },
   });
 
-  assertEquals(oToAiContextMessage(mapped)["repliedTo"], {
+  expect(oToAiContextMessage(mapped)["repliedTo"]).toStrictEqual({
     id: "old-1",
     author: "bob",
     content: "the old topic",
@@ -98,68 +91,62 @@ Deno.test("Discord reply mapping carries an explicit older reference into AI con
   });
 });
 
-Deno.test(
-  "video and other non-image attachments stay out of direct and replied-to image context",
-  () => {
-    const attachments = [
-      { filename: "clip.mov", content_type: "video/quicktime" },
-      { filename: "misleading.png", content_type: "video/mp4" },
-      { filename: "clip.mp4" },
-      { filename: "unknown.bin" },
-      { filename: "diagram.svg", content_type: "image/svg+xml" },
-      { filename: "scan.tiff", content_type: "image/tiff" },
-      { filename: "document.pdf", content_type: "application/pdf" },
-      {},
-    ].map((metadata) => ({
-      url: "https://cdn.example.com/clip.mov?signature=example",
-      width: 640,
-      height: 360,
-      ...metadata,
-    }));
-    const mapped = oMapDiscordMessage({
-      content: "What about this?",
-      attachments,
-      referenced_message: { content: "the clip", attachments },
-    });
+test("video and other non-image attachments stay out of direct and replied-to image context", () => {
+  const attachments = [
+    { filename: "clip.mov", content_type: "video/quicktime" },
+    { filename: "misleading.png", content_type: "video/mp4" },
+    { filename: "clip.mp4" },
+    { filename: "unknown.bin" },
+    { filename: "diagram.svg", content_type: "image/svg+xml" },
+    { filename: "scan.tiff", content_type: "image/tiff" },
+    { filename: "document.pdf", content_type: "application/pdf" },
+    {},
+  ].map((metadata) => ({
+    url: "https://cdn.example.com/clip.mov?signature=example",
+    width: 640,
+    height: 360,
+    ...metadata,
+  }));
+  const mapped = oMapDiscordMessage({
+    content: "What about this?",
+    attachments,
+    referenced_message: { content: "the clip", attachments },
+  });
 
-    assertEquals(mapped.imageUrls, []);
-    assertEquals(mapped.referencedMessage?.imageUrls, []);
-    assertEquals(oToAiContextMessage(mapped).repliedTo, {
-      id: "",
-      author: "unknown",
-      content: "the clip",
-      imageUrls: [],
-      timestamp: null,
-    });
-  },
-);
+  expect(mapped.imageUrls).toStrictEqual([]);
+  expect(mapped.referencedMessage?.imageUrls).toStrictEqual([]);
+  expect(oToAiContextMessage(mapped).repliedTo).toStrictEqual({
+    id: "",
+    author: "unknown",
+    content: "the clip",
+    imageUrls: [],
+    timestamp: null,
+  });
+});
 
-Deno.test(
-  "supported images retain MIME, filename, and URL fallbacks without dimension guesses",
-  () => {
-    const mapped = oMapDiscordMessage({
-      attachments: [
-        { url: "https://cdn.example.com/opaque", content_type: "image/png" },
-        { url: "https://cdn.example.com/photo.JPG", filename: "photo.JPG" },
-        {
-          url: "https://cdn.example.com/photo.webp",
-          filename: "photo.webp",
-          content_type: "application/octet-stream",
-        },
-        { proxy_url: "https://cdn.example.com/photo.jpeg?signature=example" },
-        { url: "https://cdn.example.com/still.gif", content_type: "image/gif" },
-        { url: "https://cdn.example.com/normalized", content_type: " IMAGE/JPEG; charset=binary " },
-        { url: "not-a-url", width: 100, height: 100 },
-      ],
-    });
+test("supported images retain MIME, filename, and URL fallbacks without dimension guesses", () => {
+  const mapped = oMapDiscordMessage({
+    attachments: [
+      { url: "https://cdn.example.com/opaque", content_type: "image/png" },
+      { url: "https://cdn.example.com/photo.JPG", filename: "photo.JPG" },
+      {
+        url: "https://cdn.example.com/photo.webp",
+        filename: "photo.webp",
+        content_type: "application/octet-stream",
+      },
+      { proxy_url: "https://cdn.example.com/photo.jpeg?signature=example" },
+      { url: "https://cdn.example.com/still.gif", content_type: "image/gif" },
+      { url: "https://cdn.example.com/normalized", content_type: " IMAGE/JPEG; charset=binary " },
+      { url: "not-a-url", width: 100, height: 100 },
+    ],
+  });
 
-    assertEquals(mapped.imageUrls, [
-      "https://cdn.example.com/opaque",
-      "https://cdn.example.com/photo.JPG",
-      "https://cdn.example.com/photo.webp",
-      "https://cdn.example.com/photo.jpeg?signature=example",
-      "https://cdn.example.com/still.gif",
-      "https://cdn.example.com/normalized",
-    ]);
-  },
-);
+  expect(mapped.imageUrls).toStrictEqual([
+    "https://cdn.example.com/opaque",
+    "https://cdn.example.com/photo.JPG",
+    "https://cdn.example.com/photo.webp",
+    "https://cdn.example.com/photo.jpeg?signature=example",
+    "https://cdn.example.com/still.gif",
+    "https://cdn.example.com/normalized",
+  ]);
+});

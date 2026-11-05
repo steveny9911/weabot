@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import {
   aszHaruGreetingGifPool,
   bHasGreetingTrigger,
@@ -6,48 +6,40 @@ import {
   szSelectGreetingGifForReply,
 } from "./reaction_gif.ts";
 
-Deno.test("bHasGreetingTrigger matches hello/hi/ciallo case-insensitively", () => {
-  assertEquals(bHasGreetingTrigger("Hello there!"), true);
-  assertEquals(bHasGreetingTrigger("hI~"), true);
-  assertEquals(bHasGreetingTrigger("CIALLO!"), true);
-  assertEquals(bHasGreetingTrigger("just saying hi friend"), true);
+test("bHasGreetingTrigger matches hello/hi/ciallo case-insensitively", () => {
+  expect(bHasGreetingTrigger("Hello there!")).toStrictEqual(true);
+  expect(bHasGreetingTrigger("hI~")).toStrictEqual(true);
+  expect(bHasGreetingTrigger("CIALLO!")).toStrictEqual(true);
+  expect(bHasGreetingTrigger("just saying hi friend")).toStrictEqual(true);
 });
 
-Deno.test("bHasGreetingTrigger does not match non-greeting text", () => {
-  assertEquals(bHasGreetingTrigger("This is a test."), false);
-  assertEquals(bHasGreetingTrigger("A random message."), false);
-  assertEquals(bHasGreetingTrigger(""), false);
+test("bHasGreetingTrigger does not match non-greeting text", () => {
+  expect(bHasGreetingTrigger("This is a test.")).toStrictEqual(false);
+  expect(bHasGreetingTrigger("A random message.")).toStrictEqual(false);
+  expect(bHasGreetingTrigger("")).toStrictEqual(false);
 });
 
-Deno.test("szPickRandomGreetingGif always returns from fixed pool", () => {
+test("szPickRandomGreetingGif always returns from fixed pool", () => {
   const samples = [0, 0.15, 0.33, 0.55, 0.79, 0.99, -1, 1, Number.NaN];
   for (const sample of samples) {
     const picked = szPickRandomGreetingGif(() => sample);
-    assertEquals(aszHaruGreetingGifPool.includes(picked), true);
+    expect(aszHaruGreetingGifPool.includes(picked)).toStrictEqual(true);
   }
 });
 
-Deno.test("szPickRandomGreetingGif handles edge samples deterministically", () => {
-  assertEquals(
-    szPickRandomGreetingGif(() => 0),
-    aszHaruGreetingGifPool[0],
-  );
-  assertEquals(
-    szPickRandomGreetingGif(() => 0.999999),
+test("szPickRandomGreetingGif handles edge samples deterministically", () => {
+  expect(szPickRandomGreetingGif(() => 0)).toStrictEqual(aszHaruGreetingGifPool[0]);
+  expect(szPickRandomGreetingGif(() => 0.999999)).toStrictEqual(
     aszHaruGreetingGifPool[aszHaruGreetingGifPool.length - 1],
   );
-  assertEquals(
-    szPickRandomGreetingGif(() => 1),
+  expect(szPickRandomGreetingGif(() => 1)).toStrictEqual(
     aszHaruGreetingGifPool[aszHaruGreetingGifPool.length - 1],
   );
-  assertEquals(
-    szPickRandomGreetingGif(() => -0.25),
-    aszHaruGreetingGifPool[0],
-  );
+  expect(szPickRandomGreetingGif(() => -0.25)).toStrictEqual(aszHaruGreetingGifPool[0]);
 });
 
-Deno.test("szSelectGreetingGifForReply returns gif only for greeting replies", () => {
+test("szSelectGreetingGifForReply returns gif only for greeting replies", () => {
   const picked = szSelectGreetingGifForReply("Ciallo there!", () => 0);
-  assertEquals(picked, aszHaruGreetingGifPool[0]);
-  assertEquals(szSelectGreetingGifForReply("No greeting here."), null);
+  expect(picked).toStrictEqual(aszHaruGreetingGifPool[0]);
+  expect(szSelectGreetingGifForReply("No greeting here.")).toStrictEqual(null);
 });

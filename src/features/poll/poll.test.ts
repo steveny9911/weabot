@@ -6,23 +6,23 @@
  * just call it with inputs and verify the outputs.
  */
 
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import { buildMoodPollPayload } from "./payload.ts";
 import { DEFAULT_MOOD_CONFIG } from "../../types/bot.ts";
 
-Deno.test("buildMoodPollPayload constructs correct structure", () => {
+test("buildMoodPollPayload constructs correct structure", () => {
   const payload = buildMoodPollPayload("December 10, 2025", DEFAULT_MOOD_CONFIG);
 
-  assertEquals(payload.poll.question.text, "Mood (December 10, 2025)");
-  assertEquals(payload.poll.answers.length, 3);
-  assertEquals(payload.poll.answers[0].poll_media.text, "umazing");
-  assertEquals(payload.poll.answers[1].poll_media.text, "ok");
-  assertEquals(payload.poll.answers[2].poll_media.text, "glue");
-  assertEquals(payload.poll.duration, 24);
-  assertEquals(payload.poll.allow_multiselect, false);
+  expect(payload.poll.question.text).toStrictEqual("Mood (December 10, 2025)");
+  expect(payload.poll.answers.length).toStrictEqual(3);
+  expect(payload.poll.answers[0].poll_media.text).toStrictEqual("umazing");
+  expect(payload.poll.answers[1].poll_media.text).toStrictEqual("ok");
+  expect(payload.poll.answers[2].poll_media.text).toStrictEqual("glue");
+  expect(payload.poll.duration).toStrictEqual(24);
+  expect(payload.poll.allow_multiselect).toStrictEqual(false);
 });
 
-Deno.test("buildMoodPollPayload respects custom duration", () => {
+test("buildMoodPollPayload respects custom duration", () => {
   const customConfig = {
     moods: ["umazing", "ok", "glue"] as const,
     durationHours: 12,
@@ -31,10 +31,10 @@ Deno.test("buildMoodPollPayload respects custom duration", () => {
 
   const payload = buildMoodPollPayload("Test Date", customConfig);
 
-  assertEquals(payload.poll.duration, 12);
+  expect(payload.poll.duration).toStrictEqual(12);
 });
 
-Deno.test("buildMoodPollPayload respects multiselect setting", () => {
+test("buildMoodPollPayload respects multiselect setting", () => {
   const customConfig = {
     moods: ["umazing", "ok", "glue"] as const,
     durationHours: 24,
@@ -43,10 +43,10 @@ Deno.test("buildMoodPollPayload respects multiselect setting", () => {
 
   const payload = buildMoodPollPayload("Test Date", customConfig);
 
-  assertEquals(payload.poll.allow_multiselect, true);
+  expect(payload.poll.allow_multiselect).toStrictEqual(true);
 });
 
-Deno.test("buildMoodPollPayload handles custom mood options", () => {
+test("buildMoodPollPayload handles custom mood options", () => {
   const customConfig = {
     moods: ["umazing", "glue"] as const, // Only two moods
     durationHours: 24,
@@ -55,7 +55,7 @@ Deno.test("buildMoodPollPayload handles custom mood options", () => {
 
   const payload = buildMoodPollPayload("Test Date", customConfig);
 
-  assertEquals(payload.poll.answers.length, 2);
-  assertEquals(payload.poll.answers[0].poll_media.text, "umazing");
-  assertEquals(payload.poll.answers[1].poll_media.text, "glue");
+  expect(payload.poll.answers.length).toStrictEqual(2);
+  expect(payload.poll.answers[0].poll_media.text).toStrictEqual("umazing");
+  expect(payload.poll.answers[1].poll_media.text).toStrictEqual("glue");
 });

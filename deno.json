@@ -1,6 +1,27 @@
 {
   "nodeModulesDir": "none",
-  "exclude": ["node_modules/", "test_support/", "scripts/migration/"],
+  "exclude": [
+    "node_modules/",
+    "test_support/",
+    "scripts/migration/",
+    "src/utils/retry.test.ts",
+    "src/features/poll/poll.test.ts",
+    "src/features/stats/embed.test.ts",
+    "src/features/reaction_gif.test.ts",
+    "src/features/reactions/reactions.test.ts",
+    "src/features/chat_context/chat_context.test.ts",
+    "src/features/autonomous_chat/turns.test.ts",
+    "src/features/autonomous_chat/autonomous_chat.test.ts",
+    "src/features/discord_actions/time.test.ts",
+    "src/services/discord.test.ts",
+    "src/services/discord_events.test.ts",
+    "src/services/web_search.test.ts",
+    "src/services/reaction_context.test.ts",
+    "src/services/usage.test.ts",
+    "src/config.test.ts",
+    "ai_service.test.ts",
+    "ai_service.tools.test.ts"
+  ],
   "imports": {
     "@aws-sdk/client-cost-explorer": "npm:@aws-sdk/client-cost-explorer@3.1146.0",
     "@smithy/credential-provider-imds": "npm:@smithy/credential-provider-imds@4.5.2",

@@ -2,7 +2,24 @@
   "$comment": "Test files ported to Bun. null = expect the bun_expected count from docs/bun-migration-baseline.txt; a number = explicit count for new or rewritten files (record the reason in the plan's test-count table). Removed in slice 5.",
   "unit": {
     "test_support/assert.test.ts": 11,
-    "scripts/migration/gate.test.ts": 3
+    "scripts/migration/gate.test.ts": 3,
+    "src/utils/retry.test.ts": null,
+    "src/features/poll/poll.test.ts": null,
+    "src/features/stats/embed.test.ts": null,
+    "src/features/reaction_gif.test.ts": null,
+    "src/features/reactions/reactions.test.ts": null,
+    "src/features/chat_context/chat_context.test.ts": null,
+    "src/features/autonomous_chat/turns.test.ts": null,
+    "src/features/autonomous_chat/autonomous_chat.test.ts": null,
+    "src/features/discord_actions/time.test.ts": null,
+    "src/services/discord.test.ts": null,
+    "src/services/discord_events.test.ts": null,
+    "src/services/web_search.test.ts": null,
+    "src/services/reaction_context.test.ts": null,
+    "src/services/usage.test.ts": null,
+    "src/config.test.ts": null,
+    "ai_service.test.ts": null,
+    "ai_service.tools.test.ts": null
   },
   "transport": {}
 }
