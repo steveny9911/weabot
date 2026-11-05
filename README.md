@@ -75,7 +75,13 @@ bun install
 
 ### 5. Configure Environment Variables
 
-Create a `.env` file in the project root:
+Copy the sample, then fill in the required values:
+
+```bash
+cp .env.sample .env
+```
+
+`.env.sample` lists every setting, marks the required ones, and shows each default. The essentials:
 
 ```bash
 # Required
