@@ -10,7 +10,7 @@ const METADATA_HOSTS = new Set([
   "metadata.azure.internal",
 ]);
 
-export function szNormalizeHost(hostname: string): string {
+export function normalizeHost(hostname: string): string {
   let normalized = hostname.trim().toLowerCase().replace(/\.+$/, "");
   if (normalized.startsWith("[") && normalized.endsWith("]")) {
     normalized = normalized.slice(1, -1);
@@ -33,7 +33,7 @@ function aiParseIpv4(hostname: string): number[] | null {
   return out;
 }
 
-function bIsBlockedIpv4(octets: number[]): boolean {
+function isBlockedIpv4(octets: number[]): boolean {
   const [a, b, c] = octets;
 
   if (a === 0) return true; // 0.0.0.0/8
@@ -56,43 +56,43 @@ function bIsBlockedIpv4(octets: number[]): boolean {
 
 function aiParseIpv6(hostname: string): number[] | null {
   let host = hostname.toLowerCase();
-  const zone_idx = host.indexOf("%");
-  if (zone_idx >= 0) host = host.slice(0, zone_idx);
+  const zoneIdx = host.indexOf("%");
+  if (zoneIdx >= 0) host = host.slice(0, zoneIdx);
   if (!host.includes(":")) return null;
 
   // Convert trailing IPv4 into 2 hextets if present.
   if (host.includes(".")) {
-    const last_colon = host.lastIndexOf(":");
-    if (last_colon < 0) return null;
-    const ipv4_tail = host.slice(last_colon + 1);
-    const octets = aiParseIpv4(ipv4_tail);
+    const lastColon = host.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    const ipv4Tail = host.slice(lastColon + 1);
+    const octets = aiParseIpv4(ipv4Tail);
     if (!octets) return null;
     const h1 = ((octets[0] << 8) | octets[1]).toString(16);
     const h2 = ((octets[2] << 8) | octets[3]).toString(16);
-    host = `${host.slice(0, last_colon)}:${h1}:${h2}`;
+    host = `${host.slice(0, lastColon)}:${h1}:${h2}`;
   }
 
   const halves = host.split("::");
   if (halves.length > 2) return null;
 
-  const left_raw = halves[0] ? halves[0].split(":").filter(Boolean) : [];
-  const right_raw = halves.length === 2 && halves[1] ? halves[1].split(":").filter(Boolean) : [];
+  const leftRaw = halves[0] ? halves[0].split(":").filter(Boolean) : [];
+  const rightRaw = halves.length === 2 && halves[1] ? halves[1].split(":").filter(Boolean) : [];
 
-  const parse_h16 = (s: string): number | null => {
+  const parseH16 = (s: string): number | null => {
     if (!/^[0-9a-f]{1,4}$/.test(s)) return null;
     return Number.parseInt(s, 16);
   };
 
   const left: number[] = [];
-  for (const seg of left_raw) {
-    const n = parse_h16(seg);
+  for (const seg of leftRaw) {
+    const n = parseH16(seg);
     if (n === null) return null;
     left.push(n);
   }
 
   const right: number[] = [];
-  for (const seg of right_raw) {
-    const n = parse_h16(seg);
+  for (const seg of rightRaw) {
+    const n = parseH16(seg);
     if (n === null) return null;
     right.push(n);
   }
@@ -116,13 +116,13 @@ function aiParseIpv6(hostname: string): number[] | null {
   return bytes;
 }
 
-function bIsBlockedIpv6(bytes: number[]): boolean {
+function isBlockedIpv6(bytes: number[]): boolean {
   // Only native global unicast and validated IPv4-mapped addresses are allowed.
   // This also excludes translation/tunnel prefixes, deprecated site-local space,
   // unspecified/compatible IPv4, and future reserved allocations.
   const mapped =
     bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
-  if (mapped) return bIsBlockedIpv4(bytes.slice(12));
+  if (mapped) return isBlockedIpv4(bytes.slice(12));
   if ((bytes[0] & 0xe0) !== 0x20) return true; // outside 2000::/3
   if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] < 2) return true; // 2001::/23
   if (bytes[0] === 0x20 && bytes[1] === 0x02) return true; // 6to4
@@ -135,18 +135,18 @@ function bIsBlockedIpv6(bytes: number[]): boolean {
   return false;
 }
 
-export function bIsBlockedHost(url: URL): boolean {
-  const host = szNormalizeHost(url.hostname);
+export function isBlockedHost(url: URL): boolean {
+  const host = normalizeHost(url.hostname);
   if (!host) return true;
 
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
   if (METADATA_HOSTS.has(host)) return true;
 
   const ipv4 = aiParseIpv4(host);
-  if (ipv4) return bIsBlockedIpv4(ipv4);
+  if (ipv4) return isBlockedIpv4(ipv4);
 
   const ipv6 = aiParseIpv6(host);
-  if (ipv6) return bIsBlockedIpv6(ipv6);
+  if (ipv6) return isBlockedIpv6(ipv6);
 
   return false;
 }
@@ -215,7 +215,7 @@ export async function requestPinned(
   // A zone id ("fe80::1%eth0") is not a valid URL host, so the swap below would be ignored.
   if (!family || address.includes("%")) throw new BlockedDestinationError();
   signal?.throwIfAborted();
-  const hostname = szNormalizeHost(url.hostname);
+  const hostname = normalizeHost(url.hostname);
   // Only the socket destination changes. The Host header and the TLS server
   // name keep the original identity, and the hostname is never resolved again.
   const target = new URL(url.href);
@@ -288,10 +288,10 @@ export function createPublicFetch(
       !["http:", "https:"].includes(url.protocol) ||
       url.username ||
       url.password ||
-      bIsBlockedHost(url)
+      isBlockedHost(url)
     )
       throw new BlockedDestinationError();
-    const hostname = szNormalizeHost(url.hostname);
+    const hostname = normalizeHost(url.hostname);
     const signal = init.signal ?? undefined;
     signal?.throwIfAborted();
     const addresses = isIP(hostname) ? [hostname] : await resolve(hostname, signal);
@@ -302,8 +302,8 @@ export function createPublicFetch(
         const family = isIP(address);
         if (!family) return true;
         return family === 4
-          ? bIsBlockedIpv4(aiParseIpv4(address)!)
-          : bIsBlockedIpv6(aiParseIpv6(address)!);
+          ? isBlockedIpv4(aiParseIpv4(address)!)
+          : isBlockedIpv6(aiParseIpv6(address)!);
       })
     )
       throw new BlockedDestinationError();

@@ -41,7 +41,7 @@ export async function fetchWithRetry(
   options?: RetryOptions,
 ): Promise<Response> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  let last_error: Error | null = null;
+  let lastError: Error | null = null;
   let delay = opts.initialDelayMs;
 
   for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
@@ -55,11 +55,11 @@ export async function fetchWithRetry(
 
       // Handle rate limiting with Retry-After header
       if (response.status === 429) {
-        const retry_after = response.headers.get("Retry-After");
-        if (retry_after) {
-          const retry_delay_sec = parseInt(retry_after, 10);
-          if (!isNaN(retry_delay_sec)) {
-            delay = Math.min(retry_delay_sec * 1000, opts.maxDelayMs);
+        const retryAfter = response.headers.get("Retry-After");
+        if (retryAfter) {
+          const retryDelaySec = parseInt(retryAfter, 10);
+          if (!isNaN(retryDelaySec)) {
+            delay = Math.min(retryDelaySec * 1000, opts.maxDelayMs);
           }
         }
       }
@@ -76,16 +76,16 @@ export async function fetchWithRetry(
         return response;
       }
     } catch (error) {
-      last_error = error instanceof Error ? error : new Error(String(error));
+      lastError = error instanceof Error ? error : new Error(String(error));
 
       if (attempt < opts.maxRetries) {
         console.warn(
-          `[RETRY] Request error: ${last_error.message}, attempt ${attempt + 1}/${
+          `[RETRY] Request error: ${lastError.message}, attempt ${attempt + 1}/${
             opts.maxRetries + 1
           }, retrying in ${delay}ms`,
         );
       } else {
-        throw last_error;
+        throw lastError;
       }
     }
 
@@ -96,5 +96,5 @@ export async function fetchWithRetry(
     delay = Math.min(delay * opts.backoffMultiplier, opts.maxDelayMs);
   }
 
-  throw last_error ?? new Error("Retry failed with no error captured");
+  throw lastError ?? new Error("Retry failed with no error captured");
 }

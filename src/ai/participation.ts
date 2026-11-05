@@ -7,7 +7,7 @@ import {
   type ReactionChoice,
   type ReactionIntent,
 } from "../features/reactions.ts";
-import { szExtractResponseText } from "./responses.ts";
+import { extractResponseText } from "./responses.ts";
 import type { AutonomousParticipation } from "./types.ts";
 
 export const MAX_AUTONOMOUS_REPLY_CHARS = 280;
@@ -35,7 +35,7 @@ export const AUTONOMOUS_PARTICIPATION_FORMAT = {
 } as const;
 
 /** Structured participation fails closed without generating substitute chatter. */
-export function oParseParticipation(
+export function parseParticipation(
   data: Record<string, unknown>,
   allowedMessageIds: Set<string>,
   choices: ReactionChoice[],
@@ -65,7 +65,7 @@ export function oParseParticipation(
         return silent;
     }
   }
-  const text = szExtractResponseText(data);
+  const text = extractResponseText(data);
   if (!text) return silent;
   try {
     const parsed: unknown = JSON.parse(text);

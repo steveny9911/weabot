@@ -36,7 +36,7 @@ const event: DiscordScheduledEvent = {
   scheduled_end_time: "2099-01-01T06:00:00.000Z",
   status: 1,
 };
-const event_payload: ScheduledEventPayload = {
+const eventPayload: ScheduledEventPayload = {
   name: event.name,
   privacy_level: 2,
   entity_type: 2,
@@ -44,7 +44,7 @@ const event_payload: ScheduledEventPayload = {
   scheduled_start_time: event.scheduled_start_time,
   scheduled_end_time: event.scheduled_end_time!,
 };
-const invite_payload = { max_age: 3600, max_uses: 5, temporary: false, unique: true };
+const invitePayload = { max_age: 3600, max_uses: 5, temporary: false, unique: true };
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
@@ -87,8 +87,8 @@ test("Discord events client reads typed guild, member, channels, and events", as
 
 test("Discord event and invite POSTs preserve payloads and encode audit reasons", async () => {
   const requests: { path: string; payload: unknown; reason: string | null }[] = [];
-  const external_payload: ScheduledEventPayload = {
-    ...event_payload,
+  const externalPayload: ScheduledEventPayload = {
+    ...eventPayload,
     entity_type: 3,
     channel_id: null,
     entity_metadata: { location: "Board game café" },
@@ -111,22 +111,22 @@ test("Discord event and invite POSTs preserve payloads and encode audit reasons"
     }),
   });
   expect(
-    await client.createScheduledEvent("guild", event_payload, "Requested by café user"),
+    await client.createScheduledEvent("guild", eventPayload, "Requested by café user"),
   ).toStrictEqual({
     ...event,
-    ...event_payload,
+    ...eventPayload,
   });
-  const external = await client.createScheduledEvent("guild", external_payload);
+  const external = await client.createScheduledEvent("guild", externalPayload);
   expect(external.entity_metadata).toStrictEqual({ location: "Board game café" });
-  expect((await client.createInvite("voice", invite_payload)).code).toStrictEqual("abc-DEF_123");
+  expect((await client.createInvite("voice", invitePayload)).code).toStrictEqual("abc-DEF_123");
   expect(requests).toStrictEqual([
     {
       path: "/api/v10/guilds/guild/scheduled-events",
-      payload: event_payload,
+      payload: eventPayload,
       reason: encodeURIComponent("Requested by café user"),
     },
-    { path: "/api/v10/guilds/guild/scheduled-events", payload: external_payload, reason: null },
-    { path: "/api/v10/channels/voice/invites", payload: invite_payload, reason: null },
+    { path: "/api/v10/guilds/guild/scheduled-events", payload: externalPayload, reason: null },
+    { path: "/api/v10/channels/voice/invites", payload: invitePayload, reason: null },
   ]);
 });
 
@@ -165,13 +165,13 @@ describe("Discord cancellation requires an exact canceled receipt", () => {
     { label: "wrong guild", body: { ...event, status: 4, guild_id: "other" } },
     { label: "incomplete", body: { id: "event", guild_id: "guild", status: 4 } },
   ];
-  for (const test_case of cases) {
-    test(test_case.label, async () => {
+  for (const testCase of cases) {
+    test(testCase.label, async () => {
       let count = 0;
       const client = createDiscordEventsClient("fake-token", {
         fetch: fetchMock(() => {
           count++;
-          return jsonResponse({ ...test_case.body, description: "secret" });
+          return jsonResponse({ ...testCase.body, description: "secret" });
         }),
       });
       const error = await rejects(
@@ -212,7 +212,7 @@ describe("Discord single event reads reject another event or guild", () => {
 });
 
 describe("ambiguous mutations are never retried or reported as definite failure", () => {
-  const failure_cases = [
+  const failureCases = [
     {
       label: "server error",
       response: () => jsonResponse({ message: "secret" }, 503),
@@ -229,7 +229,7 @@ describe("ambiguous mutations are never retried or reported as definite failure"
       status: 0,
     },
   ];
-  for (const failure of failure_cases) {
+  for (const failure of failureCases) {
     for (const kind of ["event", "invite", "cancel"]) {
       test(`${kind}: ${failure.label}`, async () => {
         let count = 0;
@@ -242,9 +242,9 @@ describe("ambiguous mutations are never retried or reported as definite failure"
         const error = await rejects(
           () =>
             kind === "event"
-              ? client.createScheduledEvent("guild", event_payload)
+              ? client.createScheduledEvent("guild", eventPayload)
               : kind === "invite"
-                ? client.createInvite("voice", invite_payload)
+                ? client.createInvite("voice", invitePayload)
                 : client.cancelScheduledEvent("guild", "event"),
           DiscordApiError,
         );
@@ -273,7 +273,7 @@ describe("Discord 429 and client errors are definite failures without retries", 
         const error = await rejects(
           () =>
             kind === "invite"
-              ? client.createInvite("voice", invite_payload)
+              ? client.createInvite("voice", invitePayload)
               : client.cancelScheduledEvent("guild", "event"),
           DiscordApiError,
         );
@@ -296,7 +296,7 @@ test("Discord rate limit header survives a non-JSON error response", async () =>
       () => new Response("too many requests", { status: 429, headers: { "Retry-After": "1.5" } }),
     ),
   });
-  const error = await rejects(() => client.createInvite("voice", invite_payload), DiscordApiError);
+  const error = await rejects(() => client.createInvite("voice", invitePayload), DiscordApiError);
   expect(error.uncertain).toStrictEqual(false);
   expect(error.retryAfter).toStrictEqual(1.5);
 });
@@ -367,13 +367,13 @@ test("Discord read retries stop after two waits and preserve the final safe erro
 });
 
 describe("Discord reads do not retry long, missing, or invalid rate limit delays", () => {
-  for (const retry_after of [15.001, undefined, -1, "1", null]) {
-    test(String(retry_after), async () => {
+  for (const retryAfter of [15.001, undefined, -1, "1", null]) {
+    test(String(retryAfter), async () => {
       let count = 0;
       const client = createDiscordEventsClient("fake-token", {
         fetch: fetchMock(() => {
           count++;
-          return jsonResponse({ retry_after }, 429);
+          return jsonResponse({ retry_after: retryAfter }, 429);
         }),
         sleep: () => {
           throw new Error("Must not wait or retry");
@@ -434,18 +434,18 @@ test("Discord request timeout aborts transport and marks only mutation uncertain
         }),
     ),
   });
-  const mutation_error = await rejects(
-    () => client.createScheduledEvent("guild", event_payload),
+  const mutationError = await rejects(
+    () => client.createScheduledEvent("guild", eventPayload),
     DiscordApiError,
   );
-  expect(mutation_error.uncertain).toStrictEqual(true);
-  const cancel_error = await rejects(
+  expect(mutationError.uncertain).toStrictEqual(true);
+  const cancelError = await rejects(
     () => client.cancelScheduledEvent("guild", "event"),
     DiscordApiError,
   );
-  expect(cancel_error.uncertain).toStrictEqual(true);
-  const read_error = await rejects(() => client.getGuild("guild"), DiscordApiError);
-  expect(read_error.uncertain).toStrictEqual(false);
+  expect(cancelError.uncertain).toStrictEqual(true);
+  const readError = await rejects(() => client.getGuild("guild"), DiscordApiError);
+  expect(readError.uncertain).toStrictEqual(false);
   expect(count).toStrictEqual(3);
 });
 
@@ -458,22 +458,22 @@ test("Discord malformed permission responses fail closed", async () => {
 });
 
 test("Discord lists older events with a nullable creator id", async () => {
-  const old_event = { ...event, creator_id: null };
+  const oldEvent = { ...event, creator_id: null };
   const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() => jsonResponse([old_event])),
+    fetch: fetchMock(() => jsonResponse([oldEvent])),
   });
-  expect(await client.listScheduledEvents("guild")).toStrictEqual([old_event]);
+  expect(await client.listScheduledEvents("guild")).toStrictEqual([oldEvent]);
 });
 
 test("Discord event reads retain recurring series metadata for action validation", async () => {
-  const recurring_event = {
+  const recurringEvent = {
     ...event,
     recurrence_rule: { frequency: 2, interval: 1, by_weekday: [5] },
   };
   const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() => jsonResponse(recurring_event)),
+    fetch: fetchMock(() => jsonResponse(recurringEvent)),
   });
-  expect(await client.getScheduledEvent("guild", "event")).toStrictEqual(recurring_event);
+  expect(await client.getScheduledEvent("guild", "event")).toStrictEqual(recurringEvent);
 });
 
 function overwrite(id: string, type: number, allow = 0n, deny = 0n) {
@@ -521,14 +521,14 @@ test("member overwrite wins over role permissions and overwrites", () => {
 });
 
 test("active timeout is applied after channel overwrites and expires normally", () => {
-  const timed_out: DiscordMember = {
+  const timedOut: DiscordMember = {
     ...member,
     communication_disabled_until: "2099-01-01T00:00:00Z",
   };
   const allowed = P.VIEW_CHANNEL | P.READ_MESSAGE_HISTORY;
-  expect(getGuildPermissions(guild, timed_out)).toStrictEqual(allowed);
+  expect(getGuildPermissions(guild, timedOut)).toStrictEqual(allowed);
   expect(
-    getChannelPermissions(guild, timed_out, {
+    getChannelPermissions(guild, timedOut, {
       ...channel,
       permission_overwrites: [overwrite("member", 1, P.CREATE_EVENTS | P.CREATE_INSTANT_INVITE)],
     }),
@@ -543,14 +543,14 @@ test("owner and administrator bypass overwrites and timeout", () => {
     { user: { id: "owner" }, roles: [] },
     { user: { id: "admin-member" }, roles: ["admin"] },
   ]) {
-    const timed_out = { ...privileged, communication_disabled_until: "2099-01-01T00:00:00Z" };
-    const all_needed = P.CREATE_EVENTS | P.CREATE_INSTANT_INVITE | P.MANAGE_CHANNELS | P.CONNECT;
-    expect(getGuildPermissions(guild, timed_out) & all_needed).toStrictEqual(all_needed);
+    const timedOut = { ...privileged, communication_disabled_until: "2099-01-01T00:00:00Z" };
+    const allNeeded = P.CREATE_EVENTS | P.CREATE_INSTANT_INVITE | P.MANAGE_CHANNELS | P.CONNECT;
+    expect(getGuildPermissions(guild, timedOut) & allNeeded).toStrictEqual(allNeeded);
     expect(
-      getChannelPermissions(guild, timed_out, {
+      getChannelPermissions(guild, timedOut, {
         ...channel,
-        permission_overwrites: [overwrite("guild", 0, 0n, all_needed)],
-      }) & all_needed,
-    ).toStrictEqual(all_needed);
+        permission_overwrites: [overwrite("guild", 0, 0n, allNeeded)],
+      }) & allNeeded,
+    ).toStrictEqual(allNeeded);
   }
 });

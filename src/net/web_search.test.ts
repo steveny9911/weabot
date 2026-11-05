@@ -7,7 +7,7 @@ import { asFetch } from "../../tests/support/fetch.ts";
 import {
   createWebSearchService,
   formatSearchResultsForContext,
-  szExtractAutoSearchQuery,
+  extractAutoSearchQuery,
 } from "./web_search.ts";
 import type { AppConfig } from "../config.ts";
 
@@ -97,37 +97,37 @@ function mockFetchRaw(
 // Auto-search parsing
 // =============================================================================
 
-test("szExtractAutoSearchQuery returns query for factual question", () => {
-  const query = szExtractAutoSearchQuery("<@123> what is deno deploy?");
+test("extractAutoSearchQuery returns query for factual question", () => {
+  const query = extractAutoSearchQuery("<@123> what is deno deploy?");
   expect(query).toStrictEqual("what is deno deploy?");
 });
 
-test("szExtractAutoSearchQuery ignores small talk", () => {
-  const query = szExtractAutoSearchQuery("<@123> how are you?");
+test("extractAutoSearchQuery ignores small talk", () => {
+  const query = extractAutoSearchQuery("<@123> how are you?");
   expect(query).toStrictEqual(null);
 });
 
-test("szExtractAutoSearchQuery ignores explicit search command", () => {
-  const query = szExtractAutoSearchQuery("<@123> \\search deno deploy");
+test("extractAutoSearchQuery ignores explicit search command", () => {
+  const query = extractAutoSearchQuery("<@123> \\search deno deploy");
   expect(query).toStrictEqual(null);
 });
 
-test("szExtractAutoSearchQuery ignores conversational confusion", () => {
-  const query = szExtractAutoSearchQuery("<@123> what are you talking about?");
+test("extractAutoSearchQuery ignores conversational confusion", () => {
+  const query = extractAutoSearchQuery("<@123> what are you talking about?");
   expect(query).toStrictEqual(null);
 });
 
-test("szExtractAutoSearchQuery ignores empty or command-like input", () => {
-  expect(szExtractAutoSearchQuery(undefined)).toStrictEqual(null);
-  expect(szExtractAutoSearchQuery("<@123>")).toStrictEqual(null);
-  expect(szExtractAutoSearchQuery("<@123> search: deno")).toStrictEqual(null);
-  expect(szExtractAutoSearchQuery("<@123> \\reset")).toStrictEqual(null);
-  expect(szExtractAutoSearchQuery("<@123> tell me about deno")).toStrictEqual(null);
+test("extractAutoSearchQuery ignores empty or command-like input", () => {
+  expect(extractAutoSearchQuery(undefined)).toStrictEqual(null);
+  expect(extractAutoSearchQuery("<@123>")).toStrictEqual(null);
+  expect(extractAutoSearchQuery("<@123> search: deno")).toStrictEqual(null);
+  expect(extractAutoSearchQuery("<@123> \\reset")).toStrictEqual(null);
+  expect(extractAutoSearchQuery("<@123> tell me about deno")).toStrictEqual(null);
 });
 
-test("szExtractAutoSearchQuery ignores subjective prompts", () => {
-  expect(szExtractAutoSearchQuery("<@123> what do you think about this?")).toStrictEqual(null);
-  expect(szExtractAutoSearchQuery("<@123> should I buy this laptop?")).toStrictEqual(null);
+test("extractAutoSearchQuery ignores subjective prompts", () => {
+  expect(extractAutoSearchQuery("<@123> what do you think about this?")).toStrictEqual(null);
+  expect(extractAutoSearchQuery("<@123> should I buy this laptop?")).toStrictEqual(null);
 });
 
 // =============================================================================
@@ -310,16 +310,16 @@ test("web search maps missing title/description to empty strings", async () => {
 
 test("web search returns error on non-ok response", async () => {
   const mock = mockFetch({ message: "upstream error" }, 500);
-  const original_set_timeout = globalThis.setTimeout;
-  const original_clear_timeout = globalThis.clearTimeout;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
 
-  globalThis.setTimeout = new Proxy(original_set_timeout, {
+  globalThis.setTimeout = new Proxy(originalSetTimeout, {
     apply(_target, _thisArg, [handler, _timeout, ...args]) {
       if (typeof handler === "function") handler(...args);
       return 0;
     },
   });
-  globalThis.clearTimeout = new Proxy(original_clear_timeout, { apply() {} });
+  globalThis.clearTimeout = new Proxy(originalClearTimeout, { apply() {} });
 
   try {
     const service = createWebSearchService(createMockConfig());
@@ -330,8 +330,8 @@ test("web search returns error on non-ok response", async () => {
     }
   } finally {
     mock.restore();
-    globalThis.setTimeout = original_set_timeout;
-    globalThis.clearTimeout = original_clear_timeout;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
   }
 });
 

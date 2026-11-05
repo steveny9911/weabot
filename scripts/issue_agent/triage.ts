@@ -89,11 +89,11 @@ function triageIssue(issue: GhIssue): TriageResult {
     };
   }
 
-  const bug_like = isLikelyBug(lower);
-  const feature_like = isLikelyFeature(lower);
-  const body_len = (issue.body ?? "").trim().length;
+  const bugLike = isLikelyBug(lower);
+  const featureLike = isLikelyFeature(lower);
+  const bodyLen = (issue.body ?? "").trim().length;
 
-  if (bug_like) {
+  if (bugLike) {
     const checks = [
       hasReproSteps(combined),
       hasExpected(combined),
@@ -102,7 +102,7 @@ function triageIssue(issue: GhIssue): TriageResult {
       hasEvidence(combined),
     ];
     const score = checks.filter(Boolean).length;
-    if (score < 2 || body_len < 40) {
+    if (score < 2 || bodyLen < 40) {
       return {
         decision: "needs-info",
         reason: "missing-details-bug",
@@ -117,8 +117,8 @@ function triageIssue(issue: GhIssue): TriageResult {
     }
   }
 
-  if (feature_like) {
-    if (!hasFeatureUseCase(combined) || !hasAcceptanceCriteria(combined) || body_len < 40) {
+  if (featureLike) {
+    if (!hasFeatureUseCase(combined) || !hasAcceptanceCriteria(combined) || bodyLen < 40) {
       return {
         decision: "needs-info",
         reason: "missing-details-feature",
@@ -132,7 +132,7 @@ function triageIssue(issue: GhIssue): TriageResult {
     }
   }
 
-  if (!bug_like && !feature_like && body_len < 30) {
+  if (!bugLike && !featureLike && bodyLen < 30) {
     return {
       decision: "needs-info",
       reason: "missing-details-feature",
@@ -206,28 +206,28 @@ export async function runTriage(cwd = process.cwd()): Promise<void> {
     reviewed++;
     const latest = findLatestDecisionComment(issue, actor);
 
-    const should_retriage = !latest || issueUpdatedAfter(issue.updatedAt, latest.at);
-    if (!should_retriage) {
+    const shouldRetriage = !latest || issueUpdatedAfter(issue.updatedAt, latest.at);
+    if (!shouldRetriage) {
       continue;
     }
 
     const result = triageIssue(issue);
-    const target_label = toStateLabel(result.decision);
-    const current_state = issue.labels.find(
+    const targetLabel = toStateLabel(result.decision);
+    const currentState = issue.labels.find(
       (l) =>
         l.name === "agent:accepted" || l.name === "agent:needs-info" || l.name === "agent:rejected",
     )?.name;
 
-    const comment_body = formatDecisionComment(result);
-    const decision_changed =
+    const commentBody = formatDecisionComment(result);
+    const decisionChanged =
       !latest || latest.decision !== result.decision || latest.reason !== result.reason;
 
-    if (decision_changed || issueUpdatedAfter(issue.updatedAt, latest?.at ?? "")) {
-      await commentOnIssue(issue.number, comment_body, cwd);
+    if (decisionChanged || issueUpdatedAfter(issue.updatedAt, latest?.at ?? "")) {
+      await commentOnIssue(issue.number, commentBody, cwd);
     }
 
-    if (current_state !== target_label) {
-      await setIssueStateLabel(issue, target_label, cwd);
+    if (currentState !== targetLabel) {
+      await setIssueStateLabel(issue, targetLabel, cwd);
     }
 
     changed++;

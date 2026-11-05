@@ -33,9 +33,9 @@ export async function runStaleClose(cwd = process.cwd()): Promise<void> {
   let closed = 0;
 
   for (const summary of issues) {
-    const is_stale_candidate =
+    const isStaleCandidate =
       issueHasLabel(summary, "agent:needs-info") || issueHasLabel(summary, "agent:rejected");
-    if (!is_stale_candidate) continue;
+    if (!isStaleCandidate) continue;
     if (issueHasLabel(summary, "agent:pr-open") || issueHasLabel(summary, "agent:in-progress")) {
       continue;
     }

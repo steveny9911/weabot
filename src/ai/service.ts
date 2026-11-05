@@ -8,19 +8,19 @@
 import type { AppConfig } from "../config.ts";
 import { DECISION_REASONS, type ReactionIntent } from "../features/reactions.ts";
 import {
-  aszCollectImageUrls,
-  aszGetImageUrlsFromContextMessage,
+  collectImageUrls,
+  getImageUrlsFromContextMessage,
   MAX_CONTEXT_IMAGES,
-  oGetReplyReference,
+  getReplyReference,
 } from "./context_images.ts";
 import {
   AUTONOMOUS_PARTICIPATION_FORMAT,
   AUTONOMOUS_REACTION_EMOJIS,
   MAX_AUTONOMOUS_REPLY_CHARS,
-  oParseParticipation,
+  parseParticipation,
 } from "./participation.ts";
-import { nReportedTokens, szExtractResponseText, withResponseDeadline } from "./responses.ts";
-import { szSanitizeReply, szUwuify, vTruncateText } from "./text.ts";
+import { readTokenUsage, extractResponseText, withResponseDeadline } from "./responses.ts";
+import { sanitizeReply, uwuify, truncateText } from "./text.ts";
 import type {
   AiErrorResult,
   AiParticipationOptions,
@@ -100,37 +100,35 @@ export function createAiService(
                   : ""
               }] ${author}`
             : author;
-        const raw_text = (m.content as string) ?? "";
-        const max_input_chars = config.aiMaxInputChars;
-        const text = max_input_chars > 0 ? vTruncateText(raw_text, max_input_chars) : raw_text;
-        const image_count = aszGetImageUrlsFromContextMessage(m).length;
-        const image_hint =
-          image_count > 0
-            ? image_count === 1
+        const rawText = (m.content as string) ?? "";
+        const maxInputChars = config.aiMaxInputChars;
+        const text = maxInputChars > 0 ? truncateText(rawText, maxInputChars) : rawText;
+        const imageCount = getImageUrlsFromContextMessage(m).length;
+        const imageHint =
+          imageCount > 0
+            ? imageCount === 1
               ? " [attached 1 image]"
-              : ` [attached ${image_count} images]`
+              : ` [attached ${imageCount} images]`
             : "";
-        const reference = oGetReplyReference(m);
-        if (!reference) return `${label}: ${text}${image_hint}`;
+        const reference = getReplyReference(m);
+        if (!reference) return `${label}: ${text}${imageHint}`;
 
-        const reference_author = (reference["author"] as string) ?? "unknown";
-        const raw_reference_text = (reference["content"] as string) ?? "";
-        const reference_text =
-          max_input_chars > 0
-            ? vTruncateText(raw_reference_text, max_input_chars)
-            : raw_reference_text;
-        const reference_image_count = aszGetImageUrlsFromContextMessage(reference).length;
-        const reference_image_hint =
-          reference_image_count > 0
-            ? reference_image_count === 1
+        const referenceAuthor = (reference["author"] as string) ?? "unknown";
+        const rawReferenceText = (reference["content"] as string) ?? "";
+        const referenceText =
+          maxInputChars > 0 ? truncateText(rawReferenceText, maxInputChars) : rawReferenceText;
+        const referenceImageCount = getImageUrlsFromContextMessage(reference).length;
+        const referenceImageHint =
+          referenceImageCount > 0
+            ? referenceImageCount === 1
               ? " [attached 1 image]"
-              : ` [attached ${reference_image_count} images]`
+              : ` [attached ${referenceImageCount} images]`
             : "";
-        return `${label} (replying to ${reference_author}: ${reference_text}${reference_image_hint}): ${text}${image_hint}`;
+        return `${label} (replying to ${referenceAuthor}: ${referenceText}${referenceImageHint}): ${text}${imageHint}`;
       });
-      const image_urls = aszCollectImageUrls(messages, MAX_CONTEXT_IMAGES);
+      const imageUrls = collectImageUrls(messages, MAX_CONTEXT_IMAGES);
 
-      const user_content = `Here is the recent conversation (oldest->newest):\n\n${lines.join(
+      const userContent = `Here is the recent conversation (oldest->newest):\n\n${lines.join(
         "\n",
       )}\n\n${
         participationOptions
@@ -138,16 +136,16 @@ export function createAiService(
           : "Respond in-character as the assistant described in the system instructions."
       }`;
 
-      const input_content: Array<Record<string, unknown>> = [
+      const inputContent: Array<Record<string, unknown>> = [
         {
           type: "input_text",
-          text: user_content,
+          text: userContent,
         },
       ];
-      for (const image_url of image_urls) {
-        input_content.push({
+      for (const imageUrl of imageUrls) {
+        inputContent.push({
           type: "input_image",
-          image_url,
+          image_url: imageUrl,
         });
       }
 
@@ -177,30 +175,30 @@ export function createAiService(
               },
             ]
           : []),
-        { role: "user", content: input_content },
+        { role: "user", content: inputContent },
         ...(actionOptions?.currentUserMessage
           ? [{ role: "user", content: actionOptions.currentUserMessage }]
           : []),
       ];
-      const allowed_tools = new Set(
+      const allowedTools = new Set(
         (actionOptions?.tools ?? [])
           .filter((tool) => tool.type === "function" && typeof tool.name === "string")
           .map((tool) => tool.name as string),
       );
-      const tool_results = new Map<string, string>();
-      let tokens_used = 0;
-      let tool_calls_used = 0;
+      const toolResults = new Map<string, string>();
+      let tokensUsed = 0;
+      let toolCallsUsed = 0;
       const failure = (error: string): AiErrorResult => ({
         ok: false,
         error,
-        ...(options ? { tokensUsed: tokens_used } : {}),
+        ...(options ? { tokensUsed: tokensUsed } : {}),
       });
       const toolDeadline = now() + toolLoopTimeoutMs;
       const toolTimeExpired = () => Boolean(actionOptions && now() >= toolDeadline);
 
       try {
-        const max_responses = actionOptions ? MAX_TOOL_RESPONSES : 1;
-        for (let response_index = 0; response_index < max_responses; response_index++) {
+        const maxResponses = actionOptions ? MAX_TOOL_RESPONSES : 1;
+        for (let responseIndex = 0; responseIndex < maxResponses; responseIndex++) {
           if (toolTimeExpired()) return failure("AI tool time limit reached");
           const remainingMs = actionOptions ? toolDeadline - now() : requestTimeoutMs;
           const response = await withResponseDeadline(
@@ -237,7 +235,7 @@ export function createAiService(
                   try {
                     const data: unknown = JSON.parse(body);
                     if (data && typeof data === "object" && !Array.isArray(data)) {
-                      reportedTokens = nReportedTokens(data as Record<string, unknown>);
+                      reportedTokens = readTokenUsage(data as Record<string, unknown>);
                     }
                   } catch {
                     // Non-JSON provider errors have no reported usage to record.
@@ -249,7 +247,7 @@ export function createAiService(
             },
           );
           if (response.error !== undefined) {
-            tokens_used += response.reportedTokens ?? 0;
+            tokensUsed += response.reportedTokens ?? 0;
             return failure(response.error);
           }
           const data = response.data!;
@@ -257,20 +255,20 @@ export function createAiService(
             return {
               ok: true,
               text: "",
-              tokensUsed: tokens_used,
+              tokensUsed: tokensUsed,
               participation: { action: "silent" },
             };
           }
-          tokens_used += nReportedTokens(data);
+          tokensUsed += readTokenUsage(data);
           if (toolTimeExpired()) return failure("AI tool time limit reached");
           if (participationOptions) {
-            const participation = oParseParticipation(data, allowedMessageIds, choices);
-            console.log("[AI] tokens used:", tokens_used);
+            const participation = parseParticipation(data, allowedMessageIds, choices);
+            console.log("[AI] tokens used:", tokensUsed);
             console.log("[AI] participation:", participation.action);
             return {
               ok: true,
               text: participation.action === "reply" ? participation.text : "",
-              tokensUsed: tokens_used,
+              tokensUsed: tokensUsed,
               participation,
             };
           }
@@ -285,16 +283,16 @@ export function createAiService(
           );
           if (actionOptions && calls.length > 0) {
             // Leave a response available to report results before permitting any writes.
-            if (response_index + 1 >= max_responses) {
+            if (responseIndex + 1 >= maxResponses) {
               return failure("AI tool response limit reached");
             }
-            if (tool_calls_used + calls.length > MAX_TOOL_CALLS) {
+            if (toolCallsUsed + calls.length > MAX_TOOL_CALLS) {
               return failure("AI tool call limit reached");
             }
             if (calls.some((call) => typeof call.call_id !== "string" || !call.call_id.trim())) {
               return failure("AI tool call is missing a call_id");
             }
-            tool_calls_used += calls.length;
+            toolCallsUsed += calls.length;
 
             // Reasoning and every other output item must survive manual continuation.
             input.push(...output);
@@ -302,11 +300,11 @@ export function createAiService(
               // Count tool execution time in the overall budget, but await an
               // in-flight mutation so its verified receipt is never lost to a race.
               if (toolTimeExpired()) return failure("AI tool time limit reached");
-              const call_id = call.call_id as string;
-              let result = tool_results.get(call_id);
+              const callId = call.call_id as string;
+              let result = toolResults.get(callId);
               if (result === undefined) {
                 try {
-                  if (typeof call.name !== "string" || !allowed_tools.has(call.name)) {
+                  if (typeof call.name !== "string" || !allowedTools.has(call.name)) {
                     throw new Error(`Unknown tool: ${String(call.name)}`);
                   }
                   if (typeof call.arguments !== "string") {
@@ -322,23 +320,23 @@ export function createAiService(
                 } catch (error) {
                   result = JSON.stringify({ ok: false, error: String(error) });
                 }
-                tool_results.set(call_id, result);
+                toolResults.set(callId, result);
               }
-              input.push({ type: "function_call_output", call_id, output: result });
+              input.push({ type: "function_call_output", call_id: callId, output: result });
             }
             continue;
           }
 
-          const text = szExtractResponseText(data);
+          const text = extractResponseText(data);
           if (!text) return failure("No text in OpenAI response");
 
           const raw = String(text).trim();
           // Action outcomes and links must retain their exact meaning and punctuation.
-          const final_text = options ? raw : szUwuify(szSanitizeReply(raw), config.aiEnableUwu);
-          console.log("[AI] tokens used:", tokens_used);
+          const finalText = options ? raw : uwuify(sanitizeReply(raw), config.aiEnableUwu);
+          console.log("[AI] tokens used:", tokensUsed);
           console.log("[AI] raw reply:", raw);
-          console.log("[AI] final reply:", final_text);
-          return { ok: true, text: final_text, tokensUsed: tokens_used };
+          console.log("[AI] final reply:", finalText);
+          return { ok: true, text: finalText, tokensUsed: tokensUsed };
         }
         return failure("AI tool response limit reached");
       } catch (err) {

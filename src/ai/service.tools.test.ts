@@ -86,15 +86,15 @@ async function withResponses(
 
 test("tool replies preserve reasoning, prompt persona, call IDs, and total usage", async () => {
   const reasoning = { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "opaque" };
-  const interim_message = {
+  const interimMessage = {
     type: "message",
     role: "assistant",
     content: [{ type: "output_text", text: "Creating the event." }],
   };
-  const first_output = [reasoning, interim_message, call("event_1")];
+  const firstOutput = [reasoning, interimMessage, call("event_1")];
   const executions: unknown[] = [];
   await withResponses(
-    [{ output: first_output, usage: { total_tokens: 41 } }, reply("Created your event.", 17)],
+    [{ output: firstOutput, usage: { total_tokens: 41 } }, reply("Created your event.", 17)],
     async (requests) => {
       const opts = options((name, args) => {
         executions.push({ name, args });
@@ -116,11 +116,11 @@ test("tool replies preserve reasoning, prompt persona, call IDs, and total usage
         expect(request.tools).toStrictEqual([tool]);
         expect(request.parallel_tool_calls).toStrictEqual(false);
       }
-      const first_input = requests[0].input as unknown[];
-      expect(first_input[0]).toStrictEqual({ role: "developer", content: opts.instructions });
+      const firstInput = requests[0].input as unknown[];
+      expect(firstInput[0]).toStrictEqual({ role: "developer", content: opts.instructions });
       expect(requests[1].input).toStrictEqual([
-        ...first_input,
-        ...first_output,
+        ...firstInput,
+        ...firstOutput,
         {
           type: "function_call_output",
           call_id: "event_1",
@@ -188,7 +188,7 @@ test("tool replies preserve failure wording and event invite URL punctuation", a
 
 test("unknown tools and malformed arguments produce outputs without executing", async () => {
   let executions = 0;
-  const bad_calls = [
+  const badCalls = [
     call("unknown", "delete_everything"),
     call("invalid_json", "create_event", "{"),
     call("array", "create_event", "[]"),
@@ -197,7 +197,7 @@ test("unknown tools and malformed arguments produce outputs without executing", 
     call("not_string", "create_event", { name: "Movie night" }),
   ];
   await withResponses(
-    [{ output: bad_calls }, reply("Please clarify the event.")],
+    [{ output: badCalls }, reply("Please clarify the event.")],
     async (requests) => {
       const result = await createAiService(mockConfig()).generateReply(
         [],
@@ -212,7 +212,7 @@ test("unknown tools and malformed arguments produce outputs without executing", 
         (item) => item.type === "function_call_output",
       );
       expect(outputs.map((item) => item.call_id)).toStrictEqual(
-        bad_calls.map((item) => item.call_id),
+        badCalls.map((item) => item.call_id),
       );
       for (const output of outputs)
         expect(JSON.parse(String(output.output)).ok).toStrictEqual(false);

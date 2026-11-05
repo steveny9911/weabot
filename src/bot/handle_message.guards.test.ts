@@ -35,13 +35,13 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 }
 
 test("handleMessage exits when bot id cannot be fetched", async () => {
-  let ai_calls = 0;
+  let aiCalls = 0;
   const config = createMockConfig({ discordToken: "" });
   const deps: BotDependencies = {
     config,
     aiService: {
       generateReply(_messages: Array<Record<string, unknown>>) {
-        ai_calls++;
+        aiCalls++;
         return Promise.resolve({ ok: true, text: "ok", tokensUsed: 1 });
       },
     },
@@ -101,5 +101,5 @@ test("handleMessage exits when bot id cannot be fetched", async () => {
     deps,
   );
 
-  expect(ai_calls).toStrictEqual(0);
+  expect(aiCalls).toStrictEqual(0);
 });

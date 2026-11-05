@@ -11,7 +11,7 @@
 
 import type { CreatePollMessagePayload } from "./types.ts";
 import type { EmbedMessagePayload } from "../features/stats.ts";
-import { oMapDiscordMessage, type RecentDiscordMessage } from "../features/chat_context.ts";
+import { mapDiscordMessage, type RecentDiscordMessage } from "../features/chat_context.ts";
 import type { ReactionContext } from "../features/reactions.ts";
 import { readReactionContext } from "./reaction_context.ts";
 import { fetchWithRetry } from "../net/retry.ts";
@@ -151,9 +151,9 @@ export function createDiscordClient(token: string): DiscordClient {
     },
 
     async getRecentMessages(channelId, limit) {
-      const safe_limit = Math.min(100, Math.max(1, Math.trunc(limit)));
+      const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit)));
       const response = await fetchWithRetry(
-        `${API_BASE}/channels/${channelId}/messages?limit=${safe_limit}`,
+        `${API_BASE}/channels/${channelId}/messages?limit=${safeLimit}`,
         { headers },
       );
 
@@ -173,7 +173,7 @@ export function createDiscordClient(token: string): DiscordClient {
           (message): message is Record<string, unknown> =>
             message !== null && typeof message === "object",
         )
-        .map(oMapDiscordMessage);
+        .map(mapDiscordMessage);
     },
 
     getReactionContext: (channelId, botId) => readReactionContext(token, channelId, botId),
@@ -194,7 +194,7 @@ export function createDiscordClient(token: string): DiscordClient {
         }
         const data = (await response.json()) as Record<string, unknown> | null;
         return data && typeof data === "object" && data.id === messageId
-          ? oMapDiscordMessage(data)
+          ? mapDiscordMessage(data)
           : null;
       } finally {
         clearTimeout(timer);

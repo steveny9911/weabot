@@ -3,7 +3,7 @@ import { openDatabase } from "../../src/db/database.ts";
 import { createAiService } from "../../src/ai/service.ts";
 import type { AiService } from "../../src/ai/types.ts";
 import { handleMessage } from "../../src/bot/handle_message.ts";
-import { bMessageMentionsBot } from "../../src/bot/commands.ts";
+import { messageMentionsBot } from "../../src/bot/commands.ts";
 import { getBotUserId } from "../../src/discord/messages.ts";
 import { startGateway } from "../../src/app/gateway.ts";
 import { loadConfig } from "../../src/config.ts";
@@ -35,7 +35,7 @@ export function localSandboxMessage(
     message.webhook_id ||
     typeof message.content !== "string" ||
     !/^Haru local,\s*\S/i.test(message.content) ||
-    bMessageMentionsBot(message, botId)
+    messageMentionsBot(message, botId)
   )
     return null;
 

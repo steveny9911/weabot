@@ -206,27 +206,27 @@ function isArrayOf<T>(guard: (value: unknown) => value is T) {
 }
 
 function getRetryAfter(response: Response, data: unknown): number | undefined {
-  const body_value = isRecord(data) ? data.retry_after : undefined;
-  const header_value = response.headers.get("Retry-After");
-  if (typeof body_value === "number" && Number.isFinite(body_value) && body_value >= 0) {
-    return body_value;
+  const bodyValue = isRecord(data) ? data.retry_after : undefined;
+  const headerValue = response.headers.get("Retry-After");
+  if (typeof bodyValue === "number" && Number.isFinite(bodyValue) && bodyValue >= 0) {
+    return bodyValue;
   }
-  const value = header_value?.trim() ? Number(header_value) : NaN;
+  const value = headerValue?.trim() ? Number(headerValue) : NaN;
   return Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function responseError(response: Response, data: unknown, mutation: boolean): DiscordApiError {
   if (response.status === 429) {
-    const retry_after = getRetryAfter(response, data);
+    const retryAfter = getRetryAfter(response, data);
     return new DiscordApiError(
-      retry_after === undefined
+      retryAfter === undefined
         ? "Discord is rate limiting requests. Please wait before trying again."
         : `Discord is rate limiting requests. Please try again in ${Math.ceil(
-            retry_after,
+            retryAfter,
           )} seconds.`,
       429,
       false,
-      retry_after,
+      retryAfter,
     );
   }
   const uncertain = mutation && (response.status >= 500 || response.status === 408);
@@ -257,8 +257,8 @@ export function createDiscordEventsClient(
     sleep?: (milliseconds: number) => Promise<void>;
   } = {},
 ): DiscordEventsClient {
-  const request_fetch: Fetcher = options.fetch ?? globalThis.fetch;
-  const timeout_ms = options.timeoutMs ?? 15_000;
+  const requestFetch: Fetcher = options.fetch ?? globalThis.fetch;
+  const timeoutMs = options.timeoutMs ?? 15_000;
   const sleep =
     options.sleep ??
     ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
@@ -279,10 +279,10 @@ export function createDiscordEventsClient(
       headers["X-Audit-Log-Reason"] = encodeURIComponent(Array.from(reason).slice(0, 512).join(""));
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout_ms);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response | undefined;
     try {
-      response = await request_fetch(`${API_BASE}${path}`, {
+      response = await requestFetch(`${API_BASE}${path}`, {
         method: mutation ? mutationMethod : "GET",
         headers,
         body: mutation ? JSON.stringify(payload) : undefined,
@@ -423,10 +423,10 @@ const TIMEOUT_PERMISSIONS =
 
 function basePermissions(guild: DiscordGuild, member: DiscordMember): bigint {
   if (member.user.id === guild.owner_id) return ALL_PERMISSIONS;
-  const role_ids = new Set([guild.id, ...member.roles]);
+  const roleIds = new Set([guild.id, ...member.roles]);
   let permissions = 0n;
   for (const role of guild.roles) {
-    if (role_ids.has(role.id)) permissions |= BigInt(role.permissions);
+    if (roleIds.has(role.id)) permissions |= BigInt(role.permissions);
   }
   return permissions & DiscordPermissions.ADMINISTRATOR ? ALL_PERMISSIONS : permissions;
 }
@@ -457,11 +457,11 @@ export function getChannelPermissions(
   );
   if (everyone) permissions = (permissions & ~BigInt(everyone.deny)) | BigInt(everyone.allow);
 
-  const role_ids = new Set(member.roles);
+  const roleIds = new Set(member.roles);
   let allow = 0n;
   let deny = 0n;
   for (const overwrite of overwrites) {
-    if (overwrite.type === 0 && overwrite.id !== guild.id && role_ids.has(overwrite.id)) {
+    if (overwrite.type === 0 && overwrite.id !== guild.id && roleIds.has(overwrite.id)) {
       allow |= BigInt(overwrite.allow);
       deny |= BigInt(overwrite.deny);
     }

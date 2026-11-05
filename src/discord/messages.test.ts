@@ -39,7 +39,7 @@ test("getBotUserId returns undefined when discord token is missing", async () =>
 });
 
 test("getBotUserId returns undefined when Discord API responds non-ok", async () => {
-  const original_fetch = globalThis.fetch;
+  const originalFetch = globalThis.fetch;
   globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
     return Promise.resolve(new Response("bad", { status: 401 }));
   });
@@ -48,12 +48,12 @@ test("getBotUserId returns undefined when Discord API responds non-ok", async ()
     const result = await getBotUserId(createMockConfig());
     expect(result).toStrictEqual(undefined);
   } finally {
-    globalThis.fetch = original_fetch;
+    globalThis.fetch = originalFetch;
   }
 });
 
 test("getBotUserId returns undefined when fetch throws", async () => {
-  const original_fetch = globalThis.fetch;
+  const originalFetch = globalThis.fetch;
   globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
     return Promise.reject(new Error("users me failed"));
   });
@@ -62,13 +62,13 @@ test("getBotUserId returns undefined when fetch throws", async () => {
     const result = await getBotUserId(createMockConfig());
     expect(result).toStrictEqual(undefined);
   } finally {
-    globalThis.fetch = original_fetch;
+    globalThis.fetch = originalFetch;
   }
 });
 
 test("getBotUserId caches fetched value across calls", async () => {
   let calls = 0;
-  const original_fetch = globalThis.fetch;
+  const originalFetch = globalThis.fetch;
   globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
     calls++;
     return Promise.resolve(
@@ -86,6 +86,6 @@ test("getBotUserId caches fetched value across calls", async () => {
     expect(second).toStrictEqual("cached-123");
     expect(calls).toStrictEqual(1);
   } finally {
-    globalThis.fetch = original_fetch;
+    globalThis.fetch = originalFetch;
   }
 });

@@ -90,7 +90,7 @@ function getEnvOrThrow(key: string): string {
   return value;
 }
 
-function nPositiveInteger(value: string | undefined, fallback: number): number {
+function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -101,51 +101,50 @@ function nPositiveInteger(value: string | undefined, fallback: number): number {
  * If it throws, the app should not start.
  */
 export function loadConfig(): AppConfig {
-  const web_search_api_key = process.env.BRAVE_SEARCH_API_KEY;
-  const web_search_enabled =
-    (process.env.WEB_SEARCH_ENABLED ?? (web_search_api_key ? "true" : "false")).toLowerCase() !==
+  const webSearchApiKey = process.env.BRAVE_SEARCH_API_KEY;
+  const webSearchEnabled =
+    (process.env.WEB_SEARCH_ENABLED ?? (webSearchApiKey ? "true" : "false")).toLowerCase() !==
     "false";
-  const link_open_enabled = (process.env.LINK_OPEN_ENABLED ?? "true").toLowerCase() !== "false";
-  const parsed_autonomous_chat_reply_chance = parseFloat(
+  const linkOpenEnabled = (process.env.LINK_OPEN_ENABLED ?? "true").toLowerCase() !== "false";
+  const parsedAutonomousChatReplyChance = parseFloat(
     process.env.AUTONOMOUS_CHAT_REPLY_CHANCE ?? "0.35",
   );
-  const autonomous_chat_reply_chance = Number.isFinite(parsed_autonomous_chat_reply_chance)
-    ? parsed_autonomous_chat_reply_chance
+  const autonomousChatReplyChance = Number.isFinite(parsedAutonomousChatReplyChance)
+    ? parsedAutonomousChatReplyChance
     : 0.35;
-  const channel_ids_raw = process.env.CHANNEL_IDS;
-  const channel_id_single = process.env.CHANNEL_ID;
+  const channelIdsRaw = process.env.CHANNEL_IDS;
+  const channelIdSingle = process.env.CHANNEL_ID;
 
-  let channel_ids: string[] = [];
-  if (channel_ids_raw) {
-    channel_ids = channel_ids_raw
+  let channelIds: string[] = [];
+  if (channelIdsRaw) {
+    channelIds = channelIdsRaw
       .split(",")
       .map((id) => id.trim())
       .filter(Boolean);
   }
 
-  if (channel_id_single && !channel_ids.includes(channel_id_single)) {
-    channel_ids =
-      channel_ids.length > 0 ? [...channel_ids, channel_id_single] : [channel_id_single];
+  if (channelIdSingle && !channelIds.includes(channelIdSingle)) {
+    channelIds = channelIds.length > 0 ? [...channelIds, channelIdSingle] : [channelIdSingle];
   }
 
-  if (channel_ids.length === 0) {
+  if (channelIds.length === 0) {
     throw new Error("FATAL: Missing required environment variable: CHANNEL_ID or CHANNEL_IDS");
   }
 
-  const channel_ids_unique = [...new Set(channel_ids)];
-  const autonomous_chat_channel_ids_raw = process.env.AUTONOMOUS_CHAT_CHANNEL_IDS;
-  const autonomous_chat_channel_ids = autonomous_chat_channel_ids_raw
-    ? autonomous_chat_channel_ids_raw
+  const channelIdsUnique = [...new Set(channelIds)];
+  const autonomousChatChannelIdsRaw = process.env.AUTONOMOUS_CHAT_CHANNEL_IDS;
+  const autonomousChatChannelIds = autonomousChatChannelIdsRaw
+    ? autonomousChatChannelIdsRaw
         .split(",")
         .map((id) => id.trim())
         .filter(Boolean)
-    : channel_ids_unique;
+    : channelIdsUnique;
 
   return {
     discordToken: getEnvOrThrow("DISCORD_TOKEN"),
     adminHttpToken: process.env.ADMIN_HTTP_TOKEN?.trim() || undefined,
-    channelId: channel_ids_unique[0],
-    channelIds: channel_ids_unique,
+    channelId: channelIdsUnique[0],
+    channelIds: channelIdsUnique,
     timeZone: process.env.TIME_ZONE ?? "America/Los_Angeles",
     glueAlertThreshold: parseInt(process.env.GLUE_ALERT_THRESHOLD ?? "7", 10),
 
@@ -156,19 +155,19 @@ export function loadConfig(): AppConfig {
     aiDailyTokenBudget: parseInt(process.env.AI_DAILY_TOKEN_BUDGET ?? "10000000", 10),
     aiMaxInputChars: parseInt(process.env.AI_MAX_INPUT_CHARS ?? "0", 10),
     aiEnableUwu: (process.env.ENABLE_UWU ?? "true").toLowerCase() !== "false",
-    aiContextMaxMessages: Math.min(100, nPositiveInteger(process.env.AI_CONTEXT_MAX_MESSAGES, 40)),
-    aiContextInactivityMinutes: nPositiveInteger(process.env.AI_CONTEXT_INACTIVITY_MINUTES, 20),
+    aiContextMaxMessages: Math.min(100, positiveInteger(process.env.AI_CONTEXT_MAX_MESSAGES, 40)),
+    aiContextInactivityMinutes: positiveInteger(process.env.AI_CONTEXT_INACTIVITY_MINUTES, 20),
 
     openaiAdminKey: process.env.OPENAI_ADMIN_KEY?.trim() || undefined,
     usageOpenaiProjectId: process.env.USAGE_OPENAI_PROJECT_ID?.trim() || undefined,
 
     // Web Search
-    webSearchEnabled: web_search_enabled,
-    webSearchApiKey: web_search_api_key,
+    webSearchEnabled: webSearchEnabled,
+    webSearchApiKey: webSearchApiKey,
     webSearchMaxResults: parseInt(process.env.WEB_SEARCH_MAX_RESULTS ?? "3", 10),
 
     // Link Open
-    linkOpenEnabled: link_open_enabled,
+    linkOpenEnabled: linkOpenEnabled,
 
     discordActionsEnabled: (process.env.DISCORD_ACTIONS_ENABLED ?? "true").toLowerCase() === "true",
     discordActionsGuildIds: (process.env.DISCORD_ACTIONS_GUILD_IDS ?? "")
@@ -179,7 +178,7 @@ export function loadConfig(): AppConfig {
     // Autonomous Chat
     autonomousChatEnabled:
       (process.env.AUTONOMOUS_CHAT_ENABLED ?? "false").toLowerCase() === "true",
-    autonomousChatChannelIds: [...new Set(autonomous_chat_channel_ids)],
+    autonomousChatChannelIds: [...new Set(autonomousChatChannelIds)],
     autonomousChatMinHumanMessages: parseInt(
       process.env.AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES ?? "4",
       10,
@@ -192,7 +191,7 @@ export function loadConfig(): AppConfig {
       process.env.AUTONOMOUS_CHAT_COOLDOWN_MINUTES ?? "1",
       10,
     ),
-    autonomousChatReplyChance: Math.min(1, Math.max(0, autonomous_chat_reply_chance)),
+    autonomousChatReplyChance: Math.min(1, Math.max(0, autonomousChatReplyChance)),
     autonomousChatSettleSeconds: 8,
     autonomousChatMaxContextMessages: parseInt(
       process.env.AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES ?? "40",

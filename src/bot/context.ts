@@ -2,50 +2,50 @@
 import type { AppConfig } from "../config.ts";
 import { fetchChannelMessages } from "../discord/messages.ts";
 import {
-  oMapDiscordMessage,
-  oToAiContextMessage,
+  mapDiscordMessage,
+  toAiContextMessage,
   selectActiveConversation,
 } from "../features/chat_context.ts";
 
 // In-memory cache of recent messages per channel
-const messages_cache = new Map<string, Array<Record<string, unknown>>>();
+const messagesCache = new Map<string, Array<Record<string, unknown>>>();
 
 /**
  * Fetch the most recent N messages from a channel and cache them.
  */
 export async function saveContext(
   config: AppConfig,
-  channel_id: string,
+  channelId: string,
   limit = 5,
-  trigger_message?: Record<string, unknown>,
+  triggerMessage?: Record<string, unknown>,
   options: { inactivityGapMs?: number; resetAfterMs?: number | null } = {},
 ): Promise<void> {
-  if (!channel_id) return;
+  if (!channelId) return;
 
   try {
-    const safe_limit = Math.min(100, Math.max(1, Math.trunc(limit)));
-    const fetched = await fetchChannelMessages(config, channel_id, safe_limit);
+    const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit)));
+    const fetched = await fetchChannelMessages(config, channelId, safeLimit);
     if (!fetched) return;
     let msgs = fetched;
 
     // Ensure the triggering message is included
-    if (trigger_message) {
-      const trig_id = trigger_message["id"] as string | undefined;
-      if (trig_id) {
-        msgs = msgs.filter((m) => (m.id as string | undefined) !== trig_id);
+    if (triggerMessage) {
+      const trigId = triggerMessage["id"] as string | undefined;
+      if (trigId) {
+        msgs = msgs.filter((m) => (m.id as string | undefined) !== trigId);
       }
-      msgs.push(trigger_message);
+      msgs.push(triggerMessage);
     }
 
-    const active_conversation = selectActiveConversation(msgs.map(oMapDiscordMessage), {
-      maxMessages: safe_limit,
+    const activeConversation = selectActiveConversation(msgs.map(mapDiscordMessage), {
+      maxMessages: safeLimit,
       inactivityGapMs: options.inactivityGapMs ?? config.aiContextInactivityMinutes * 60_000,
       resetAfterMs: options.resetAfterMs,
     });
-    const simplified = active_conversation.map(oToAiContextMessage);
+    const simplified = activeConversation.map(toAiContextMessage);
 
-    messages_cache.set(channel_id, simplified as Array<Record<string, unknown>>);
-    console.log(`Saved ${simplified.length} messages to context for channel ${channel_id}`);
+    messagesCache.set(channelId, simplified as Array<Record<string, unknown>>);
+    console.log(`Saved ${simplified.length} messages to context for channel ${channelId}`);
   } catch (err) {
     console.error("Error saving context:", err);
   }
@@ -54,11 +54,11 @@ export async function saveContext(
 /**
  * Retrieve cached context for a channel.
  */
-export function getContext(channel_id: string): Array<Record<string, unknown>> | undefined {
-  return messages_cache.get(channel_id);
+export function getContext(channelId: string): Array<Record<string, unknown>> | undefined {
+  return messagesCache.get(channelId);
 }
 
 /** Forget the cached context for a channel, as the \\reset command does. */
-export function clearContext(channel_id: string): void {
-  messages_cache.delete(channel_id);
+export function clearContext(channelId: string): void {
+  messagesCache.delete(channelId);
 }

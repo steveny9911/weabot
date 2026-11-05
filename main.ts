@@ -24,40 +24,40 @@ import type { BotDependencies } from "./src/bot/handle_message.ts";
 const config = loadConfig();
 
 // One SQLite database for the whole process. Production sets HARU_DB_PATH to a persistent volume.
-const db_path = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
-const db = openDatabase(db_path);
+const dbPath = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
+const db = openDatabase(dbPath);
 const storage = createStorageService(db);
-const action_turns = new TurnStore<PendingRequest>();
+const actionTurns = new TurnStore<PendingRequest>();
 
 // Create the Discord API client
 const discord = createDiscordClient(config.discordToken);
 
 // Create AI-related services
-const rate_limit = createRateLimitService(db, config);
-const ai_service = createAiService(config);
-const web_search = createWebSearchService(config);
-const link_open = createLinkOpenService(config);
+const rateLimit = createRateLimitService(db, config);
+const aiService = createAiService(config);
+const webSearch = createWebSearchService(config);
+const linkOpen = createLinkOpenService(config);
 
 // Bundle dependencies for bot actions
-const bot_deps: BotDependencies = {
+const botDeps: BotDependencies = {
   config,
   usageService: createUsageService(config),
-  aiService: ai_service,
-  rateLimitService: rate_limit,
-  linkOpenService: link_open,
+  aiService: aiService,
+  rateLimitService: rateLimit,
+  linkOpenService: linkOpen,
   storageService: storage,
-  webSearchService: web_search,
+  webSearchService: webSearch,
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
     db,
     config.timeZone,
     undefined,
-    action_turns,
+    actionTurns,
   ),
 };
 
 // Set up the date formatter with configured timezone
-const date_formatter = new Intl.DateTimeFormat("en-US", {
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   month: "long",
   day: "numeric",
@@ -65,23 +65,23 @@ const date_formatter = new Intl.DateTimeFormat("en-US", {
 });
 
 // --- Register Services ---
-startGateway(config, bot_deps);
+startGateway(config, botDeps);
 registerCronJobs(
   bunCron,
   config,
   discord,
   storage,
-  date_formatter,
-  ai_service,
-  rate_limit,
-  createMaintenanceJob(db, action_turns),
+  dateFormatter,
+  aiService,
+  rateLimit,
+  createMaintenanceJob(db, actionTurns),
 );
-createServer(config, discord, storage, date_formatter, rate_limit);
+createServer(config, discord, storage, dateFormatter, rateLimit);
 
 // --- Startup Logging ---
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);
-console.log(`   Database: ${db_path}`);
+console.log(`   Database: ${dbPath}`);
 console.log(`   Timezone: ${config.timeZone}`);
 console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");
@@ -89,8 +89,8 @@ console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
 console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
-const max_input_label = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
-console.log(`   Max Input Chars: ${max_input_label}`);
+const maxInputLabel = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
+console.log(`   Max Input Chars: ${maxInputLabel}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
 console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
 console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);

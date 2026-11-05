@@ -2,7 +2,7 @@
  * Greeting reaction GIFs for Haru replies.
  */
 
-export const aszHaruGreetingGifPool: readonly string[] = [
+export const haruGreetingGifPool: readonly string[] = [
   "https://tenor.com/view/uma-musume-anime-haru-urara-hi-hello-gif-13117639751450924729",
   "https://tenor.com/view/haru-urara-umamusume-uma-musume-wave-waving-gif-14802371873246368923",
   "https://tenor.com/view/haru-urara-gif-21261985",
@@ -12,26 +12,26 @@ export const aszHaruGreetingGifPool: readonly string[] = [
 
 const GREETING_TRIGGER_RE = /\b(?:hello|hi|ciallo)\b/i;
 
-export function bHasGreetingTrigger(text: string): boolean {
+export function hasGreetingTrigger(text: string): boolean {
   if (!text) return false;
   return GREETING_TRIGGER_RE.test(text);
 }
 
-export function szPickRandomGreetingGif(random: () => number = Math.random): string {
-  const pool_size = aszHaruGreetingGifPool.length;
-  if (pool_size === 0) return "";
+export function pickRandomGreetingGif(random: () => number = Math.random): string {
+  const poolSize = haruGreetingGifPool.length;
+  if (poolSize === 0) return "";
 
   const sample = random();
-  const safe_sample = Number.isFinite(sample) ? sample : 0;
-  const index = Math.max(0, Math.min(pool_size - 1, Math.floor(safe_sample * pool_size)));
+  const safeSample = Number.isFinite(sample) ? sample : 0;
+  const index = Math.max(0, Math.min(poolSize - 1, Math.floor(safeSample * poolSize)));
 
-  return aszHaruGreetingGifPool[index];
+  return haruGreetingGifPool[index];
 }
 
-export function szSelectGreetingGifForReply(
-  reply_text: string,
+export function selectGreetingGifForReply(
+  replyText: string,
   random: () => number = Math.random,
 ): string | null {
-  if (!bHasGreetingTrigger(reply_text)) return null;
-  return szPickRandomGreetingGif(random);
+  if (!hasGreetingTrigger(replyText)) return null;
+  return pickRandomGreetingGif(random);
 }

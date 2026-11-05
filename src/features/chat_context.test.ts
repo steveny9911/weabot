@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
-  oMapDiscordMessage,
-  oToAiContextMessage,
+  mapDiscordMessage,
+  toAiContextMessage,
   type RecentDiscordMessage,
   selectActiveConversation,
 } from "./chat_context.ts";
@@ -9,7 +9,7 @@ import {
 const START_MS = Date.parse("2026-08-27T12:00:00.000Z");
 
 test("Discord mapping ignores webhook activity and preserves our reaction summary", () => {
-  const mapped = oMapDiscordMessage({
+  const mapped = mapDiscordMessage({
     id: "meme",
     content: "lol",
     timestamp: "2026-08-27T12:00:00.000Z",
@@ -19,8 +19,8 @@ test("Discord mapping ignores webhook activity and preserves our reaction summar
   });
   expect(mapped.authorBot).toStrictEqual(true);
   expect(mapped.hasOwnReaction).toStrictEqual(true);
-  expect(oToAiContextMessage(mapped).hasOwnReaction).toStrictEqual(undefined);
-  expect(oMapDiscordMessage({ reactions: [null, { me: false }] }).hasOwnReaction).toStrictEqual(
+  expect(toAiContextMessage(mapped).hasOwnReaction).toStrictEqual(undefined);
+  expect(mapDiscordMessage({ reactions: [null, { me: false }] }).hasOwnReaction).toStrictEqual(
     undefined,
   );
 });
@@ -69,7 +69,7 @@ test("selectActiveConversation excludes messages at or before reset cutoff", () 
 });
 
 test("Discord reply mapping carries an explicit older reference into AI context", () => {
-  const mapped = oMapDiscordMessage({
+  const mapped = mapDiscordMessage({
     id: "reply-1",
     content: "that one",
     timestamp: "2026-08-27T12:30:00.000Z",
@@ -82,7 +82,7 @@ test("Discord reply mapping carries an explicit older reference into AI context"
     },
   });
 
-  expect(oToAiContextMessage(mapped)["repliedTo"]).toStrictEqual({
+  expect(toAiContextMessage(mapped)["repliedTo"]).toStrictEqual({
     id: "old-1",
     author: "bob",
     content: "the old topic",
@@ -107,7 +107,7 @@ test("video and other non-image attachments stay out of direct and replied-to im
     height: 360,
     ...metadata,
   }));
-  const mapped = oMapDiscordMessage({
+  const mapped = mapDiscordMessage({
     content: "What about this?",
     attachments,
     referenced_message: { content: "the clip", attachments },
@@ -115,7 +115,7 @@ test("video and other non-image attachments stay out of direct and replied-to im
 
   expect(mapped.imageUrls).toStrictEqual([]);
   expect(mapped.referencedMessage?.imageUrls).toStrictEqual([]);
-  expect(oToAiContextMessage(mapped).repliedTo).toStrictEqual({
+  expect(toAiContextMessage(mapped).repliedTo).toStrictEqual({
     id: "",
     author: "unknown",
     content: "the clip",
@@ -125,7 +125,7 @@ test("video and other non-image attachments stay out of direct and replied-to im
 });
 
 test("supported images retain MIME, filename, and URL fallbacks without dimension guesses", () => {
-  const mapped = oMapDiscordMessage({
+  const mapped = mapDiscordMessage({
     attachments: [
       { url: "https://cdn.example.com/opaque", content_type: "image/png" },
       { url: "https://cdn.example.com/photo.JPG", filename: "photo.JPG" },

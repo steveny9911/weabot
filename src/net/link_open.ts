@@ -8,11 +8,11 @@
 
 import type { AppConfig } from "../config.ts";
 import {
-  bIsBlockedHost,
+  isBlockedHost,
   BlockedDestinationError,
   createPublicFetch,
   type LinkFetch,
-  szNormalizeHost,
+  normalizeHost,
 } from "./public_fetch.ts";
 
 const MAX_REDIRECTS = 3;
@@ -44,7 +44,7 @@ export interface LinkOpenService {
   ): Promise<{ ok: true; page: LinkPageContext } | { ok: false; error: LinkOpenError }>;
 }
 
-function szDecodeHtmlEntities(text: string): string {
+function decodeHtmlEntities(text: string): string {
   const named: Record<string, string> = {
     amp: "&",
     lt: "<",
@@ -68,18 +68,18 @@ function szDecodeHtmlEntities(text: string): string {
     .replace(/&([a-zA-Z]+);/g, (_, name) => named[name] ?? "");
 }
 
-function szNormalizeWhitespace(text: string): string {
+function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function szExtractTitle(html: string): string {
+function extractTitle(html: string): string {
   const match = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
   if (!match) return "";
   const plain = match[1].replace(/<[^>]+>/g, " ");
-  return szNormalizeWhitespace(szDecodeHtmlEntities(plain));
+  return normalizeWhitespace(decodeHtmlEntities(plain));
 }
 
-function szExtractTextExcerpt(html: string, max_chars: number): string {
+function extractTextExcerpt(html: string, maxChars: number): string {
   let body = html;
   body = body.replace(/<!--[\s\S]*?-->/g, " ");
   body = body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ");
@@ -90,13 +90,13 @@ function szExtractTextExcerpt(html: string, max_chars: number): string {
   body = body.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, " ");
   body = body.replace(/<[^>]+>/g, " ");
 
-  const plain = szNormalizeWhitespace(szDecodeHtmlEntities(body));
-  if (plain.length <= max_chars) return plain;
-  return plain.slice(0, max_chars - 3) + "...";
+  const plain = normalizeWhitespace(decodeHtmlEntities(body));
+  if (plain.length <= maxChars) return plain;
+  return plain.slice(0, maxChars - 3) + "...";
 }
 
 /** Bound even a stalled stream or cancellation hook that ignores the signal. */
-async function aWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+async function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
     void promise.catch(() => {});
     signal.throwIfAborted();
@@ -113,16 +113,16 @@ async function aWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<
   }
 }
 
-async function aCancelBody(response: Response | undefined, signal: AbortSignal): Promise<void> {
+async function cancelBody(response: Response | undefined, signal: AbortSignal): Promise<void> {
   if (!response?.body || response.body.locked) return;
   // Start cancellation even after the deadline, but never let cleanup extend it.
   const canceled = response.body.cancel().catch(() => {});
-  if (!signal.aborted) await aWithAbort(canceled, signal).catch(() => {});
+  if (!signal.aborted) await withAbort(canceled, signal).catch(() => {});
 }
 
-async function aReadBodyWithLimit(
+async function readBodyWithLimit(
   response: Response,
-  max_bytes: number,
+  maxBytes: number,
   signal: AbortSignal,
 ): Promise<
   | { ok: true; text: string; bytes: number }
@@ -139,14 +139,14 @@ async function aReadBodyWithLimit(
   let complete = false;
   try {
     while (true) {
-      const { done, value } = await aWithAbort(reader.read(), signal);
+      const { done, value } = await withAbort(reader.read(), signal);
       if (done) {
         complete = true;
         break;
       }
       if (!value) continue;
       total += value.byteLength;
-      if (total > max_bytes) return { ok: false, error: "response_too_large" };
+      if (total > maxBytes) return { ok: false, error: "response_too_large" };
       chunks.push(value);
     }
 
@@ -163,7 +163,7 @@ async function aReadBodyWithLimit(
     try {
       if (!complete) {
         const canceled = reader.cancel().catch(() => {});
-        if (!signal.aborted) await aWithAbort(canceled, signal).catch(() => {});
+        if (!signal.aborted) await withAbort(canceled, signal).catch(() => {});
       }
     } finally {
       reader.releaseLock();
@@ -171,7 +171,7 @@ async function aReadBodyWithLimit(
   }
 }
 
-function bIsRedirectStatus(status: number): boolean {
+function isRedirectStatus(status: number): boolean {
   return status >= 300 && status < 400;
 }
 
@@ -200,7 +200,7 @@ export function createLinkOpenService(
         return { ok: false, error: "unsupported_protocol" };
       }
 
-      if (bIsBlockedHost(current)) {
+      if (isBlockedHost(current)) {
         console.log(`[LINK] blocked: blocked_host (${current.hostname})`);
         return { ok: false, error: "blocked_host" };
       }
@@ -214,7 +214,7 @@ export function createLinkOpenService(
           let response: Response | undefined;
           try {
             signal.throwIfAborted();
-            response = await aWithAbort<Response>(
+            response = await withAbort<Response>(
               fetchPage(current.toString(), {
                 method: "GET",
                 redirect: "manual",
@@ -226,7 +226,7 @@ export function createLinkOpenService(
                 // An injected/late transport must not leave a response abandoned
                 // if its headers arrive after open() has already timed out.
                 if (signal.aborted) {
-                  await aCancelBody(fetched, signal);
+                  await cancelBody(fetched, signal);
                   signal.throwIfAborted();
                 }
                 return fetched;
@@ -234,7 +234,7 @@ export function createLinkOpenService(
               signal,
             );
 
-            if (bIsRedirectStatus(response.status)) {
+            if (isRedirectStatus(response.status)) {
               const location = response.headers.get("location");
               if (!location) return { ok: false, error: "fetch_failed" };
               if (redirects >= MAX_REDIRECTS) return { ok: false, error: "too_many_redirects" };
@@ -249,7 +249,7 @@ export function createLinkOpenService(
               if (!(next.protocol === "http:" || next.protocol === "https:")) {
                 return { ok: false, error: "redirect_blocked" };
               }
-              if (bIsBlockedHost(next)) {
+              if (isBlockedHost(next)) {
                 console.log(`[LINK] blocked: redirect_blocked (${next.hostname})`);
                 return { ok: false, error: "redirect_blocked" };
               }
@@ -263,40 +263,40 @@ export function createLinkOpenService(
               return { ok: false, error: "fetch_failed" };
             }
 
-            const content_type = (response.headers.get("content-type") ?? "").toLowerCase();
-            if (!content_type.includes("text/html")) {
+            const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+            if (!contentType.includes("text/html")) {
               return { ok: false, error: "unsupported_content_type" };
             }
 
-            const content_length = response.headers.get("content-length");
-            if (content_length) {
-              const len = Number.parseInt(content_length, 10);
+            const contentLength = response.headers.get("content-length");
+            if (contentLength) {
+              const len = Number.parseInt(contentLength, 10);
               if (Number.isFinite(len) && len > MAX_HTML_BYTES) {
                 return { ok: false, error: "response_too_large" };
               }
             }
 
-            const body_result = await aReadBodyWithLimit(response, MAX_HTML_BYTES, signal);
-            if (!body_result.ok) return { ok: false, error: body_result.error };
+            const bodyResult = await readBodyWithLimit(response, MAX_HTML_BYTES, signal);
+            if (!bodyResult.ok) return { ok: false, error: bodyResult.error };
 
-            const title = szExtractTitle(body_result.text);
-            const excerpt = szExtractTextExcerpt(body_result.text, MAX_EXCERPT_CHARS);
+            const title = extractTitle(bodyResult.text);
+            const excerpt = extractTextExcerpt(bodyResult.text, MAX_EXCERPT_CHARS);
 
             console.log(
-              `[LINK] fetched: domain=${szNormalizeHost(
+              `[LINK] fetched: domain=${normalizeHost(
                 current.hostname,
-              )} bytes=${body_result.bytes} redirects=${redirects}`,
+              )} bytes=${bodyResult.bytes} redirects=${redirects}`,
             );
             return {
               ok: true,
               page: {
-                domain: szNormalizeHost(current.hostname),
+                domain: normalizeHost(current.hostname),
                 title,
                 excerpt,
               },
             };
           } finally {
-            await aCancelBody(response, signal);
+            await cancelBody(response, signal);
           }
         }
       } catch (err) {

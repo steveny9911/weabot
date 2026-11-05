@@ -39,7 +39,7 @@ interface BraveSearchResponse {
   };
 }
 
-function szTruncate(text: string, maxLen: number): string {
+function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return text.slice(0, maxLen - 3) + "...";
 }
@@ -48,7 +48,7 @@ function szTruncate(text: string, maxLen: number): string {
  * Extract a search query for auto-search from a mention message.
  * This is a conservative heuristic to avoid searching small talk.
  */
-export function szExtractAutoSearchQuery(content: string | undefined): string | null {
+export function extractAutoSearchQuery(content: string | undefined): string | null {
   if (!content) return null;
 
   const cleaned = content.replace(/<@!?\d+>/g, "").trim();
@@ -101,7 +101,7 @@ export function formatSearchResultsForContext(query: string, results: SearchResu
   const header = `Reference notes for "${cleanQuery}":`;
   const lines = results.map((result, index) => {
     const title = result.title?.trim() || "Source";
-    const snippet = result.snippet ? ` - ${szTruncate(result.snippet.trim(), 200)}` : "";
+    const snippet = result.snippet ? ` - ${truncate(result.snippet.trim(), 200)}` : "";
     return `${index + 1}. ${title}${snippet}`;
   });
 

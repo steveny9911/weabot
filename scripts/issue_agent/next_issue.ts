@@ -56,8 +56,8 @@ export async function runNextIssue(
       return { ok: false, found: false, reason: "issue-not-found" };
     }
 
-    const state_labels = getStateLabels(refreshed);
-    if (state_labels.some((label) => label === "agent:in-progress" || label === "agent:pr-open")) {
+    const stateLabels = getStateLabels(refreshed);
+    if (stateLabels.some((label) => label === "agent:in-progress" || label === "agent:pr-open")) {
       return { ok: true, found: false, reason: "already-claimed" };
     }
 

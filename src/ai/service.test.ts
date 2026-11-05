@@ -12,8 +12,8 @@ import { createAiService } from "./service.ts";
 import type { AiParticipationOptions } from "./types.ts";
 import type { AppConfig } from "../config.ts";
 import {
-  oMapDiscordMessage,
-  oToAiContextMessage,
+  mapDiscordMessage,
+  toAiContextMessage,
   selectActiveConversation,
 } from "../features/chat_context.ts";
 
@@ -229,10 +229,10 @@ test("generateReply does not truncate input when limits are disabled", async () 
 
     const request = mock.getLastRequest();
     const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-    const first_message = input?.[0];
-    const content_parts = first_message?.content ?? [];
-    const text_part = content_parts.find((part) => part["type"] === "input_text");
-    const text = (text_part?.["text"] as string | undefined) ?? "";
+    const firstMessage = input?.[0];
+    const contentParts = firstMessage?.content ?? [];
+    const textPart = contentParts.find((part) => part["type"] === "input_text");
+    const text = (textPart?.["text"] as string | undefined) ?? "";
 
     expect(text).toContain(longMessage);
     expect(text.includes("...")).toStrictEqual(false);
@@ -269,14 +269,14 @@ test("generateReply includes image URLs as input_image blocks", async () => {
 
     const request = mock.getLastRequest();
     const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-    const content_parts = input?.[0]?.content ?? [];
-    const image_parts = content_parts.filter((part) => part["type"] === "input_image");
+    const contentParts = input?.[0]?.content ?? [];
+    const imageParts = contentParts.filter((part) => part["type"] === "input_image");
 
-    expect(image_parts.length).toStrictEqual(2);
-    expect(image_parts[0]["image_url"]).toStrictEqual(
+    expect(imageParts.length).toStrictEqual(2);
+    expect(imageParts[0]["image_url"]).toStrictEqual(
       "https://cdn.discordapp.com/attachments/1/2/cat.png",
     );
-    expect(image_parts[1]["image_url"]).toStrictEqual(
+    expect(imageParts[1]["image_url"]).toStrictEqual(
       "https://media.discordapp.net/attachments/3/4/dog.jpg",
     );
   } finally {
@@ -303,14 +303,14 @@ test("generateReply includes explicit Discord reply references in text and image
 
     const request = mock.getLastRequest();
     const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-    const content_parts = input?.[0]?.content ?? [];
-    const text_part = content_parts.find((part) => part["type"] === "input_text");
-    const image_parts = content_parts.filter((part) => part["type"] === "input_image");
+    const contentParts = input?.[0]?.content ?? [];
+    const textPart = contentParts.find((part) => part["type"] === "input_text");
+    const imageParts = contentParts.filter((part) => part["type"] === "input_image");
 
-    expect(String(text_part?.["text"])).toContain(
+    expect(String(textPart?.["text"])).toContain(
       "alice (replying to bob: the old topic [attached 1 image]): this one",
     );
-    expect(image_parts).toStrictEqual([
+    expect(imageParts).toStrictEqual([
       {
         type: "input_image",
         image_url: "https://cdn.discordapp.com/old-topic.png",
@@ -585,9 +585,9 @@ test("generateReply caps image inputs to six unique URLs and ignores non-strings
 
     const request = mock.getLastRequest();
     const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-    const image_parts = input?.[0]?.content?.filter((part) => part["type"] === "input_image") ?? [];
-    expect(image_parts.length).toStrictEqual(6);
-    expect(image_parts[5]["image_url"]).toStrictEqual("https://example.com/6.png");
+    const imageParts = input?.[0]?.content?.filter((part) => part["type"] === "input_image") ?? [];
+    expect(imageParts.length).toStrictEqual(6);
+    expect(imageParts[5]["image_url"]).toStrictEqual("https://example.com/6.png");
   } finally {
     mock.restore();
   }
@@ -624,10 +624,10 @@ test("a reply to a video cannot poison subsequent text-only AI requests", async 
   ];
 
   try {
-    const context = selectActiveConversation(messages.map(oMapDiscordMessage), {
+    const context = selectActiveConversation(messages.map(mapDiscordMessage), {
       maxMessages: 40,
       inactivityGapMs: 20 * 60_000,
-    }).map(oToAiContextMessage);
+    }).map(toAiContextMessage);
     const result = await createAiService(createMockConfig()).generateReply(context);
     expect(result.ok).toStrictEqual(true);
     const input = mock.getLastRequest()?.body.input as Array<{
@@ -906,16 +906,16 @@ test("autonomous invalid choices fail closed for content, targets, emojis, and m
     JSON.stringify({ action: "react", text: "", messageId: 100, emoji: "😂" }),
     JSON.stringify({ action: "silent" }),
   ];
-  for (const output_text of invalid) {
-    const mock = mockFetch({ output_text, usage: { total_tokens: 21 } });
+  for (const outputText of invalid) {
+    const mock = mockFetch({ output_text: outputText, usage: { total_tokens: 21 } });
     try {
       const result = await createAiService(createMockConfig()).generateReply(
         participationMessages,
         participationOptions,
       );
       // The case is part of the compared value so a failure shows which output_text broke.
-      expect({ output_text, result }).toStrictEqual({
-        output_text,
+      expect({ output_text: outputText, result }).toStrictEqual({
+        output_text: outputText,
         result: {
           ok: true,
           text: "",

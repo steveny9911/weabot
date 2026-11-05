@@ -11,7 +11,7 @@ export function createAutonomousChatJob(
   aiService: AiService,
   rateLimit: RateLimitService,
 ): () => Promise<void> {
-  let autonomous_chat_running = false;
+  let autonomousChatRunning = false;
 
   return async () => {
     if (!config.autonomousChatEnabled) return;
@@ -19,15 +19,15 @@ export function createAutonomousChatJob(
       console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
       return;
     }
-    if (autonomous_chat_running) {
+    if (autonomousChatRunning) {
       console.log("[CRON] Autonomous chat skipped because previous run is still active");
       return;
     }
 
-    autonomous_chat_running = true;
+    autonomousChatRunning = true;
     try {
-      const bot_user_id = await getBotUserId(config);
-      if (!bot_user_id) {
+      const botUserId = await getBotUserId(config);
+      if (!botUserId) {
         console.error("[CRON] Autonomous chat skipped because bot user id is unavailable");
         return;
       }
@@ -40,7 +40,7 @@ export function createAutonomousChatJob(
             storage,
             ai: aiService,
             rateLimit,
-            botId: bot_user_id,
+            botId: botUserId,
           });
           console.log("[AUTONOMOUS OUTCOME]", JSON.stringify({ channelId, ...outcome }));
         } catch {
@@ -50,7 +50,7 @@ export function createAutonomousChatJob(
     } catch (error) {
       console.error("[CRON] Error in autonomous chat:", error);
     } finally {
-      autonomous_chat_running = false;
+      autonomousChatRunning = false;
     }
   };
 }

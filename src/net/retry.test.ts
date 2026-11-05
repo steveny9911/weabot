@@ -7,7 +7,7 @@ function mockFetchSequence(sequence: Array<Response | Error>): {
   restore: () => void;
   getCalls: () => number;
 } {
-  const original_fetch = globalThis.fetch;
+  const originalFetch = globalThis.fetch;
   let calls = 0;
 
   globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
@@ -21,7 +21,7 @@ function mockFetchSequence(sequence: Array<Response | Error>): {
 
   return {
     restore: () => {
-      globalThis.fetch = original_fetch;
+      globalThis.fetch = originalFetch;
     },
     getCalls: () => calls,
   };
@@ -148,7 +148,7 @@ test("fetchWithRetry throws after repeated fetch errors", async () => {
 });
 
 test("fetchWithRetry wraps non-Error thrown values", async () => {
-  const original_fetch = globalThis.fetch;
+  const originalFetch = globalThis.fetch;
   globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
     return Promise.reject("string failure");
   });
@@ -160,7 +160,7 @@ test("fetchWithRetry wraps non-Error thrown values", async () => {
       "string failure",
     );
   } finally {
-    globalThis.fetch = original_fetch;
+    globalThis.fetch = originalFetch;
   }
 });
 

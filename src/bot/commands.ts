@@ -6,7 +6,7 @@ const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 /**
  * Returns true if the message mentions the bot.
  */
-export function bMessageMentionsBot(message: Record<string, unknown>, bot_id: string): boolean {
+export function messageMentionsBot(message: Record<string, unknown>, botId: string): boolean {
   if (!message) return false;
 
   const mentions = message.mentions as unknown;
@@ -14,8 +14,8 @@ export function bMessageMentionsBot(message: Record<string, unknown>, bot_id: st
     for (const m of mentions) {
       if (m && typeof m === "object") {
         const mm = m as Record<string, unknown>;
-        if (typeof mm.id === "string" && mm.id === bot_id) return true;
-        if (typeof mm.username === "string" && mm.username === bot_id) return true;
+        if (typeof mm.id === "string" && mm.id === botId) return true;
+        if (typeof mm.username === "string" && mm.username === botId) return true;
       }
     }
   }
@@ -23,7 +23,7 @@ export function bMessageMentionsBot(message: Record<string, unknown>, bot_id: st
   // Fallback: check content for <@ID> or <@!ID>
   const content = message.content as unknown;
   if (typeof content === "string") {
-    if (content.includes(`<@${bot_id}>`) || content.includes(`<@!${bot_id}>`)) {
+    if (content.includes(`<@${botId}>`) || content.includes(`<@!${botId}>`)) {
       return true;
     }
   }
@@ -35,7 +35,7 @@ export function bMessageMentionsBot(message: Record<string, unknown>, bot_id: st
  * Returns true if the message includes the reset context command.
  * Expected format: "@Haru \\reset"
  */
-export function bIsResetCommand(content: string | undefined): boolean {
+export function isResetCommand(content: string | undefined): boolean {
   if (!content) return false;
   return /(^|\s)\\reset(\s|$)/i.test(content);
 }
@@ -44,7 +44,7 @@ export function bIsResetCommand(content: string | undefined): boolean {
  * Returns true if the message includes the open-link command.
  * Expected format: "@Haru \\open <url> [optional question]"
  */
-export function bIsOpenCommand(content: string | undefined): boolean {
+export function isOpenCommand(content: string | undefined): boolean {
   if (!content) return false;
   const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
   return /^\\open\b/i.test(cleaned);
@@ -59,7 +59,7 @@ export interface OpenCommand {
  * Parses an open-link command.
  * Uses the first URL only and treats remaining text as optional user request.
  */
-export function szParseOpenCommand(content: string | undefined): OpenCommand | null {
+export function parseOpenCommand(content: string | undefined): OpenCommand | null {
   if (!content) return null;
   const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
   const match = cleaned.match(/^\\open\b\s+(.+)$/i);
@@ -68,20 +68,20 @@ export function szParseOpenCommand(content: string | undefined): OpenCommand | n
   const tail = match[1].trim();
   if (!tail) return null;
 
-  const first_url = tail.match(/https?:\/\/[^\s<>()]+/i);
-  if (!first_url || first_url.index === undefined) return null;
+  const firstUrl = tail.match(/https?:\/\/[^\s<>()]+/i);
+  if (!firstUrl || firstUrl.index === undefined) return null;
 
-  const url = first_url[0];
-  const rest = tail.slice(first_url.index + url.length).trim();
-  const user_request = rest.replace(URL_RE, "").replace(/\s+/g, " ").trim();
+  const url = firstUrl[0];
+  const rest = tail.slice(firstUrl.index + url.length).trim();
+  const userRequest = rest.replace(URL_RE, "").replace(/\s+/g, " ").trim();
 
-  return user_request ? { url, userRequest: user_request } : { url };
+  return userRequest ? { url, userRequest: userRequest } : { url };
 }
 
 /**
  * Remove explicit URL tokens from model output.
  */
-export function szStripUrls(text: string): string {
+export function stripUrls(text: string): string {
   return text
     .replace(URL_RE, "")
     .replace(/\s+/g, " ")
@@ -89,14 +89,14 @@ export function szStripUrls(text: string): string {
     .trim();
 }
 
-export function szOpenFailureMessage(_error: LinkOpenError): string {
+export function openFailureMessage(_error: LinkOpenError): string {
   return "Eep... I couldn't safely open that link. Can you try another one?~";
 }
 
 /**
  * Formats milliseconds into a human-readable string (seconds or minutes).
  */
-export function szFormatTime(ms: number): string {
+export function formatTime(ms: number): string {
   const seconds = Math.ceil(ms / 1000);
   if (seconds < 60) {
     return seconds === 1 ? "1 second" : `${seconds} seconds`;

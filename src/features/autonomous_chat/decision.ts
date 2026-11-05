@@ -1,5 +1,5 @@
 import {
-  oToAiContextMessage,
+  toAiContextMessage,
   type RecentDiscordMessage,
   selectActiveConversation,
 } from "../chat_context.ts";
@@ -39,12 +39,12 @@ interface TimestampedRecentMessage {
   timestampMs: number;
 }
 
-function nTimestampMs(timestamp: string): number | null {
+function parseTimestampMs(timestamp: string): number | null {
   const parsed = Date.parse(timestamp);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function bIsHumanMessage(message: RecentDiscordMessage, botUserId: string): boolean {
+function isHumanMessage(message: RecentDiscordMessage, botUserId: string): boolean {
   return (
     Boolean(message.id && message.authorId) && !message.authorBot && message.authorId !== botUserId
   );
@@ -54,16 +54,16 @@ export function decideAutonomousChatReply(
   messages: RecentDiscordMessage[],
   options: AutonomousChatOptions,
 ): AutonomousChatDecision {
-  const active_conversation = selectActiveConversation(messages, {
+  const activeConversation = selectActiveConversation(messages, {
     maxMessages: Math.max(1, messages.length),
     inactivityGapMs: options.inactivityGapMs,
     resetAfterMs: options.resetAfterMs,
   });
-  const timestamped: TimestampedRecentMessage[] = active_conversation
+  const timestamped: TimestampedRecentMessage[] = activeConversation
     .map((message) => {
-      const timestamp_ms = nTimestampMs(message.timestamp);
-      if (timestamp_ms === null) return null;
-      return { message, timestampMs: timestamp_ms };
+      const timestampMs = parseTimestampMs(message.timestamp);
+      if (timestampMs === null) return null;
+      return { message, timestampMs: timestampMs };
     })
     .filter((item): item is TimestampedRecentMessage => item !== null);
 
@@ -71,50 +71,48 @@ export function decideAutonomousChatReply(
     return { shouldReply: false, reason: "no valid recent messages", contextMessages: [] };
   }
 
-  const min_human_messages = Math.max(1, options.minHumanMessages);
-  const recent_human_messages = timestamped.filter(({ message, timestampMs }) => {
-    const age_ms = options.nowMs - timestampMs;
+  const minHumanMessages = Math.max(1, options.minHumanMessages);
+  const recentHumanMessages = timestamped.filter(({ message, timestampMs }) => {
+    const ageMs = options.nowMs - timestampMs;
     return (
-      age_ms >= 0 &&
-      age_ms <= options.activityWindowMs &&
-      bIsHumanMessage(message, options.botUserId)
+      ageMs >= 0 && ageMs <= options.activityWindowMs && isHumanMessage(message, options.botUserId)
     );
   });
 
-  if (recent_human_messages.length < min_human_messages) {
+  if (recentHumanMessages.length < minHumanMessages) {
     return {
       shouldReply: false,
-      reason: `only ${recent_human_messages.length} recent human message(s)`,
+      reason: `only ${recentHumanMessages.length} recent human message(s)`,
       contextMessages: [],
     };
   }
 
-  const last_haru_message = [...timestamped]
+  const lastHaruMessage = [...timestamped]
     .reverse()
     .find(({ message }) => message.authorId === options.botUserId);
 
-  const latest_human = recent_human_messages.at(-1)!;
-  if (options.nowMs - latest_human.timestampMs < (options.settleMs ?? 0)) {
+  const latestHuman = recentHumanMessages.at(-1)!;
+  if (options.nowMs - latestHuman.timestampMs < (options.settleMs ?? 0)) {
     return {
       shouldReply: false,
       reason: "human message burst still settling",
       contextMessages: [],
     };
   }
-  if (isIncompleteFragment(latest_human.message)) {
+  if (isIncompleteFragment(latestHuman.message)) {
     return { shouldReply: false, reason: "latest human turn is incomplete", contextMessages: [] };
   }
   const previous = options.lastParticipation;
   if (previous) {
-    const elapsed_ms = options.nowMs - previous.attemptedAt;
-    if (elapsed_ms < options.cooldownMs) {
+    const elapsedMs = options.nowMs - previous.attemptedAt;
+    if (elapsedMs < options.cooldownMs) {
       return { shouldReply: false, reason: "participation cooldown active", contextMessages: [] };
     }
     if (
       !isNewerHumanMessage(
         {
-          latestHumanMessageId: latest_human.message.id,
-          latestHumanTimestampMs: latest_human.timestampMs,
+          latestHumanMessageId: latestHuman.message.id,
+          latestHumanTimestampMs: latestHuman.timestampMs,
         },
         previous,
       )
@@ -123,18 +121,18 @@ export function decideAutonomousChatReply(
     }
   }
 
-  if (last_haru_message) {
-    const elapsed_ms = options.nowMs - last_haru_message.timestampMs;
-    if (elapsed_ms >= 0 && elapsed_ms < options.cooldownMs) {
+  if (lastHaruMessage) {
+    const elapsedMs = options.nowMs - lastHaruMessage.timestampMs;
+    if (elapsedMs >= 0 && elapsedMs < options.cooldownMs) {
       return { shouldReply: false, reason: "cooldown active", contextMessages: [] };
     }
 
-    const has_human_after_haru = timestamped.some(
+    const hasHumanAfterHaru = timestamped.some(
       ({ message, timestampMs }) =>
-        timestampMs > last_haru_message.timestampMs && bIsHumanMessage(message, options.botUserId),
+        timestampMs > lastHaruMessage.timestampMs && isHumanMessage(message, options.botUserId),
     );
 
-    if (!has_human_after_haru) {
+    if (!hasHumanAfterHaru) {
       return {
         shouldReply: false,
         reason: "no human message after Haru",
@@ -151,24 +149,24 @@ export function decideAutonomousChatReply(
     return { shouldReply: false, reason: "random gate skipped", contextMessages: [] };
   }
 
-  const context_limit = Math.max(1, options.maxContextMessages);
-  const turns = conversationTurns(timestamped.slice(-context_limit).map(({ message }) => message));
-  const anchor_ids = new Set(turns.flatMap((turn) => turn.anchorIds));
-  const context_messages: Array<Record<string, unknown>> = turns.flatMap((turn) =>
+  const contextLimit = Math.max(1, options.maxContextMessages);
+  const turns = conversationTurns(timestamped.slice(-contextLimit).map(({ message }) => message));
+  const anchorIds = new Set(turns.flatMap((turn) => turn.anchorIds));
+  const contextMessages: Array<Record<string, unknown>> = turns.flatMap((turn) =>
     turn.messages.map((message) => ({
-      ...oToAiContextMessage(message),
+      ...toAiContextMessage(message),
       turnId: turn.id,
       turnMessageIds: turn.messages.map((m) => m.id),
-      reactionAnchor: anchor_ids.has(message.id),
+      reactionAnchor: anchorIds.has(message.id),
     })),
   );
-  const context_ids = new Set(context_messages.map((message) => message.id));
-  const reaction_message_ids = recent_human_messages
+  const contextIds = new Set(contextMessages.map((message) => message.id));
+  const reactionMessageIds = recentHumanMessages
     .filter(
       ({ message, timestampMs }) =>
         Boolean(message.id) &&
-        anchor_ids.has(message.id) &&
-        context_ids.has(message.id) &&
+        anchorIds.has(message.id) &&
+        contextIds.has(message.id) &&
         !message.hasOwnReaction &&
         (!previous ||
           isNewerHumanMessage(
@@ -178,15 +176,15 @@ export function decideAutonomousChatReply(
             },
             previous,
           )) &&
-        (!last_haru_message || timestampMs > last_haru_message.timestampMs),
+        (!lastHaruMessage || timestampMs > lastHaruMessage.timestampMs),
     )
     .map(({ message }) => message.id);
 
   return {
     shouldReply: true,
     reason: "active conversation eligible",
-    contextMessages: context_messages,
-    latestHumanMessage: latest_human.message,
-    reactionMessageIds: reaction_message_ids,
+    contextMessages: contextMessages,
+    latestHumanMessage: latestHuman.message,
+    reactionMessageIds: reactionMessageIds,
   };
 }

@@ -6,13 +6,13 @@ import type { AppConfig } from "../config.ts";
 import { botJsonHeaders, DISCORD_API_BASE } from "./api.ts";
 
 // Cached bot user ID
-let cached_bot_user_id: string | undefined;
+let cachedBotUserId: string | undefined;
 
 /**
  * Fetch and cache the bot's user ID from Discord API.
  */
 export async function getBotUserId(config: AppConfig): Promise<string | undefined> {
-  if (cached_bot_user_id) return cached_bot_user_id;
+  if (cachedBotUserId) return cachedBotUserId;
 
   if (!config.discordToken) {
     console.error("Cannot fetch bot user id: DISCORD_TOKEN missing");
@@ -30,8 +30,8 @@ export async function getBotUserId(config: AppConfig): Promise<string | undefine
     }
 
     const data = (await res.json()) as { id: string };
-    cached_bot_user_id = data.id;
-    return cached_bot_user_id;
+    cachedBotUserId = data.id;
+    return cachedBotUserId;
   } catch (err) {
     console.error("Error fetching bot user id:", err);
     return undefined;
@@ -43,19 +43,19 @@ export async function getBotUserId(config: AppConfig): Promise<string | undefine
  */
 export async function sendMessage(
   config: AppConfig,
-  channel_id: string,
+  channelId: string,
   content: string,
-  suppress_mentions = false,
+  suppressMentions = false,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  if (!channel_id) return { ok: false, error: "missing channelId" };
+  if (!channelId) return { ok: false, error: "missing channelId" };
 
   try {
-    const response = await fetch(`${DISCORD_API_BASE}/channels/${channel_id}/messages`, {
+    const response = await fetch(`${DISCORD_API_BASE}/channels/${channelId}/messages`, {
       method: "POST",
       headers: botJsonHeaders(config.discordToken),
       body: JSON.stringify({
         content,
-        ...(suppress_mentions ? { allowed_mentions: { parse: [] } } : {}),
+        ...(suppressMentions ? { allowed_mentions: { parse: [] } } : {}),
       }),
     });
 
@@ -80,10 +80,10 @@ export async function sendMessage(
  */
 export async function fetchChannelMessages(
   config: AppConfig,
-  channel_id: string,
+  channelId: string,
   limit: number,
 ): Promise<Array<Record<string, unknown>> | null> {
-  const res = await fetch(`${DISCORD_API_BASE}/channels/${channel_id}/messages?limit=${limit}`, {
+  const res = await fetch(`${DISCORD_API_BASE}/channels/${channelId}/messages?limit=${limit}`, {
     headers: botJsonHeaders(config.discordToken),
   });
 

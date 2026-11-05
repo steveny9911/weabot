@@ -29,7 +29,7 @@ interface TimestampedMessage {
 const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp)$/i;
 const IMAGE_CONTENT_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
-function bIsHttpUrl(url: string): boolean {
+function isHttpUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
@@ -38,14 +38,12 @@ function bIsHttpUrl(url: string): boolean {
   }
 }
 
-function bAttachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
-  const raw_content_type = attachment["content_type"];
-  const content_type =
-    typeof raw_content_type === "string"
-      ? raw_content_type.split(";", 1)[0].trim().toLowerCase()
-      : "";
-  if (content_type && content_type !== "application/octet-stream") {
-    return IMAGE_CONTENT_TYPES.has(content_type);
+function attachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
+  const rawContentType = attachment["content_type"];
+  const contentType =
+    typeof rawContentType === "string" ? rawContentType.split(";", 1)[0].trim().toLowerCase() : "";
+  if (contentType && contentType !== "application/octet-stream") {
+    return IMAGE_CONTENT_TYPES.has(contentType);
   }
 
   const filename = attachment["filename"];
@@ -55,20 +53,20 @@ function bAttachmentLooksLikeImage(attachment: Record<string, unknown>): boolean
 
   // Videos also have width and height. Require an image format, not dimensions.
   const url = attachment["url"] ?? attachment["proxy_url"];
-  if (typeof url !== "string" || !bIsHttpUrl(url)) return false;
+  if (typeof url !== "string" || !isHttpUrl(url)) return false;
   return IMAGE_FILE_EXT_RE.test(new URL(url).pathname);
 }
 
-function aszExtractImageUrls(message: Record<string, unknown>): string[] {
+function extractImageUrls(message: Record<string, unknown>): string[] {
   const attachments = message["attachments"];
   if (!Array.isArray(attachments)) return [];
 
-  const image_urls: string[] = [];
-  for (const raw_attachment of attachments) {
-    if (!raw_attachment || typeof raw_attachment !== "object") continue;
+  const imageUrls: string[] = [];
+  for (const rawAttachment of attachments) {
+    if (!rawAttachment || typeof rawAttachment !== "object") continue;
 
-    const attachment = raw_attachment as Record<string, unknown>;
-    if (!bAttachmentLooksLikeImage(attachment)) continue;
+    const attachment = rawAttachment as Record<string, unknown>;
+    if (!attachmentLooksLikeImage(attachment)) continue;
 
     const candidate =
       typeof attachment["url"] === "string"
@@ -79,15 +77,15 @@ function aszExtractImageUrls(message: Record<string, unknown>): string[] {
     if (!candidate) continue;
 
     const trimmed = candidate.trim();
-    if (trimmed && bIsHttpUrl(trimmed)) image_urls.push(trimmed);
+    if (trimmed && isHttpUrl(trimmed)) imageUrls.push(trimmed);
   }
 
-  return [...new Set(image_urls)];
+  return [...new Set(imageUrls)];
 }
 
-function szAuthorName(author: Record<string, unknown>): string {
-  const global_name = author["global_name"];
-  if (typeof global_name === "string" && global_name.trim()) return global_name;
+function displayAuthorName(author: Record<string, unknown>): string {
+  const globalName = author["global_name"];
+  if (typeof globalName === "string" && globalName.trim()) return globalName;
 
   const username = author["username"];
   if (typeof username === "string" && username.trim()) return username;
@@ -96,7 +94,7 @@ function szAuthorName(author: Record<string, unknown>): string {
   return typeof id === "string" && id.trim() ? id : "unknown";
 }
 
-function oMapReference(message: Record<string, unknown>): DiscordMessageReference {
+function mapReference(message: Record<string, unknown>): DiscordMessageReference {
   const author =
     message["author"] && typeof message["author"] === "object"
       ? (message["author"] as Record<string, unknown>)
@@ -105,7 +103,7 @@ function oMapReference(message: Record<string, unknown>): DiscordMessageReferenc
   return {
     id: typeof message["id"] === "string" ? message["id"] : "",
     authorId: typeof author["id"] === "string" ? author["id"] : "",
-    authorName: szAuthorName(author),
+    authorName: displayAuthorName(author),
     content: typeof message["content"] === "string" ? message["content"] : "",
     timestamp:
       typeof message["timestamp"] === "string"
@@ -113,23 +111,23 @@ function oMapReference(message: Record<string, unknown>): DiscordMessageReferenc
         : typeof message["created_at"] === "string"
           ? message["created_at"]
           : "",
-    imageUrls: aszExtractImageUrls(message),
+    imageUrls: extractImageUrls(message),
   };
 }
 
-export function oMapDiscordMessage(message: Record<string, unknown>): RecentDiscordMessage {
+export function mapDiscordMessage(message: Record<string, unknown>): RecentDiscordMessage {
   const author =
     message["author"] && typeof message["author"] === "object"
       ? (message["author"] as Record<string, unknown>)
       : {};
   const referenced = message["referenced_message"];
-  const referenced_message =
+  const referencedMessage =
     referenced && typeof referenced === "object"
-      ? oMapReference(referenced as Record<string, unknown>)
+      ? mapReference(referenced as Record<string, unknown>)
       : undefined;
 
   return {
-    ...oMapReference(message),
+    ...mapReference(message),
     authorBot: author["bot"] === true || typeof message["webhook_id"] === "string",
     ...(Array.isArray(message["reactions"]) &&
     message["reactions"].some(
@@ -140,16 +138,16 @@ export function oMapDiscordMessage(message: Record<string, unknown>): RecentDisc
     )
       ? { hasOwnReaction: true }
       : {}),
-    ...(referenced_message ? { referencedMessage: referenced_message } : {}),
+    ...(referencedMessage ? { referencedMessage: referencedMessage } : {}),
   };
 }
 
-function nTimestampMs(timestamp: string): number | null {
+function parseTimestampMs(timestamp: string): number | null {
   const parsed = Date.parse(timestamp);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function bHasConversationContent(message: RecentDiscordMessage): boolean {
+function hasConversationContent(message: RecentDiscordMessage): boolean {
   return message.content.trim().length > 0 || message.imageUrls.length > 0;
 }
 
@@ -158,16 +156,16 @@ export function selectActiveConversation(
   messages: RecentDiscordMessage[],
   options: ChatContextOptions,
 ): RecentDiscordMessage[] {
-  const reset_after_ms = options.resetAfterMs ?? null;
+  const resetAfterMs = options.resetAfterMs ?? null;
   const timestamped: TimestampedMessage[] = messages
     .map((message, index) => {
-      const timestamp_ms = nTimestampMs(message.timestamp);
-      if (timestamp_ms === null) return null;
-      return { message, timestampMs: timestamp_ms, index };
+      const timestampMs = parseTimestampMs(message.timestamp);
+      if (timestampMs === null) return null;
+      return { message, timestampMs: timestampMs, index };
     })
     .filter((item): item is TimestampedMessage => item !== null)
-    .filter(({ message }) => bHasConversationContent(message))
-    .filter(({ timestampMs }) => reset_after_ms === null || timestampMs > reset_after_ms)
+    .filter(({ message }) => hasConversationContent(message))
+    .filter(({ timestampMs }) => resetAfterMs === null || timestampMs > resetAfterMs)
     .sort((a, b) => {
       const timeDifference = a.timestampMs - b.timestampMs;
       if (timeDifference !== 0) return timeDifference;
@@ -182,22 +180,22 @@ export function selectActiveConversation(
 
   if (timestamped.length === 0) return [];
 
-  const inactivity_gap_ms = Math.max(0, options.inactivityGapMs);
-  let session_start = timestamped.length - 1;
+  const inactivityGapMs = Math.max(0, options.inactivityGapMs);
+  let sessionStart = timestamped.length - 1;
   for (let index = timestamped.length - 2; index >= 0; index--) {
-    const gap_ms = timestamped[index + 1].timestampMs - timestamped[index].timestampMs;
-    if (gap_ms > inactivity_gap_ms) break;
-    session_start = index;
+    const gapMs = timestamped[index + 1].timestampMs - timestamped[index].timestampMs;
+    if (gapMs > inactivityGapMs) break;
+    sessionStart = index;
   }
 
-  const max_messages = Math.max(1, Math.trunc(options.maxMessages));
+  const maxMessages = Math.max(1, Math.trunc(options.maxMessages));
   return timestamped
-    .slice(session_start)
-    .slice(-max_messages)
+    .slice(sessionStart)
+    .slice(-maxMessages)
     .map(({ message }) => message);
 }
 
-function oReferenceForAi(reference: DiscordMessageReference): Record<string, unknown> {
+function referenceForAi(reference: DiscordMessageReference): Record<string, unknown> {
   return {
     id: reference.id,
     author: reference.authorName || reference.authorId || "unknown",
@@ -207,13 +205,13 @@ function oReferenceForAi(reference: DiscordMessageReference): Record<string, unk
   };
 }
 
-export function oToAiContextMessage(message: RecentDiscordMessage): Record<string, unknown> {
+export function toAiContextMessage(message: RecentDiscordMessage): Record<string, unknown> {
   return {
     id: message.id,
     author: message.authorName || message.authorId || "unknown",
     content: message.content,
     imageUrls: message.imageUrls,
     timestamp: message.timestamp || null,
-    ...(message.referencedMessage ? { repliedTo: oReferenceForAi(message.referencedMessage) } : {}),
+    ...(message.referencedMessage ? { repliedTo: referenceForAi(message.referencedMessage) } : {}),
   };
 }

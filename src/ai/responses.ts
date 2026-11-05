@@ -25,10 +25,10 @@ export async function withResponseDeadline<T>(
  * Extracts assistant text from OpenAI Responses API payloads.
  * Handles both `output_text` and structured `output[].content[]` shapes.
  */
-export function szExtractResponseText(data: Record<string, unknown>): string | null {
-  const top_level_output_text = data.output_text;
-  if (typeof top_level_output_text === "string" && top_level_output_text.trim().length > 0) {
-    return top_level_output_text;
+export function extractResponseText(data: Record<string, unknown>): string | null {
+  const topLevelOutputText = data.output_text;
+  if (typeof topLevelOutputText === "string" && topLevelOutputText.trim().length > 0) {
+    return topLevelOutputText;
   }
 
   const output = data.output;
@@ -42,21 +42,21 @@ export function szExtractResponseText(data: Record<string, unknown>): string | n
 
     for (const part of content) {
       if (!part || typeof part !== "object") continue;
-      const part_obj = part as Record<string, unknown>;
+      const partObj = part as Record<string, unknown>;
 
       // Common shape: { type: "output_text", text: "..." }
-      if (typeof part_obj.text === "string" && part_obj.text.trim().length > 0) {
-        chunks.push(part_obj.text);
+      if (typeof partObj.text === "string" && partObj.text.trim().length > 0) {
+        chunks.push(partObj.text);
         continue;
       }
 
       // Alternate shape: { type: "output_text", text: { value: "..." } }
       if (
-        part_obj.text &&
-        typeof part_obj.text === "object" &&
-        typeof (part_obj.text as Record<string, unknown>).value === "string"
+        partObj.text &&
+        typeof partObj.text === "object" &&
+        typeof (partObj.text as Record<string, unknown>).value === "string"
       ) {
-        const value = (part_obj.text as Record<string, unknown>).value as string;
+        const value = (partObj.text as Record<string, unknown>).value as string;
         if (value.trim().length > 0) chunks.push(value);
       }
     }
@@ -66,7 +66,7 @@ export function szExtractResponseText(data: Record<string, unknown>): string | n
   return chunks.join("\n").trim();
 }
 
-export function nReportedTokens(data: Record<string, unknown>): number {
+export function readTokenUsage(data: Record<string, unknown>): number {
   const usage = data.usage;
   if (!usage || typeof usage !== "object") return 0;
   const total = (usage as Record<string, unknown>).total_tokens;

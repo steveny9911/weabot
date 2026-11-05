@@ -171,22 +171,22 @@ export async function viewIssue(issueNumber: number, cwd?: string): Promise<GhIs
 }
 
 export function parseDecisionMarker(body: string): AgentDecisionMarker | null {
-  const marker_re =
+  const markerRe =
     /<!--\s*haru-issue-agent:v1\s+decision=([a-z-]+)(?:\s+reason=([a-z0-9_-]+))?(?:\s+at=([0-9TZ:.-]+))?\s*-->/i;
-  const match = body.match(marker_re);
+  const match = body.match(markerRe);
   if (!match) return null;
 
-  const raw_decision = match[1].toLowerCase();
+  const rawDecision = match[1].toLowerCase();
   if (
     !["accepted", "needs-info", "rejected", "in-progress", "pr-open", "closed-inactive"].includes(
-      raw_decision,
+      rawDecision,
     )
   ) {
     return null;
   }
 
   return {
-    decision: raw_decision as AgentDecision,
+    decision: rawDecision as AgentDecision,
     reason: match[2],
     at: match[3] ?? "",
   };
@@ -197,11 +197,11 @@ export function findLatestDecisionComment(
   actorLogin: string,
 ): AgentDecisionMarker | null {
   const comments = issue.comments ?? [];
-  const by_newest = [...comments].sort(
+  const byNewest = [...comments].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
-  for (const comment of by_newest) {
+  for (const comment of byNewest) {
     const body = comment.body ?? "";
     if (!body.includes(AGENT_MARKER_PREFIX)) continue;
     const author = comment.author?.login ?? "";
@@ -209,10 +209,10 @@ export function findLatestDecisionComment(
 
     const parsed = parseDecisionMarker(body);
     if (!parsed) continue;
-    const effective_at = parsed.at || comment.createdAt;
+    const effectiveAt = parsed.at || comment.createdAt;
     return {
       ...parsed,
-      at: effective_at,
+      at: effectiveAt,
       commentId: comment.id,
       commentUrl: comment.url,
     };
@@ -242,8 +242,8 @@ function asIsoNow(): string {
 }
 
 export function buildMarker(decision: AgentDecision, reason?: string): string {
-  const reason_fragment = reason ? ` reason=${reason}` : "";
-  return `<!-- ${AGENT_MARKER_PREFIX} decision=${decision}${reason_fragment} at=${asIsoNow()} -->`;
+  const reasonFragment = reason ? ` reason=${reason}` : "";
+  return `<!-- ${AGENT_MARKER_PREFIX} decision=${decision}${reasonFragment} at=${asIsoNow()} -->`;
 }
 
 export async function setIssueStateLabel(
@@ -251,11 +251,11 @@ export async function setIssueStateLabel(
   targetLabel: (typeof STATE_LABELS)[number],
   cwd?: string,
 ): Promise<void> {
-  const existing_states = getStateLabels(issue);
-  const to_remove = existing_states.filter((l) => l !== targetLabel);
+  const existingStates = getStateLabels(issue);
+  const toRemove = existingStates.filter((l) => l !== targetLabel);
 
   const args = ["issue", "edit", String(issue.number), "--add-label", targetLabel];
-  for (const label of to_remove) {
+  for (const label of toRemove) {
     args.push("--remove-label", label);
   }
 
@@ -263,10 +263,10 @@ export async function setIssueStateLabel(
 }
 
 export function issueUpdatedAfter(issueUpdatedAt: string, timestamp: string): boolean {
-  const issue_ms = new Date(issueUpdatedAt).getTime();
-  const marker_ms = new Date(timestamp).getTime();
-  if (!Number.isFinite(issue_ms) || !Number.isFinite(marker_ms)) return true;
-  return issue_ms > marker_ms + 30_000;
+  const issueMs = new Date(issueUpdatedAt).getTime();
+  const markerMs = new Date(timestamp).getTime();
+  if (!Number.isFinite(issueMs) || !Number.isFinite(markerMs)) return true;
+  return issueMs > markerMs + 30_000;
 }
 
 export function ageInMs(isoTimestamp: string): number {

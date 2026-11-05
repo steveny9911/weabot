@@ -6,7 +6,7 @@ import { createDiscordClient } from "./client.ts";
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>): {
   restore: () => void;
 } {
-  const original_fetch = globalThis.fetch;
+  const originalFetch = globalThis.fetch;
 
   globalThis.fetch = asFetch((input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -15,14 +15,14 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
 
   return {
     restore: () => {
-      globalThis.fetch = original_fetch;
+      globalThis.fetch = originalFetch;
     },
   };
 }
 
 test("addReaction encodes its route and sends an authorized bodyless PUT", async () => {
   let requests = 0;
-  const fetch_mock = mockFetch((url, init) => {
+  const fetchMock = mockFetch((url, init) => {
     requests++;
     expect(url).toStrictEqual(
       "https://discord.com/api/v10/channels/channel%2Fone/messages/message%3Ftwo/reactions/%E2%9D%A4%EF%B8%8F/@me",
@@ -45,7 +45,7 @@ test("addReaction encodes its route and sends an authorized bodyless PUT", async
     expect(response.status).toStrictEqual(204);
     expect(requests).toStrictEqual(1);
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
@@ -58,7 +58,7 @@ for (const [name, status, code] of [
   test(`addReaction returns ${name} without retrying or sending fallback text`, async () => {
     let requests = 0;
     const expected = Response.json({ code }, { status });
-    const fetch_mock = mockFetch((_url, init) => {
+    const fetchMock = mockFetch((_url, init) => {
       requests++;
       expect(init?.method).toStrictEqual("PUT");
       return expected;
@@ -71,14 +71,14 @@ for (const [name, status, code] of [
       expect(await response.json()).toStrictEqual({ code });
       expect(requests).toStrictEqual(1);
     } finally {
-      fetch_mock.restore();
+      fetchMock.restore();
     }
   });
 }
 
 test("addReaction propagates network failure without retrying", async () => {
   let requests = 0;
-  const fetch_mock = mockFetch(() => {
+  const fetchMock = mockFetch(() => {
     requests++;
     throw new TypeError("connection failed");
   });
@@ -91,14 +91,14 @@ test("addReaction propagates network failure without retrying", async () => {
     );
     expect(requests).toStrictEqual(1);
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
 test("getRecentMessages clamps limit and maps Discord message payloads", async () => {
-  let requested_url = "";
-  const fetch_mock = mockFetch((url) => {
-    requested_url = url;
+  let requestedUrl = "";
+  const fetchMock = mockFetch((url) => {
+    requestedUrl = url;
     return new Response(
       JSON.stringify([
         {
@@ -131,7 +131,7 @@ test("getRecentMessages clamps limit and maps Discord message payloads", async (
     const discord = createDiscordClient("token");
     const messages = await discord.getRecentMessages("channel-1", 500);
 
-    expect(requested_url).toContain("/channels/channel-1/messages?limit=100");
+    expect(requestedUrl).toContain("/channels/channel-1/messages?limit=100");
     expect(messages).toStrictEqual([
       {
         id: "msg-1",
@@ -144,19 +144,19 @@ test("getRecentMessages clamps limit and maps Discord message payloads", async (
       },
     ]);
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
 test("getRecentMessages returns an empty array for Discord errors", async () => {
-  const fetch_mock = mockFetch(() => new Response("nope", { status: 403 }));
+  const fetchMock = mockFetch(() => new Response("nope", { status: 403 }));
 
   try {
     const discord = createDiscordClient("token");
     const messages = await discord.getRecentMessages("channel-1", 20);
     expect(messages).toStrictEqual([]);
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
@@ -183,7 +183,7 @@ function json(value: unknown): Response {
 
 test("getPollVoters accepts finalized zero-vote answers and absent zero counts", async () => {
   const requests: string[] = [];
-  const fetch_mock = mockFetch((url, init) => {
+  const fetchMock = mockFetch((url, init) => {
     requests.push(url);
     expect((init?.headers as Record<string, string>).Authorization).toStrictEqual("Bot test-token");
     return json(url.includes("/messages/") ? pollMessage([]) : { users: [] });
@@ -197,7 +197,7 @@ test("getPollVoters accepts finalized zero-vote answers and absent zero counts",
     expect(requests.length).toStrictEqual(4);
     expect(requests[1]).toContain("/answers/1?limit=100");
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
@@ -209,7 +209,7 @@ test("getPollVoters paginates every answer using exact snowflake cursors", async
     global_name: i === 0 ? "Display name" : null,
   }));
   const requests: string[] = [];
-  const fetch_mock = mockFetch((raw) => {
+  const fetchMock = mockFetch((raw) => {
     const url = new URL(raw);
     requests.push(raw);
     if (url.pathname.includes("/messages/")) return json(pollMessage([205, 0, 0]));
@@ -226,13 +226,13 @@ test("getPollVoters paginates every answer using exact snowflake cursors", async
     expect(requests[3]).toContain(`after=${base + 199n}`);
     expect(requests.length).toStrictEqual(6);
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
 test("getPollVoters checks the empty page after exactly 100 voters", async () => {
   let answerRequests = 0;
-  const fetch_mock = mockFetch((url) => {
+  const fetchMock = mockFetch((url) => {
     if (url.includes("/messages/")) return json(pollMessage([100, 0, 0]));
     if (!url.includes("/answers/1?")) return json({ users: [] });
     answerRequests++;
@@ -247,7 +247,7 @@ test("getPollVoters checks the empty page after exactly 100 voters", async () =>
     expect(answers[0].voters[0].odUserName).toStrictEqual("1");
     expect(answerRequests).toStrictEqual(2);
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
@@ -297,7 +297,7 @@ const malformedMessages: [string, unknown][] = [
 
 for (const [name, message] of malformedMessages) {
   test(`getPollVoters rejects ${name}`, async () => {
-    const fetch_mock = mockFetch(() => json(message));
+    const fetchMock = mockFetch(() => json(message));
     try {
       await rejects(
         () => createDiscordClient("token").getPollVoters("channel", "poll"),
@@ -305,7 +305,7 @@ for (const [name, message] of malformedMessages) {
         "poll poll in channel channel",
       );
     } finally {
-      fetch_mock.restore();
+      fetchMock.restore();
     }
   });
 }
@@ -325,7 +325,7 @@ const malformedVoters: [string, unknown][] = [
 ];
 for (const [name, voters] of malformedVoters) {
   test(`getPollVoters rejects ${name}`, async () => {
-    const fetch_mock = mockFetch((url) =>
+    const fetchMock = mockFetch((url) =>
       json(url.includes("/messages/") ? pollMessage([1, 0, 0]) : voters),
     );
     try {
@@ -335,14 +335,14 @@ for (const [name, voters] of malformedVoters) {
         "answer 1",
       );
     } finally {
-      fetch_mock.restore();
+      fetchMock.restore();
     }
   });
 }
 
 for (const stage of ["message", "first answer", "later answer", "later page"] as const) {
   test(`getPollVoters rejects HTTP failure at ${stage} without returning partial data`, async () => {
-    const fetch_mock = mockFetch((url) => {
+    const fetchMock = mockFetch((url) => {
       if (url.includes("/messages/")) {
         return stage === "message"
           ? new Response("Forbidden", { status: 403 })
@@ -369,13 +369,13 @@ for (const stage of ["message", "first answer", "later answer", "later page"] as
       );
       expect(String(error.cause)).toContain("HTTP 403");
     } finally {
-      fetch_mock.restore();
+      fetchMock.restore();
     }
   });
 }
 
 test("getPollVoters rejects non-advancing pagination instead of looping", async () => {
-  const fetch_mock = mockFetch((url) =>
+  const fetchMock = mockFetch((url) =>
     json(
       url.includes("/messages/")
         ? pollMessage([200, 0, 0])
@@ -391,13 +391,13 @@ test("getPollVoters rejects non-advancing pagination instead of looping", async 
       "repeated voter",
     );
   } finally {
-    fetch_mock.restore();
+    fetchMock.restore();
   }
 });
 
 for (const stage of ["message", "voters"]) {
   test(`getPollVoters includes poll context for invalid JSON in ${stage}`, async () => {
-    const fetch_mock = mockFetch((url) =>
+    const fetchMock = mockFetch((url) =>
       stage === "message" || !url.includes("/messages/")
         ? new Response("invalid json")
         : json(pollMessage()),
@@ -409,7 +409,7 @@ for (const stage of ["message", "voters"]) {
         "poll poll in channel channel",
       );
     } finally {
-      fetch_mock.restore();
+      fetchMock.restore();
     }
   });
 }

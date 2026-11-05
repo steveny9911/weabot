@@ -25,44 +25,44 @@ export function startGateway(
   }
 
   let ws: WebSocket | null = null;
-  let heartbeat_handle: number | undefined;
-  let heartbeat_interval_ms = 45000;
+  let heartbeatHandle: number | undefined;
+  let heartbeatIntervalMs = 45000;
   let seq: number | null = null;
-  let awaiting_heartbeat_ack = false;
+  let awaitingHeartbeatAck = false;
 
   function sendHeartbeat(): void {
     try {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-      if (awaiting_heartbeat_ack) {
+      if (awaitingHeartbeatAck) {
         console.warn("Missed heartbeat ACK, reconnecting gateway");
         ws.close();
         return;
       }
 
       ws.send(JSON.stringify({ op: 1, d: seq }));
-      awaiting_heartbeat_ack = true;
+      awaitingHeartbeatAck = true;
     } catch (e) {
       console.error("Heartbeat error", e);
     }
   }
 
   function startHeartbeatLoop(interval: number): void {
-    heartbeat_interval_ms = interval;
-    awaiting_heartbeat_ack = false;
+    heartbeatIntervalMs = interval;
+    awaitingHeartbeatAck = false;
 
-    if (heartbeat_handle) clearInterval(heartbeat_handle);
+    if (heartbeatHandle) clearInterval(heartbeatHandle);
 
     const jitter = Math.random();
     setTimeout(
       () => {
         sendHeartbeat();
 
-        heartbeat_handle = setInterval(() => {
+        heartbeatHandle = setInterval(() => {
           sendHeartbeat();
-        }, heartbeat_interval_ms) as unknown as number;
+        }, heartbeatIntervalMs) as unknown as number;
       },
-      Math.floor(heartbeat_interval_ms * jitter),
+      Math.floor(heartbeatIntervalMs * jitter),
     );
   }
 
@@ -82,7 +82,7 @@ export function startGateway(
     );
   }
 
-  function vConnect(): void {
+  function connect(): void {
     console.log("Connecting to Discord Gateway...");
     ws = new WebSocket(GATEWAY_URL);
 
@@ -141,15 +141,15 @@ export function startGateway(
           sendOnlinePresence();
         } else if (op === 0 && t === "GUILD_CREATE" && d) {
           // Log when we receive guild info
-          const guild_name = d["name"] as string | undefined;
-          const guild_id = d["id"] as string | undefined;
-          console.log(`[GATEWAY] Guild available: "${guild_name}" (${guild_id})`);
+          const guildName = d["name"] as string | undefined;
+          const guildId = d["id"] as string | undefined;
+          console.log(`[GATEWAY] Guild available: "${guildName}" (${guildId})`);
         } else if (op === 0 && t === "MESSAGE_CREATE" && d) {
           await onMessage(d as Record<string, unknown>, deps);
         } else if (op === 1) {
           sendHeartbeat();
         } else if (op === 11) {
-          awaiting_heartbeat_ack = false;
+          awaitingHeartbeatAck = false;
         } // Op 9: Invalid session
         else if (op === 9) {
           console.warn("Invalid session, reconnecting");
@@ -162,15 +162,15 @@ export function startGateway(
 
     ws.onclose = (ev: CloseEvent) => {
       console.warn("Gateway socket closed", ev.code, ev.reason);
-      if (heartbeat_handle) clearInterval(heartbeat_handle);
-      heartbeat_handle = undefined;
-      awaiting_heartbeat_ack = false;
+      if (heartbeatHandle) clearInterval(heartbeatHandle);
+      heartbeatHandle = undefined;
+      awaitingHeartbeatAck = false;
       // Reconnect after 5 seconds
-      setTimeout(vConnect, 5000);
+      setTimeout(connect, 5000);
     };
 
     ws.onerror = (ev: Event) => console.error("Gateway socket error", ev);
   }
 
-  vConnect();
+  connect();
 }
