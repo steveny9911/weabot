@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, feat/aws-hosting]
+    branches: [master, feat/aws-hosting, feat/bun]
   pull_request:
 
 jobs:
@@ -50,3 +50,37 @@ jobs:
 
       - name: Verify pinned HTTP and TLS transport on loopback fixtures
         run: deno task test:transport
+
+  bun:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun (version from package.json packageManager)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Cache Bun install cache (dependencies and the pinned lint canary)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock', 'package.json') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Show versions
+        run: |
+          bun --version
+          bunx bun@1.4.4-canary.20261104.1 --revision
+
+      - name: Verify formatting
+        run: bun run fmt:check
+
+      - name: Run linter
+        run: bun run lint
+
+      - name: Type check and test ported files, comparing counts with the Deno baseline
+        run: bun run migration:gate
