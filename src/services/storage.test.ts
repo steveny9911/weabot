@@ -1,9 +1,3 @@
-/**
- * Storage Service Unit Tests
- *
- * Tests the SQLite storage operations using an in-memory database.
- */
-
 import { expect, test } from "bun:test";
 import { rejects } from "../../tests/support/assert.ts";
 import { type Database, openDatabase } from "../db/database.ts";
@@ -13,16 +7,11 @@ import type { AutonomousParticipationRecord, PollRecord } from "../types/storage
 const TEST_CHANNEL_ID = "chan-1";
 const OTHER_CHANNEL_ID = "chan-2";
 
-// Helper to create a fresh storage service for each test
 async function createTestStorage(): Promise<{ storage: StorageService; kv: Database }> {
   const kv = openDatabase(":memory:");
   const storage = createStorageService(kv);
   return { storage, kv };
 }
-
-// ============================================================================
-// recordVote Tests
-// ============================================================================
 
 test("recordVote stores a vote correctly", async () => {
   const { storage, kv } = await createTestStorage();
@@ -199,9 +188,6 @@ test("autonomous participation completion records a reaction without moving time
     "UwU:7",
   );
 });
-// ============================================================================
-// getUserHistory Tests
-// ============================================================================
 test("getUserHistory returns votes sorted by date descending", async () => {
   const { storage, kv } = await createTestStorage();
 
@@ -218,9 +204,6 @@ test("getUserHistory returns votes sorted by date descending", async () => {
 
   kv.close();
 });
-// ============================================================================
-// getVotesForDate Tests
-// ============================================================================
 test("getVotesForDate returns all votes for a specific date", async () => {
   const { storage, kv } = await createTestStorage();
 
@@ -234,9 +217,6 @@ test("getVotesForDate returns all votes for a specific date", async () => {
   kv.close();
 });
 
-// ============================================================================
-// getStats Tests
-// ============================================================================
 test("getStats aggregates votes correctly", async () => {
   const { storage, kv } = await createTestStorage();
 
@@ -294,9 +274,6 @@ test("getStats isolates channels", async () => {
   kv.close();
 });
 
-// ============================================================================
-// getConsecutiveGlueCount Tests
-// ============================================================================
 test("getConsecutiveGlueCount counts consecutive glue votes from most recent", async () => {
   const { storage, kv } = await createTestStorage();
 
@@ -351,13 +328,8 @@ test("getConsecutiveGlueCount is channel scoped", async () => {
   kv.close();
 });
 
-// ============================================================================
-// getUsersAtRisk Tests
-// ============================================================================
 test("getUsersAtRisk identifies user at threshold", async () => {
   const { storage, kv } = await createTestStorage();
-
-  // Create 7 consecutive glue days for user
   for (let i = 1; i <= 7; i++) {
     const date = `2025-12-${i.toString().padStart(2, "0")}`;
     await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", date);
@@ -382,9 +354,6 @@ test("getUsersAtRisk excludes users whose glue votes are not on consecutive days
 
   kv.close();
 });
-// ============================================================================
-// Pending Poll Tests
-// ============================================================================
 
 function createPoll(overrides: Partial<PollRecord> = {}): PollRecord {
   const now = Date.now();

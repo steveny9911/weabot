@@ -1,11 +1,3 @@
-/**
- * Poll Feature Unit Tests
- *
- * Tests the pure payload builder function.
- * Since it's a pure function, we don't need any mocks -
- * just call it with inputs and verify the outputs.
- */
-
 import { expect, test } from "bun:test";
 import { buildMoodPollPayload } from "./poll.ts";
 import { DEFAULT_MOOD_CONFIG } from "../types/bot.ts";

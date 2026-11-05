@@ -3,34 +3,18 @@ import { asFetch } from "../../tests/support/fetch.ts";
 import { createAiService } from "./service.ts";
 import type { AiReplyOptions } from "./types.ts";
 import type { AppConfig } from "../config.ts";
+import { testConfig } from "../../tests/support/config.ts";
 
 function mockConfig(): AppConfig {
-  return {
-    discordToken: "test-token",
+  return testConfig({
     channelId: "sandbox",
     channelIds: ["sandbox"],
     timeZone: "America/Vancouver",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
-    openaiApiKey: "test-key",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
-    aiMaxInputChars: 0,
     aiEnableUwu: true,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
-    webSearchEnabled: false,
-    webSearchApiKey: undefined,
-    webSearchMaxResults: 3,
-    linkOpenEnabled: true,
-    autonomousChatEnabled: false,
     autonomousChatChannelIds: ["sandbox"],
-    autonomousChatMinHumanMessages: 4,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
-    autonomousChatReplyChance: 0.35,
-    autonomousChatMaxContextMessages: 40,
-  };
+  });
 }
 
 const tool = {

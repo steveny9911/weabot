@@ -8,34 +8,20 @@ import { type CronRegistrar, registerCronJobs } from "./scheduler.ts";
 import { openDatabase } from "../db/database.ts";
 import { createRateLimitService } from "../services/rate_limit.ts";
 import { createStorageService } from "../services/storage.ts";
+import { testConfig } from "../../tests/support/config.ts";
 
 function config(): AppConfig {
-  return {
-    discordToken: "test-token",
+  return testConfig({
     channelId: "channel",
     channelIds: ["channel"],
-    timeZone: "UTC",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
-    openaiApiKey: "test-key",
     aiRateLimitPerUser: 1,
     aiDailyTokenBudget: 100,
     aiMaxInputChars: 500,
-    aiEnableUwu: false,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
-    webSearchEnabled: false,
-    webSearchApiKey: undefined,
-    webSearchMaxResults: 3,
-    linkOpenEnabled: true,
     autonomousChatEnabled: true,
     autonomousChatChannelIds: ["channel"],
     autonomousChatMinHumanMessages: 1,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
     autonomousChatReplyChance: 1,
-    autonomousChatMaxContextMessages: 40,
-  };
+  });
 }
 
 type GenerateOptions = Parameters<AiService["generateReply"]>[1];

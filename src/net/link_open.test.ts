@@ -1,7 +1,3 @@
-/**
- * Tests for Link Open Service.
- */
-
 import { expect, test } from "bun:test";
 import { assert } from "../../tests/support/assert.ts";
 import { createLinkOpenService as createService } from "./link_open.ts";
@@ -12,35 +8,15 @@ function createLinkOpenService(config: AppConfig) {
   return createService(config, { fetch: fetchPage });
 }
 import type { AppConfig } from "../config.ts";
+import { testConfig } from "../../tests/support/config.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    discordToken: "test-token",
-    channelId: "test-channel",
-    channelIds: ["test-channel"],
-    timeZone: "UTC",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
+  return testConfig({
     openaiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
-    aiMaxInputChars: 0,
-    aiEnableUwu: false,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
-    webSearchEnabled: false,
-    webSearchApiKey: undefined,
-    webSearchMaxResults: 3,
-    linkOpenEnabled: true,
-    autonomousChatEnabled: false,
-    autonomousChatChannelIds: ["test-channel"],
-    autonomousChatMinHumanMessages: 4,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
-    autonomousChatReplyChance: 0.35,
-    autonomousChatMaxContextMessages: 40,
     ...overrides,
-  };
+  });
 }
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Response> | Response): {

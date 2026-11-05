@@ -1,17 +1,6 @@
-/**
- * Stats Embed Unit Tests
- *
- * Tests the embed builder functions.
- * These are pure functions, so no mocking needed.
- */
-
 import { expect, test } from "bun:test";
 import { buildAlertEmbed, buildStatsEmbed } from "./stats.ts";
 import type { DailyStats } from "../types/storage.ts";
-
-// ============================================================================
-// buildStatsEmbed Tests
-// ============================================================================
 
 test("buildStatsEmbed returns correct structure with empty stats", () => {
   const stats: DailyStats[] = [];
@@ -85,10 +74,6 @@ test("buildStatsEmbed shows correct emoji for dominant mood in recent days", () 
   expect(recentDaysField.value).toContain("2025-12-11: 😐");
   expect(recentDaysField.value).toContain("2025-12-12: 🩹");
 });
-
-// ============================================================================
-// buildAlertEmbed Tests
-// ============================================================================
 
 test("buildAlertEmbed returns correct structure", () => {
   const result = buildAlertEmbed("TestUser", 7);

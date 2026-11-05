@@ -13,35 +13,21 @@ import type { LinkOpenError } from "../net/link_open.ts";
 import type { SearchResult } from "../net/web_search.ts";
 import { haruGreetingGifPool } from "../features/reaction_gif.ts";
 import type { ContextResetRecord } from "../types/storage.ts";
+import { testConfig } from "../../tests/support/config.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    discordToken: "test-token",
+  return testConfig({
     channelId: "chan-1",
     channelIds: ["chan-1"],
     timeZone: "America/Los_Angeles",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
     openaiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
-    aiMaxInputChars: 0,
-    aiEnableUwu: false,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
-    webSearchMaxResults: 3,
-    linkOpenEnabled: true,
-    autonomousChatEnabled: false,
     autonomousChatChannelIds: ["chan-1"],
-    autonomousChatMinHumanMessages: 4,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
-    autonomousChatReplyChance: 0.35,
-    autonomousChatMaxContextMessages: 40,
     ...overrides,
-  };
+  });
 }
 
 function mockFetchMessages(messages: Array<Record<string, unknown>>): { restore: () => void } {

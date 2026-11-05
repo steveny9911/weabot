@@ -8,37 +8,25 @@ import type {
   DiscordActionContext,
   DiscordActionSession,
 } from "../features/discord_actions/service.ts";
+import { testConfig } from "../../tests/support/config.ts";
 
 function config(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
+  return testConfig({
     discordToken: "test",
     channelId: "text",
     channelIds: ["text"],
     timeZone: "America/Vancouver",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
     openaiApiKey: "test",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000,
-    aiMaxInputChars: 0,
     aiEnableUwu: true,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
-    webSearchEnabled: false,
-    webSearchApiKey: undefined,
-    webSearchMaxResults: 3,
     linkOpenEnabled: false,
-    autonomousChatEnabled: false,
     autonomousChatChannelIds: [],
-    autonomousChatMinHumanMessages: 4,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
     autonomousChatReplyChance: 0,
-    autonomousChatMaxContextMessages: 40,
     discordActionsEnabled: true,
     discordActionsGuildIds: ["sandbox"],
     ...overrides,
-  };
+  });
 }
 
 async function fixture(

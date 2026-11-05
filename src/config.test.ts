@@ -1,14 +1,8 @@
-/**
- * Tests for Configuration Module
- */
-
 import { expect, test } from "bun:test";
 import { throws } from "../tests/support/assert.ts";
 import { loadConfig } from "./config.ts";
 
-// Helper to run tests with specific env vars
 function withEnv(envVars: Record<string, string>, fn: () => void) {
-  // Save original values
   const originalValues: Record<string, string | undefined> = {};
   const allKeys = new Set([
     ...Object.keys(envVars),
@@ -47,8 +41,6 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     originalValues[key] = process.env[key];
     delete process.env[key];
   }
-
-  // Set test values
   for (const [key, value] of Object.entries(envVars)) {
     process.env[key] = value;
   }
@@ -56,7 +48,6 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
   try {
     fn();
   } finally {
-    // Restore original values
     for (const key of allKeys) {
       const original = originalValues[key];
       if (original !== undefined) {
@@ -67,10 +58,6 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     }
   }
 }
-
-// =============================================================================
-// loadConfig - Required Variables
-// =============================================================================
 
 test("loadConfig throws when DISCORD_TOKEN is missing", () => {
   withEnv({ CHANNEL_ID: "123" }, () => {
@@ -117,9 +104,6 @@ test("loadConfig appends CHANNEL_ID when CHANNEL_IDS is provided and missing it"
   );
 });
 
-// =============================================================================
-// loadConfig - Optional Variables with Defaults
-// =============================================================================
 test("loadConfig returns complete config with all values", () => {
   withEnv(
     {

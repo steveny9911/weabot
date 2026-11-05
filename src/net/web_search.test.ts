@@ -1,7 +1,3 @@
-/**
- * Tests for Web Search Service
- */
-
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import {
@@ -10,35 +6,16 @@ import {
   extractAutoSearchQuery,
 } from "./web_search.ts";
 import type { AppConfig } from "../config.ts";
+import { testConfig } from "../../tests/support/config.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    discordToken: "test-token",
-    channelId: "test-channel",
-    channelIds: ["test-channel"],
-    timeZone: "UTC",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
+  return testConfig({
     openaiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
-    aiDailyTokenBudget: 100000,
-    aiMaxInputChars: 0,
-    aiEnableUwu: false,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
     webSearchEnabled: true,
     webSearchApiKey: "brave-key",
-    webSearchMaxResults: 3,
-    linkOpenEnabled: true,
-    autonomousChatEnabled: false,
-    autonomousChatChannelIds: ["test-channel"],
-    autonomousChatMinHumanMessages: 4,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
-    autonomousChatReplyChance: 0.35,
-    autonomousChatMaxContextMessages: 40,
     ...overrides,
-  };
+  });
 }
 
 function mockFetch(
@@ -67,10 +44,6 @@ function mockFetch(
   };
 }
 
-// =============================================================================
-// Auto-search parsing
-// =============================================================================
-
 test("extractAutoSearchQuery returns query for factual question", () => {
   const query = extractAutoSearchQuery("<@123> what is deno deploy?");
   expect(query).toStrictEqual("what is deno deploy?");
@@ -87,9 +60,6 @@ test("extractAutoSearchQuery ignores empty or command-like input", () => {
   expect(extractAutoSearchQuery("<@123> \\reset")).toStrictEqual(null);
   expect(extractAutoSearchQuery("<@123> tell me about deno")).toStrictEqual(null);
 });
-// =============================================================================
-// Formatting
-// =============================================================================
 test("formatSearchResultsForContext truncates long snippets and fills blank titles", () => {
   const longSnippet = "x".repeat(260);
   const text = formatSearchResultsForContext("deno", [
@@ -99,9 +69,6 @@ test("formatSearchResultsForContext truncates long snippets and fills blank titl
   expect(text).toContain("1. Source - ");
   expect(text.includes("x".repeat(210))).toStrictEqual(false);
 });
-// =============================================================================
-// Service behavior
-// =============================================================================
 
 test("web search returns error when disabled", async () => {
   const service = createWebSearchService(createMockConfig({ webSearchEnabled: false }));

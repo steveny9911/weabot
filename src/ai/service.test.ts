@@ -1,9 +1,3 @@
-/**
- * Tests for AI Service
- *
- * Uses fetch mocking to verify API payload structure without making real calls.
- */
-
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
@@ -16,39 +10,18 @@ import {
   toAiContextMessage,
   selectActiveConversation,
 } from "../features/chat_context.ts";
+import { testConfig } from "../../tests/support/config.ts";
 
-// Helper to create a mock config
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    discordToken: "test-token",
-    channelId: "test-channel",
-    channelIds: ["test-channel"],
+  return testConfig({
     timeZone: "America/Los_Angeles",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
     openaiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
-    aiMaxInputChars: 0,
-    aiEnableUwu: false,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
-    webSearchEnabled: false,
-    webSearchApiKey: undefined,
-    webSearchMaxResults: 3,
-    linkOpenEnabled: true,
-    autonomousChatEnabled: false,
-    autonomousChatChannelIds: ["test-channel"],
-    autonomousChatMinHumanMessages: 4,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
-    autonomousChatReplyChance: 0.35,
-    autonomousChatMaxContextMessages: 40,
     ...overrides,
-  };
+  });
 }
 
-// Helper to mock fetch and capture the request
 function mockFetch(
   responseBody: Record<string, unknown>,
   status = 200,
@@ -80,10 +53,6 @@ function mockFetch(
   };
 }
 
-// =============================================================================
-// createAiService - Configuration Checks
-// =============================================================================
-
 test("generateReply returns error when AI is disabled", async () => {
   const config = createMockConfig({ aiEnabled: false });
   const service = createAiService(config);
@@ -108,9 +77,6 @@ test("generateReply returns error when API key is missing", async () => {
   }
 });
 
-// =============================================================================
-// createAiService - API Request Structure
-// =============================================================================
 test("generateReply sends chat builder prompt id without pinning version", async () => {
   const mock = mockFetch({
     output_text: "Test response",
@@ -131,9 +97,6 @@ test("generateReply sends chat builder prompt id without pinning version", async
     mock.restore();
   }
 });
-// =============================================================================
-// createAiService - Input Processing
-// =============================================================================
 test("generateReply includes image URLs as input_image blocks", async () => {
   const mock = mockFetch({
     output_text: "Looks great!",
@@ -213,10 +176,6 @@ test("generateReply includes explicit Discord reply references in text and image
     mock.restore();
   }
 });
-
-// =============================================================================
-// createAiService - Response Handling
-// =============================================================================
 
 test("generateReply returns success with text and token count", async () => {
   const mock = mockFetch({
@@ -417,9 +376,6 @@ test("a reply to a video cannot poison subsequent text-only AI requests", async 
     mock.restore();
   }
 });
-// =============================================================================
-// Autonomous participation
-// =============================================================================
 
 const participationMessages = [
   { id: "100", author: "alice", content: "A very good horse meme" },
