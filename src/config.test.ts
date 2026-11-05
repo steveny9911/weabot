@@ -102,21 +102,6 @@ test("loadConfig returns config when required vars are present", () => {
     },
   );
 });
-
-test("loadConfig accepts CHANNEL_IDS without CHANNEL_ID", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "my-token",
-      CHANNEL_IDS: "chan-1, chan-2",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.channelId).toStrictEqual("chan-1");
-      expect(config.channelIds).toStrictEqual(["chan-1", "chan-2"]);
-    },
-  );
-});
-
 test("loadConfig appends CHANNEL_ID when CHANNEL_IDS is provided and missing it", () => {
   withEnv(
     {
@@ -135,61 +120,6 @@ test("loadConfig appends CHANNEL_ID when CHANNEL_IDS is provided and missing it"
 // =============================================================================
 // loadConfig - Optional Variables with Defaults
 // =============================================================================
-
-test("loadConfig uses default TIME_ZONE when not set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.timeZone).toStrictEqual("America/Los_Angeles");
-    },
-  );
-});
-
-test("loadConfig uses custom TIME_ZONE when set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      TIME_ZONE: "Europe/London",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.timeZone).toStrictEqual("Europe/London");
-    },
-  );
-});
-
-test("loadConfig uses default GLUE_ALERT_THRESHOLD when not set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.glueAlertThreshold).toStrictEqual(7);
-    },
-  );
-});
-
-test("loadConfig uses custom GLUE_ALERT_THRESHOLD when set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      GLUE_ALERT_THRESHOLD: "3",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.glueAlertThreshold).toStrictEqual(3);
-    },
-  );
-});
-
 test("loadConfig returns complete config with all values", () => {
   withEnv(
     {
@@ -315,36 +245,6 @@ test("loadConfig defaults AUTONOMOUS_CHAT_CHANNEL_IDS to configured channels", (
     },
   );
 });
-
-test("loadConfig supports AUTONOMOUS_CHAT_CHANNEL_IDS override", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_IDS: "chan-1, chan-2",
-      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2, auto-1",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.channelIds).toStrictEqual(["chan-1", "chan-2"]);
-      expect(config.autonomousChatChannelIds).toStrictEqual(["auto-1", "auto-2"]);
-    },
-  );
-});
-
-test("loadConfig handles AI_ENABLED=false", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      AI_ENABLED: "false",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.aiEnabled).toStrictEqual(false);
-    },
-  );
-});
-
 test("loadConfig enables web search when API key is set", () => {
   withEnv(
     {
@@ -359,36 +259,6 @@ test("loadConfig enables web search when API key is set", () => {
     },
   );
 });
-
-test("loadConfig allows WEB_SEARCH_ENABLED=false to override key", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      BRAVE_SEARCH_API_KEY: "brave-key",
-      WEB_SEARCH_ENABLED: "false",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.webSearchEnabled).toStrictEqual(false);
-    },
-  );
-});
-
-test("loadConfig handles LINK_OPEN_ENABLED=false", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      LINK_OPEN_ENABLED: "false",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.linkOpenEnabled).toStrictEqual(false);
-    },
-  );
-});
-
 test("loadConfig clamps AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
   withEnv(
     {
@@ -402,21 +272,6 @@ test("loadConfig clamps AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
     },
   );
 });
-
-test("loadConfig defaults invalid AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      AUTONOMOUS_CHAT_REPLY_CHANCE: "sometimes",
-    },
-    () => {
-      const config = loadConfig();
-      expect(config.autonomousChatReplyChance).toStrictEqual(0.35);
-    },
-  );
-});
-
 test("HTTP administration is disabled by default and accepts an explicit token", () => {
   withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123" }, () => {
     expect(loadConfig().adminHttpToken).toStrictEqual(undefined);

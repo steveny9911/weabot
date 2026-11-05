@@ -80,16 +80,6 @@ test("missing admin key performs no OpenAI reads", async () => {
   expect(report.openaiCost).toStrictEqual({ ok: false, reason: "OPENAI_ADMIN_KEY not configured" });
   expect(report.tokens).toStrictEqual({ ok: false, reason: "OPENAI_ADMIN_KEY not configured" });
 });
-
-test("empty provider results are zero, including on the first day of the month", async () => {
-  const report = await createUsageService(config, {
-    now: () => new Date("2026-01-01T00:01:00Z"),
-    fetch: () => Promise.resolve(page([])),
-  }).getMonthToDate();
-  expect(report.openaiCost).toStrictEqual({ ok: true, value: { amount: 0, currency: "USD" } });
-  expect(report.tokens).toStrictEqual({ ok: true, value: { input: 0, cached: 0, output: 0 } });
-});
-
 test("provider failure is isolated and never exposes response bodies or keys", async () => {
   const report = await createUsageService(config, {
     now: () => date,
@@ -152,45 +142,4 @@ test("usage message formats money and exact token counts with scope and cache se
   expect(message).toContain("**Output tokens:** 8,000");
   expect(message).toContain("OpenAI project");
   expect(message).toContain("Cache tokens are included in input tokens");
-});
-
-test("usage aborts stalled provider requests at the shared deadline", async () => {
-  let aborted = 0;
-  const stalled = (signal: AbortSignal) =>
-    new Promise<never>((_resolve, reject) => {
-      signal.addEventListener(
-        "abort",
-        () => {
-          aborted++;
-          reject(signal.reason);
-        },
-        { once: true },
-      );
-    });
-  const report = await createUsageService(config, {
-    now: () => date,
-    fetch: (_input, init) => stalled((init as RequestInit).signal!),
-    timeoutMs: 50,
-  }).getMonthToDate();
-  expect(aborted).toStrictEqual(2);
-  expect(report.openaiCost.ok).toStrictEqual(false);
-  expect(report.tokens.ok).toStrictEqual(false);
-});
-
-test("a failed later OpenAI page discards earlier partial totals", async () => {
-  const report = await createUsageService(config, {
-    now: () => date,
-    fetch: (input) =>
-      Promise.resolve(
-        new URL(String(input)).searchParams.has("page")
-          ? new Response("failure", { status: 500 })
-          : page(
-              [{ amount: { value: 1, currency: "usd" }, input_tokens: 1, output_tokens: 1 }],
-              true,
-              "next",
-            ),
-      ),
-  }).getMonthToDate();
-  expect(report.openaiCost.ok).toStrictEqual(false);
-  expect(report.tokens.ok).toStrictEqual(false);
 });

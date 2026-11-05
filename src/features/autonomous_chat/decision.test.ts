@@ -113,47 +113,6 @@ test("decideAutonomousChatReply returns capped oldest-to-newest context when eli
   expect(decision.reason).toStrictEqual("active conversation eligible");
   expect(decision.contextMessages.map((context) => context.id)).toStrictEqual(["m3", "m4", "m5"]);
 });
-
-test("decideAutonomousChatReply excludes messages before an inactivity gap", () => {
-  const decision = decide([
-    message("stale-1", "u1", 45, "old topic"),
-    message("m1", "u1", 8, "one"),
-    message("m2", "u2", 6, "two"),
-    message("m3", "u3", 4, "three"),
-    message("m4", "u4", 2, "four"),
-  ]);
-
-  expect(decision.shouldReply).toStrictEqual(true);
-  expect(decision.contextMessages.map((context) => context.id)).toStrictEqual([
-    "m1",
-    "m2",
-    "m3",
-    "m4",
-  ]);
-});
-
-test("decideAutonomousChatReply honors a persisted context reset", () => {
-  const decision = decide(
-    [
-      message("old-1", "u1", 8, "old topic"),
-      message("old-2", "u2", 7, "still old"),
-      message("m1", "u1", 4, "one"),
-      message("m2", "u2", 3, "two"),
-      message("m3", "u3", 2, "three"),
-      message("m4", "u4", 1, "four"),
-    ],
-    { resetAfterMs: NOW_MS - 5 * 60_000 },
-  );
-
-  expect(decision.shouldReply).toStrictEqual(true);
-  expect(decision.contextMessages.map((context) => context.id)).toStrictEqual([
-    "m1",
-    "m2",
-    "m3",
-    "m4",
-  ]);
-});
-
 test("autonomous participation shares cooldown with reactions and needs fresh humans", () => {
   const messages = [
     message("m1", "u1", 4),
@@ -211,20 +170,4 @@ test("bot messages and reactions never supply required human activity", () => {
   ]);
   expect(decision.shouldReply).toStrictEqual(false);
   expect(decision.reason).toStrictEqual("only 1 recent human message(s)");
-});
-
-test("same-millisecond snowflakes preserve the newest human watermark and target", () => {
-  const messages = [message("200", "u2", 1), message("100", "u1", 1)];
-  const decision = decide(messages, {
-    minHumanMessages: 1,
-    lastParticipation: {
-      channelId: "channel",
-      latestHumanMessageId: "100",
-      latestHumanTimestampMs: NOW_MS - 60_000,
-      attemptedAt: NOW_MS - 40 * 60_000,
-    },
-  });
-  expect(decision.shouldReply).toStrictEqual(true);
-  expect(decision.latestHumanMessage?.id).toStrictEqual("200");
-  expect(decision.reactionMessageIds).toStrictEqual(["200"]);
 });

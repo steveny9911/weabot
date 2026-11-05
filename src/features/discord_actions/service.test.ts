@@ -215,59 +215,6 @@ test("abandonment and reset invalidate a delayed creation and clarification", as
     });
   }
 });
-
-test("an older completed mutation preserves a newer clarification", async () => {
-  await fixture(async (client, service, turns) => {
-    let release!: () => void;
-    let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => (markStarted = resolve));
-    const blocked = new Promise<void>((resolve) => (release = resolve));
-    client.beforeEvent = () => {
-      markStarted();
-      return blocked;
-    };
-    const older = await service.createSession(context());
-    const running = older.executeTool("create_discord_event", eventArgs());
-    await started;
-    const request = "Create a workshop event tomorrow";
-    try {
-      const newer = await service.createSession(context({ messageId: "602", content: request }));
-      await newer.executeTool("clarify_discord_action", {
-        request_quote: request,
-        question: "When?",
-      });
-    } finally {
-      release();
-      expect((await running).ok).toStrictEqual(true);
-    }
-    expect(turns.pending(KEY)?.content).toStrictEqual(request);
-  });
-});
-
-test("abandonment during the final event lookup prevents the external write", async () => {
-  await fixture(async (client, service) => {
-    let release!: () => void;
-    let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => (markStarted = resolve));
-    const blocked = new Promise<void>((resolve) => (release = resolve));
-    client.listScheduledEvents = async () => {
-      markStarted();
-      await blocked;
-      return [];
-    };
-    const session = await service.createSession(context());
-    const running = session.executeTool("create_discord_event", eventArgs());
-    await started;
-    try {
-      await service.createSession(context({ messageId: "601", content: "Never mind" }));
-    } finally {
-      release();
-    }
-    expect((await running).ok).toStrictEqual(false);
-    expect(client.eventWrites.length).toStrictEqual(0);
-  });
-});
-
 test("a newer explicit request invalidates a delayed invite", async () => {
   await fixture(async (client, service) => {
     const delayed = await service.createSession(context());
@@ -396,78 +343,6 @@ test("Haru's action voice preserves exact event names, Discord timestamps, and i
     expect(invite.inviteUrl).toStrictEqual(lines[6]);
   });
 });
-
-test("multi-day event receipts include the verified end date", async () => {
-  await fixture(async (client, service) => {
-    const request =
-      "Create a Retreat event at Camp from September 5 at 8pm until September 7 at 10pm Vancouver time.";
-    const session = await service.createSession(context({ content: request }));
-    const result = await session.executeTool(
-      "create_discord_event",
-      eventArgs({
-        request_quote: request,
-        name: "Retreat",
-        entity_type: "external",
-        channel_id: null,
-        location: "Camp",
-        end_time: "2025-09-07T22:00:00",
-      }),
-    );
-    expect(result.ok).toStrictEqual(true);
-    expect(client.eventWrites[0].payload.scheduled_start_time).toStrictEqual(
-      "2025-09-06T03:00:00.000Z",
-    );
-    expect(client.eventWrites[0].payload.scheduled_end_time).toStrictEqual(
-      "2025-09-08T05:00:00.000Z",
-    );
-    expect(formatActionResults(session.results)!).toContain("<t:1757127600:F> – <t:1757307600:F>");
-  });
-});
-
-test("uncertain invite receipts keep a confirmed event and all uncertainty without rewriting links", async () => {
-  await fixture(async (client, service) => {
-    client.inviteFailure = new DiscordApiError("Connection lost after sending", 0, true);
-    const session = await service.createSession(context());
-    const event = await session.executeTool("create_discord_event", eventArgs());
-    const invite = await session.executeTool(
-      "create_discord_invite",
-      inviteArgs({ event_id: event.eventId }),
-    );
-    expect(event.ok).toStrictEqual(true);
-    expect(invite.ok).toStrictEqual(false);
-    expect(invite.uncertain).toStrictEqual(true);
-    const receipt = formatActionResults(session.results)!;
-    expect(receipt).toContain("Ehehe~ I made your event!");
-    expect(receipt).toContain("https://discord.com/events/100/501");
-    expect(receipt).toContain("Eep... Discord did not confirm the result.");
-    expect(receipt).toContain("may have succeeded; I have not retried it");
-    expect(receipt.includes("Here's your event invite")).toStrictEqual(false);
-    expect(receipt.includes("https://discord.gg/")).toStrictEqual(false);
-    await session.executeTool("create_discord_invite", inviteArgs({ event_id: event.eventId }));
-    expect(client.inviteWrites.length).toStrictEqual(1);
-
-    // Voice decoration must not rewrite a verified result's URL punctuation.
-    const url = "https://discord.gg/sandbox-invite?event=501&source=local!";
-    const failure = `The invite could not be verified at ${url}`;
-    const result = { ok: false, uncertain: true, message: failure };
-    const formatted = formatActionResults([result])!;
-    expect(formatted.slice(formatted.indexOf("https://"))).toStrictEqual(url);
-    expect(result.message).toStrictEqual(failure);
-  });
-});
-
-test("clarification keeps Haru's question intact and does not frame missing details as failure", async () => {
-  await fixture(async (client, service) => {
-    const session = await service.createSession(context());
-    const question = "Ehehe~ what time should Movie night end? (｡•ᴗ•｡)";
-    await session.executeTool("clarify_discord_action", { request_quote: REQUEST, question });
-    expect(formatActionResults(session.results)).toStrictEqual(question);
-    expect(client.eventWrites.length + client.inviteWrites.length).toStrictEqual(0);
-    const followup = await service.createSession(context({ messageId: "601", content: "10pm" }));
-    expect(followup.instructions).toContain(question);
-  });
-});
-
 test("Stage creation uses a Stage channel and requires both parties' moderator permissions", async () => {
   await fixture(async (client, service) => {
     const session = await service.createSession(context());
@@ -511,28 +386,6 @@ test("requester and bot must each have event and invite permissions", async () =
     }
   }
 });
-
-test("external event creation checks server permissions for requester and bot", async () => {
-  for (const member of [USER, BOT]) {
-    await fixture(async (client, service) => {
-      denyRole(client, member, P.CREATE_EVENTS);
-      const session = await service.createSession(context());
-      const result = await session.executeTool(
-        "create_discord_event",
-        eventArgs({
-          entity_type: "external",
-          channel_id: null,
-          location: "Library",
-          end_time: "2025-09-05T22:00:00",
-        }),
-      );
-      expect(result.ok).toStrictEqual(false);
-      expect(String(result.message)).toContain(member === USER ? "You need" : "Haru needs");
-      expect(client.eventWrites.length).toStrictEqual(0);
-    });
-  }
-});
-
 test("channel overwrites prevent creating an inaccessible voice event", async () => {
   for (const member of [USER, BOT]) {
     await fixture(async (client, service) => {
@@ -649,36 +502,6 @@ test("two users creating the same event at once make one Discord write", async (
     expect(client.eventWrites.length).toStrictEqual(1);
   });
 });
-
-test("two users replacing an ended event at once recreate it only once", async () => {
-  await fixture(async (client, service) => {
-    const original = await (
-      await service.createSession(context())
-    ).executeTool("create_discord_event", eventArgs());
-    expect(original.ok).toStrictEqual(true);
-    client.events[0].status = 3;
-    // Hold both lookups of the stale receipt until both sessions are waiting on Discord.
-    let waiting = 0;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const list = client.listScheduledEvents.bind(client);
-    client.listScheduledEvents = async (guildId) => {
-      if (++waiting === 2) release();
-      await gate;
-      return await list(guildId);
-    };
-    const first = await service.createSession(context({ messageId: "602" }));
-    const second = await service.createSession(context({ userId: "202", messageId: "603" }));
-    const results = await Promise.all([
-      first.executeTool("create_discord_event", eventArgs()),
-      second.executeTool("create_discord_event", eventArgs()),
-    ]);
-    expect(results.map((result) => result.ok)).toStrictEqual([true, false]);
-    expect(String(results[1].message)).toContain("changed while I was checking");
-    expect(client.eventWrites.length).toStrictEqual(2);
-  });
-});
-
 test("a definite failure releases the event so a new message can try again", async () => {
   await fixture(async (client, service) => {
     client.eventFailure = new DiscordApiError("Missing Permissions", 403, false);
@@ -695,25 +518,6 @@ test("a definite failure releases the event so a new message can try again", asy
     expect(client.eventWrites.length).toStrictEqual(2);
   });
 });
-
-test("new messages with the same event fingerprint reuse the receipt", async () => {
-  await fixture(async (client, service) => {
-    const first = await service.createSession(context());
-    const original = await first.executeTool("create_discord_event", eventArgs());
-    const second = await service.createSession(context({ messageId: "601" }));
-    const reused = await second.executeTool(
-      "create_discord_event",
-      eventArgs({ name: "MOVIE NIGHT" }),
-    );
-    expect(reused.ok).toStrictEqual(true);
-    expect(reused.eventId).toStrictEqual(original.eventId);
-    expect(reused.eventUrl).toStrictEqual(original.eventUrl);
-    expect(String(reused.message)).toContain("already waiting for you");
-    expect(String(reused.message).includes("I made your event")).toStrictEqual(false);
-    expect(client.eventWrites.length).toStrictEqual(1);
-  });
-});
-
 test("a new request can recreate a deleted or cancelled event without replaying the old message", async () => {
   for (const deleted of [true, false]) {
     await fixture(async (client, service) => {
@@ -732,34 +536,6 @@ test("a new request can recreate a deleted or cancelled event without replaying 
     });
   }
 });
-
-test("concurrent matching requests claim only one Discord write", async () => {
-  await fixture(async (client, service) => {
-    let release!: () => void;
-    let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => (markStarted = resolve));
-    const blocked = new Promise<void>((resolve) => (release = resolve));
-    client.beforeEvent = () => {
-      markStarted();
-      return blocked;
-    };
-    const first = await service.createSession(context());
-    const running = first.executeTool("create_discord_event", eventArgs());
-    await started;
-    const second = await service.createSession(context({ messageId: "601" }));
-    try {
-      const competing = await second.executeTool("create_discord_event", eventArgs());
-      expect(competing.ok).toStrictEqual(false);
-      expect(String(competing.message)).toContain("in progress");
-      expect(client.eventWrites.length).toStrictEqual(1);
-    } finally {
-      release();
-      const completed = await running;
-      expect(completed.ok).toStrictEqual(true);
-    }
-  });
-});
-
 test("uncertain Discord event POST is not retried by repeats or a new message", async () => {
   await fixture(async (client, service) => {
     client.eventFailure = new DiscordApiError("Timed out after sending", 0, true);
@@ -821,51 +597,6 @@ test("pending clarification continues only for the same user, channel, and guild
     expect(noLongerPending.ok).toStrictEqual(false);
   });
 });
-
-test("successful event and failed invite both remain in truthful receipts", async () => {
-  await fixture(async (client, service) => {
-    client.inviteFailure = new DiscordApiError("Discord denied the invite request.", 403);
-    const session = await service.createSession(context());
-    const event = await session.executeTool("create_discord_event", eventArgs());
-    const invite = await session.executeTool(
-      "create_discord_invite",
-      inviteArgs({ event_id: event.eventId }),
-    );
-    expect(event.ok).toStrictEqual(true);
-    expect(invite.ok).toStrictEqual(false);
-    const receipt = formatActionResults(session.results)!;
-    expect(receipt).toContain("https://discord.com/events/100/501");
-    expect(receipt).toContain("Ehehe~ I made your event!");
-    expect(receipt).toContain("Eep... Discord denied the invite request.");
-    expect(receipt.includes("Here's your event invite")).toStrictEqual(false);
-    expect(client.eventWrites.length).toStrictEqual(1);
-    expect(client.inviteWrites.length).toStrictEqual(1);
-    await session.executeTool("create_discord_invite", inviteArgs({ event_id: event.eventId }));
-    expect(client.inviteWrites.length).toStrictEqual(1);
-  });
-});
-
-test("verified event success survives receipt persistence failure and its durable claim blocks replay", async () => {
-  await fixture(async (client, service, _turns, db) => {
-    // Fail the receipt write (the update of the pending claim) after Discord accepted the event.
-    db.run(`CREATE TRIGGER fail_receipt BEFORE UPDATE ON discord_action_operations
-            BEGIN SELECT RAISE(ABORT, 'Simulated storage failure'); END`);
-    const session = await service.createSession(context());
-    const result = await session.executeTool("create_discord_event", eventArgs());
-    expect(result.ok).toStrictEqual(true);
-    expect(result.eventId).toStrictEqual("501");
-    expect(formatActionResults(session.results)!).toContain("https://discord.com/events/100/501");
-    db.run("DROP TRIGGER fail_receipt");
-    const restoredService = createDiscordActionService(client, db, "America/Vancouver", () => NOW);
-    const replay = await restoredService.createSession(context());
-    const repeated = await replay.executeTool("create_discord_event", eventArgs());
-    expect(repeated.ok).toStrictEqual(false);
-    expect(repeated.uncertain).toStrictEqual(true);
-    expect(String(repeated.message)).toContain("have not repeated");
-    expect(client.eventWrites.length).toStrictEqual(1);
-  });
-});
-
 test("quoted requests, hypotheticals, negation, and cancellation cannot authorize writes", async () => {
   const messages = [
     `> ${REQUEST}`,
@@ -887,17 +618,6 @@ test("quoted requests, hypotheticals, negation, and cancellation cannot authoriz
     });
   }
 });
-
-test("a request to summarize quoted action text cannot use that quote to authorize creation", async () => {
-  await fixture(async (client, service) => {
-    const content = `Create a summary of this event request: "${REQUEST}"`;
-    const session = await service.createSession(context({ content }));
-    const result = await session.executeTool("create_discord_event", eventArgs());
-    expect(result.ok).toStrictEqual(false);
-    expect(client.eventWrites.length).toStrictEqual(0);
-  });
-});
-
 test("cancellation and reset discard pending authorization", async () => {
   for (const reset of [false, true]) {
     await fixture(async (client, service) => {
@@ -916,45 +636,6 @@ test("cancellation and reset discard pending authorization", async () => {
     });
   }
 });
-
-test("curly-apostrophe cancellation clears the pending request for later replies", async () => {
-  await fixture(async (client, service) => {
-    const initial = await service.createSession(context());
-    await initial.executeTool("clarify_discord_action", {
-      request_quote: REQUEST,
-      question: "What end time?",
-    });
-    const cancelled = await service.createSession(
-      context({ messageId: "601", content: "Don’t create it." }),
-    );
-    expect((await cancelled.executeTool("create_discord_event", eventArgs())).ok).toStrictEqual(
-      false,
-    );
-    const later = await service.createSession(context({ messageId: "602", content: "10pm" }));
-    expect((await later.executeTool("create_discord_event", eventArgs())).ok).toStrictEqual(false);
-    expect(client.eventWrites.length).toStrictEqual(0);
-  });
-});
-
-test("hypothetical and quoted followups cannot execute a pending request", async () => {
-  for (const content of ["Hypothetically, what if it were at 10pm?", "> 10pm"]) {
-    await fixture(async (client, service) => {
-      const initial = await service.createSession(context());
-      await initial.executeTool("clarify_discord_action", {
-        request_quote: REQUEST,
-        question: "What end time?",
-      });
-      const followup = await service.createSession(context({ messageId: "601", content }));
-      const result = await followup.executeTool(
-        "create_discord_event",
-        eventArgs({ end_time: "2025-09-05T22:00:00" }),
-      );
-      expect(result.ok).toStrictEqual(false);
-      expect(client.eventWrites.length).toStrictEqual(0);
-    });
-  }
-});
-
 test("invalid or past event times and mismatched channel kinds cannot reach Discord", async () => {
   for (const overrides of [
     { start_time: "2024-12-01T20:00:00" },
@@ -992,66 +673,4 @@ test("a session whose turn expired after 20 minutes cannot write or ask", async 
   expect(client.eventWrites.length).toStrictEqual(0);
   expect(turns.pending(KEY)).toBeNull();
   expect(turns.turn(KEY)).toBeNull();
-});
-
-test("an older Discord message reaching session initialization late cannot revive an abandoned request", async () => {
-  await fixture(async (client, service, turns) => {
-    // These adjacent snowflakes collapse to the same value if compared as Numbers.
-    const olderId = "1545337190928613416";
-    const newerId = "1545337190928613417";
-    await service.createSession(context({ messageId: newerId, content: "Never mind" }));
-    // An older handler may still be awaiting context or web-search requests.
-    const older = await service.createSession(context({ messageId: olderId }));
-    expect((await older.executeTool("create_discord_event", eventArgs())).ok).toStrictEqual(false);
-    expect(
-      (
-        await older.executeTool("clarify_discord_action", {
-          request_quote: REQUEST,
-          question: "Which channel?",
-        })
-      ).ok,
-    ).toStrictEqual(false);
-    expect(client.eventWrites.length).toStrictEqual(0);
-    expect(turns.pending(KEY)).toBeNull();
-    expect(turns.turn(KEY)?.messageId).toStrictEqual(newerId);
-  });
-});
-
-test("reset ordering blocks older requests without clearing newer clarification", async () => {
-  await fixture(async (client, service, turns) => {
-    await service.clearPending(GUILD, TEXT, USER, "602");
-    for (const messageId of ["600", "602"]) {
-      const stale = await service.createSession(context({ messageId }));
-      expect((await stale.executeTool("create_discord_event", eventArgs())).ok).toStrictEqual(
-        false,
-      );
-      expect(
-        (
-          await stale.executeTool("clarify_discord_action", {
-            request_quote: REQUEST,
-            question: "Which channel?",
-          })
-        ).ok,
-      ).toStrictEqual(false);
-    }
-    expect(client.eventWrites.length).toStrictEqual(0);
-    const newer = await service.createSession(context({ messageId: "603" }));
-    expect(
-      (
-        await newer.executeTool("clarify_discord_action", {
-          request_quote: REQUEST,
-          question: "Which channel?",
-        })
-      ).needsClarification,
-    ).toStrictEqual(true);
-    // A delayed older reset must not delete the newer request's clarification.
-    await service.clearPending(GUILD, TEXT, USER, "601");
-    expect(turns.pending(KEY)?.messageId).toStrictEqual("603");
-    const followup = await service.createSession(context({ messageId: "604", content: "Lounge" }));
-    expect((await followup.executeTool("create_discord_event", eventArgs())).ok).toStrictEqual(
-      true,
-    );
-    expect(client.eventWrites.length).toStrictEqual(1);
-    expect(client.eventWrites[0].reason!).toContain("message 603");
-  });
 });

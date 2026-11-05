@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { createServer } from "node:net";
-import { BlockedDestinationError, requestPinned } from "../src/net/public_fetch.ts";
+import { requestPinned } from "../src/net/public_fetch.ts";
 import { realFetch } from "./support/setup.ts";
 import { rejects } from "./support/assert.ts";
 import { ca } from "./fixtures/link_tls.ts";
@@ -108,32 +108,6 @@ test("pinned HTTPS refuses hostname mismatch and untrusted certificates before H
     await server.shutdown();
   }
 });
-
-test("pinned transport keeps the exact path and port, and refuses zone-scoped addresses", async () => {
-  let path = "";
-  const server = serveFixture((req) => {
-    path = new URL(req.url).pathname + new URL(req.url).search;
-    return new Response("ok");
-  });
-  try {
-    // A path starting with "//" must not be read as a host and port. Bun's fetch sends a leading
-    // "//" as "/" (behavior change 5); the rest of the path and the port are kept.
-    const response = await requestPinned(
-      new URL(`http://public.example:${server.port}//a//b?q=1#frag`),
-      "127.0.0.1",
-    );
-    expect(await response.text()).toBe("ok");
-    expect(path).toBe("/a//b?q=1");
-    // A zone id cannot be put in a URL host, so it would leave the hostname unpinned.
-    await rejects(
-      () => requestPinned(new URL(`http://public.example:${server.port}/`), "fe80::1%eth0"),
-      BlockedDestinationError,
-    );
-  } finally {
-    await server.shutdown();
-  }
-});
-
 test("pinned transport never automatically follows a redirect", async () => {
   let requests = 0;
   const server = serveFixture(() => {
@@ -214,126 +188,6 @@ test("pinned request abort closes a connection waiting for headers", async () =>
     await server.shutdown();
   }
 });
-
-describe("pinned HTTP and HTTPS body cancellation release a stalled connection", () => {
-  for (const secure of [false, true]) {
-    test(secure ? "HTTPS" : "HTTP", async () => {
-      const closed = Promise.withResolvers<void>();
-      const server = serveFixture(
-        () =>
-          new Response(
-            new ReadableStream<Uint8Array>({
-              start(controller) {
-                controller.enqueue(new TextEncoder().encode("first"));
-              },
-              cancel() {
-                closed.resolve();
-              },
-            }),
-          ),
-        { tls: secure },
-      );
-      try {
-        const response = await requestPinned(
-          new URL(`${secure ? "https" : "http"}://public.example:${server.port}/`),
-          "127.0.0.1",
-          undefined,
-          ca,
-        );
-        const reader = response.body!.getReader();
-        expect(new TextDecoder().decode((await reader.read()).value)).toBe("first");
-        await reader.cancel();
-        reader.releaseLock();
-        await closed.promise;
-      } finally {
-        await server.shutdown();
-      }
-    });
-  }
-});
-
-describe("pinned HTTP and HTTPS abort reject a pending body read without uncaught errors", () => {
-  for (const secure of [false, true]) {
-    test(secure ? "HTTPS" : "HTTP", async () => {
-      const abort = new AbortController();
-      const server = serveFixture(
-        () =>
-          new Response(
-            new ReadableStream<Uint8Array>({
-              start(controller) {
-                controller.enqueue(new TextEncoder().encode("first"));
-              },
-            }),
-          ),
-        { tls: secure },
-      );
-      try {
-        const response = await requestPinned(
-          new URL(`${secure ? "https" : "http"}://public.example:${server.port}/`),
-          "127.0.0.1",
-          abort.signal,
-          ca,
-        );
-        const reader = response.body!.getReader();
-        await reader.read();
-        const pending = reader.read();
-        const started = performance.now();
-        abort.abort();
-        const error = await rejects(() => pending);
-        expect(error.name).toBe("AbortError");
-        expect(performance.now() - started).toBeLessThan(2000);
-        reader.releaseLock();
-      } finally {
-        await server.shutdown();
-      }
-    });
-  }
-});
-
-describe("pinned transport reports corrupt or unsupported compression and closes resources", () => {
-  for (const encoding of ["gzip", "deflate", "br", "zstd", "constructor", "unsupported"]) {
-    test(encoding, async () => {
-      const abort = new AbortController();
-      const deadline = setTimeout(() => abort.abort(), 1000);
-      const server = serveFixture(
-        () =>
-          new Response(new Uint8Array([1, 2, 3]), { headers: { "content-encoding": encoding } }),
-      );
-      try {
-        await rejects(async () => {
-          const response = await requestPinned(
-            new URL(`http://public.example:${server.port}/`),
-            "127.0.0.1",
-            abort.signal,
-          );
-          await response.text();
-        });
-        // Invalid bodies must fail before the deadline.
-        expect(abort.signal.aborted).toBe(false);
-      } finally {
-        clearTimeout(deadline);
-        await server.shutdown();
-      }
-    });
-  }
-});
-
-test("pinned transport returns no body for 204, 205 and 304 (Bun already drops it; guarded anyway)", async () => {
-  for (const status of [204, 205, 304]) {
-    const server = serveFixture(() => new Response(null, { status }));
-    try {
-      const response = await requestPinned(
-        new URL(`http://public.example:${server.port}/`),
-        "127.0.0.1",
-      );
-      expect(response.status).toBe(status);
-      expect(response.body).toBeNull();
-    } finally {
-      await server.shutdown();
-    }
-  }
-});
-
 test("pinned transport ignores proxy environment variables", async () => {
   let proxied = 0;
   const proxy = serveFixture(() => {

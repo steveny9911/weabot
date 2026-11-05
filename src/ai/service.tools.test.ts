@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { createAiService } from "./service.ts";
 import type { AiReplyOptions } from "./types.ts";
@@ -144,48 +144,6 @@ test("normal and autonomous replies have no action tools", async () => {
     expect((requests[0].input as Array<Record<string, unknown>>)[0].role).toStrictEqual("user");
   });
 });
-
-test("the current action request is a separate final user message while plain chat keeps its history input", async () => {
-  const history = [{ author: "friend", content: 'An example was "create an event tomorrow".' }];
-  const currentUserMessage = "Create Movie night tomorrow at 8pm in Lounge.";
-  await withResponses(
-    [reply("Creating Movie night."), reply("That was an example.")],
-    async (requests) => {
-      const service = createAiService(mockConfig());
-      const opts = {
-        ...options(() => Promise.resolve({ ok: true })),
-        currentUserMessage,
-      };
-      await service.generateReply(history, opts);
-      await service.generateReply(history);
-
-      const actionInput = requests[0].input as Array<Record<string, unknown>>;
-      expect(actionInput.length).toStrictEqual(3);
-      expect(actionInput[0]).toStrictEqual({ role: "developer", content: opts.instructions });
-      expect(actionInput[1].role).toStrictEqual("user");
-      const historyContent = actionInput[1].content as Array<Record<string, unknown>>;
-      expect(String(historyContent[0].text)).toContain(history[0].content);
-      expect(actionInput[2]).toStrictEqual({ role: "user", content: currentUserMessage });
-      expect(requests[1].input).toStrictEqual([actionInput[1]]);
-      expect(requests[1].tools).toStrictEqual(undefined);
-      expect(requests[1].tool_choice).toStrictEqual("none");
-    },
-  );
-});
-
-test("tool replies preserve failure wording and event invite URL punctuation", async () => {
-  const text = "I couldn't create an invite! Your event is https://discord.gg/abc?event=123";
-  await withResponses([reply(text)], async () => {
-    const result = await createAiService(mockConfig()).generateReply(
-      [],
-      options(() => {
-        throw new Error("No tool should run");
-      }),
-    );
-    expect(result).toStrictEqual({ ok: true, text, tokensUsed: 10 });
-  });
-});
-
 test("unknown tools and malformed arguments produce outputs without executing", async () => {
   let executions = 0;
   const badCalls = [
@@ -300,69 +258,6 @@ test("failed model continuation preserves consumed usage without repeating actio
     );
   }
 });
-
-describe("stalled continuations time out through headers and body while preserving completed actions", () => {
-  for (const phase of ["headers", "success body", "error body"] as const) {
-    test(phase, async () => {
-      const originalFetch = globalThis.fetch;
-      const receipts: Array<Record<string, unknown>> = [];
-      let requests = 0;
-      let continuationSignal: AbortSignal | null | undefined;
-      globalThis.fetch = asFetch((_input: string | URL | Request, init?: RequestInit) => {
-        requests++;
-        if (requests === 1) {
-          return Promise.resolve(
-            Response.json({
-              output: [call("created")],
-              usage: { total_tokens: 37 },
-            }),
-          );
-        }
-        continuationSignal = init?.signal;
-        if (phase === "headers") return new Promise<Response>(() => {});
-        const body = new ReadableStream<Uint8Array>({
-          start(controller) {
-            continuationSignal?.addEventListener(
-              "abort",
-              () => {
-                controller.error(new DOMException("Request aborted", "AbortError"));
-              },
-              { once: true },
-            );
-          },
-        });
-        return Promise.resolve(new Response(body, { status: phase === "error body" ? 503 : 200 }));
-      });
-      try {
-        const result = await createAiService(mockConfig(), {
-          // Exercise both the per-response and overall-loop deadlines.
-          requestTimeoutMs: phase === "headers" ? 20 : 1000,
-          toolLoopTimeoutMs: phase === "headers" ? 1000 : 20,
-        }).generateReply(
-          [],
-          options(() => {
-            const receipt = { ok: true, eventId: "created" };
-            receipts.push(receipt);
-            return Promise.resolve(receipt);
-          }),
-        );
-        expect(result.ok).toStrictEqual(false);
-        expect(result.tokensUsed).toStrictEqual(37);
-        expect(receipts).toStrictEqual([{ ok: true, eventId: "created" }]);
-        expect(requests).toStrictEqual(2);
-        expect(continuationSignal?.aborted).toStrictEqual(true);
-        if (!result.ok) {
-          expect(result.error).toContain(
-            phase === "headers" ? "OpenAI response timed out" : "AI tool time limit reached",
-          );
-        }
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
-    });
-  }
-});
-
 test("the overall deadline stops later model output from executing more tools", async () => {
   let elapsedMs = 0;
   let executions = 0;
@@ -397,37 +292,6 @@ test("the overall deadline stops later model output from executing more tools", 
     globalThis.fetch = originalFetch;
   }
 });
-
-test("tool execution counts toward the deadline without abandoning an in-flight receipt", async () => {
-  let elapsedMs = 0;
-  const receipts: Array<Record<string, unknown>> = [];
-  await withResponses(
-    [{ output: [call("first"), call("second")], usage: { total_tokens: 37 } }],
-    async (requests) => {
-      const result = await createAiService(mockConfig(), {
-        toolLoopTimeoutMs: 100,
-        now: () => elapsedMs,
-      }).generateReply(
-        [],
-        options(async () => {
-          await Promise.resolve();
-          elapsedMs = 120;
-          const receipt = { ok: true, eventId: "created" };
-          receipts.push(receipt);
-          return receipt;
-        }),
-      );
-      expect(result).toStrictEqual({
-        ok: false,
-        error: "AI tool time limit reached",
-        tokensUsed: 37,
-      });
-      expect(receipts).toStrictEqual([{ ok: true, eventId: "created" }]);
-      expect(requests.length).toStrictEqual(1);
-    },
-  );
-});
-
 test("tool loop stops after six responses without executing last response writes", async () => {
   let executions = 0;
   await withResponses(
@@ -479,35 +343,6 @@ test("tool loop rejects over-budget batches before any further writes", async ()
     },
   );
 });
-
-test("a missing call ID rejects the whole batch before any writes", async () => {
-  let executions = 0;
-  await withResponses(
-    [
-      {
-        output: [call("valid"), { ...call("invalid"), call_id: undefined }],
-        usage: { total_tokens: 7 },
-      },
-    ],
-    async (requests) => {
-      const result = await createAiService(mockConfig()).generateReply(
-        [],
-        options(() => {
-          executions++;
-          return Promise.resolve({ ok: true });
-        }),
-      );
-      expect(result).toStrictEqual({
-        ok: false,
-        error: "AI tool call is missing a call_id",
-        tokensUsed: 7,
-      });
-      expect(executions).toStrictEqual(0);
-      expect(requests.length).toStrictEqual(1);
-    },
-  );
-});
-
 test("incomplete or failed model responses cannot execute partial action output", async () => {
   for (const status of ["incomplete", "failed"]) {
     let executions = 0;

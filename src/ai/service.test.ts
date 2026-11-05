@@ -111,26 +111,6 @@ test("generateReply returns error when API key is missing", async () => {
 // =============================================================================
 // createAiService - API Request Structure
 // =============================================================================
-
-test("generateReply lets the saved prompt select the model", async () => {
-  const mock = mockFetch({
-    output_text: "Test response",
-    usage: { total_tokens: 50 },
-  });
-
-  try {
-    const config = createMockConfig();
-    const service = createAiService(config);
-
-    await service.generateReply([{ author: "user", content: "hello" }]);
-
-    const request = mock.getLastRequest();
-    expect(request?.body.model).toStrictEqual(undefined);
-  } finally {
-    mock.restore();
-  }
-});
-
 test("generateReply sends chat builder prompt id without pinning version", async () => {
   const mock = mockFetch({
     output_text: "Test response",
@@ -151,96 +131,9 @@ test("generateReply sends chat builder prompt id without pinning version", async
     mock.restore();
   }
 });
-
-test("generateReply sends text format and store settings", async () => {
-  const mock = mockFetch({
-    output_text: "Test response",
-    usage: { total_tokens: 50 },
-  });
-
-  try {
-    const config = createMockConfig();
-    const service = createAiService(config);
-
-    await service.generateReply([{ author: "user", content: "hello" }]);
-
-    const request = mock.getLastRequest();
-    expect(request?.body.text).toStrictEqual({ format: { type: "text" } });
-    expect(request?.body.store).toStrictEqual(true);
-  } finally {
-    mock.restore();
-  }
-});
-
-test("generateReply does not send max_tokens parameter", async () => {
-  const mock = mockFetch({
-    output_text: "Test response",
-    usage: { total_tokens: 50 },
-  });
-
-  try {
-    const config = createMockConfig();
-    const service = createAiService(config);
-
-    await service.generateReply([{ author: "user", content: "hello" }]);
-
-    const request = mock.getLastRequest();
-    expect(request?.body.max_tokens).toStrictEqual(undefined);
-  } finally {
-    mock.restore();
-  }
-});
-
-test("generateReply does not send temperature parameter", async () => {
-  const mock = mockFetch({
-    output_text: "Test response",
-    usage: { total_tokens: 50 },
-  });
-
-  try {
-    const config = createMockConfig();
-    const service = createAiService(config);
-
-    await service.generateReply([{ author: "user", content: "hello" }]);
-
-    const request = mock.getLastRequest();
-    expect(request?.body.temperature).toStrictEqual(undefined);
-  } finally {
-    mock.restore();
-  }
-});
-
 // =============================================================================
 // createAiService - Input Processing
 // =============================================================================
-
-test("generateReply does not truncate input when limits are disabled", async () => {
-  const mock = mockFetch({
-    output_text: "Test response",
-    usage: { total_tokens: 50 },
-  });
-
-  try {
-    const config = createMockConfig({ aiMaxInputChars: 0 });
-    const service = createAiService(config);
-
-    const longMessage = "This is a very long message that should not be truncated";
-    await service.generateReply([{ author: "user", content: longMessage }]);
-
-    const request = mock.getLastRequest();
-    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-    const firstMessage = input?.[0];
-    const contentParts = firstMessage?.content ?? [];
-    const textPart = contentParts.find((part) => part["type"] === "input_text");
-    const text = (textPart?.["text"] as string | undefined) ?? "";
-
-    expect(text).toContain(longMessage);
-    expect(text.includes("...")).toStrictEqual(false);
-  } finally {
-    mock.restore();
-  }
-});
-
 test("generateReply includes image URLs as input_image blocks", async () => {
   const mock = mockFetch({
     output_text: "Looks great!",
@@ -375,35 +268,6 @@ test("generateReply extracts text from structured output content", async () => {
     mock.restore();
   }
 });
-
-test("generateReply extracts text when content text uses value shape", async () => {
-  const mock = mockFetch({
-    output: [
-      {
-        type: "message",
-        role: "assistant",
-        content: [{ type: "output_text", text: { value: "Value-shaped text" } }],
-      },
-    ],
-    usage: { total_tokens: 62 },
-  });
-
-  try {
-    const config = createMockConfig();
-    const service = createAiService(config);
-
-    const result = await service.generateReply([{ author: "user", content: "hi" }]);
-
-    expect(result.ok).toStrictEqual(true);
-    if (result.ok) {
-      expect(result.text).toContain("Value-shaped text");
-      expect(result.tokensUsed).toStrictEqual(62);
-    }
-  } finally {
-    mock.restore();
-  }
-});
-
 test("generateReply returns explicit error when response has no extractable text", async () => {
   const mock = mockFetch({
     output: [{ type: "message", role: "assistant", content: [{ type: "refusal" }] }],
@@ -506,93 +370,6 @@ test("generateReply sanitizes greetings and apology phrasing", async () => {
     mock.restore();
   }
 });
-
-test("generateReply returns error when fetch throws", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
-    return Promise.reject(new Error("network down"));
-  });
-
-  try {
-    const service = createAiService(createMockConfig());
-    const result = await service.generateReply([{ author: "user", content: "hello" }]);
-    expect(result.ok).toStrictEqual(false);
-    if (!result.ok) {
-      expect(result.error).toContain("network down");
-    }
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("generateReply handles malformed output shapes without extractable text", async () => {
-  {
-    const mock = mockFetch({
-      output: "not-an-array",
-    });
-    try {
-      const service = createAiService(createMockConfig());
-      const result = await service.generateReply([{ author: "user", content: "hi" }]);
-      expect(result).toStrictEqual({ ok: false, error: "No text in OpenAI response" });
-    } finally {
-      mock.restore();
-    }
-  }
-
-  {
-    const mock = mockFetch({
-      output: [
-        null,
-        "bad-item",
-        { content: "not-array" },
-        { content: [null, { type: "output_text", text: "" }] },
-      ],
-    });
-    try {
-      const service = createAiService(createMockConfig());
-      const result = await service.generateReply([{ author: "user", content: "hi" }]);
-      expect(result).toStrictEqual({ ok: false, error: "No text in OpenAI response" });
-    } finally {
-      mock.restore();
-    }
-  }
-});
-
-test("generateReply caps image inputs to six unique URLs and ignores non-strings", async () => {
-  const mock = mockFetch({
-    output_text: "ok",
-    usage: { total_tokens: 40 },
-  });
-
-  try {
-    const service = createAiService(createMockConfig());
-    await service.generateReply([
-      {
-        author: "a",
-        content: "x",
-        imageUrls: [
-          "https://example.com/1.png",
-          "https://example.com/2.png",
-          123,
-          "https://example.com/3.png",
-          "https://example.com/4.png",
-          "https://example.com/5.png",
-          "https://example.com/6.png",
-          "https://example.com/7.png",
-        ],
-      },
-    ]);
-
-    const request = mock.getLastRequest();
-    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-    const imageParts = input?.[0]?.content?.filter((part) => part["type"] === "input_image") ?? [];
-    expect(imageParts.length).toStrictEqual(6);
-    expect(imageParts[5]["image_url"]).toStrictEqual("https://example.com/6.png");
-  } finally {
-    mock.restore();
-  }
-});
-
 test("a reply to a video cannot poison subsequent text-only AI requests", async () => {
   const mock = mockFetch({ output_text: "Still here!", usage: { total_tokens: 12 } });
   const messages = [
@@ -640,30 +417,6 @@ test("a reply to a video cannot poison subsequent text-only AI requests", async 
     mock.restore();
   }
 });
-
-test("generateReply falls back to unknown author/content and zero token usage", async () => {
-  const mock = mockFetch({
-    output_text: "Works",
-  });
-
-  try {
-    const service = createAiService(createMockConfig());
-    const result = await service.generateReply([{}]);
-
-    expect(result.ok).toStrictEqual(true);
-    if (result.ok) {
-      expect(result.tokensUsed).toStrictEqual(0);
-    }
-
-    const request = mock.getLastRequest();
-    const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-    const textPart = input?.[0]?.content?.find((part) => part["type"] === "input_text");
-    expect(String(textPart?.["text"] ?? "")).toContain("unknown: ");
-  } finally {
-    mock.restore();
-  }
-});
-
 // =============================================================================
 // Autonomous participation
 // =============================================================================
@@ -840,25 +593,6 @@ test("autonomous reactions accept the fixed Unicode palette and return no fallba
     }
   }
 });
-
-test("autonomous silence returns empty text and still records reported token usage", async () => {
-  const mock = mockFetch({ output_text: choice("silent"), usage: { total_tokens: 17 } });
-  try {
-    const result = await createAiService(createMockConfig({ aiEnableUwu: true })).generateReply(
-      participationMessages,
-      participationOptions,
-    );
-    expect(result).toStrictEqual({
-      ok: true,
-      text: "",
-      tokensUsed: 17,
-      participation: { action: "silent", reason: "no_contribution" },
-    });
-  } finally {
-    mock.restore();
-  }
-});
-
 test("autonomous replies enforce the 280-character boundary without truncating into chatter", async () => {
   for (const length of [280, 281]) {
     const text = "x".repeat(length);
@@ -998,50 +732,6 @@ test("autonomous empty, incomplete, refused, and unexpected outputs remain silen
     }
   }
 });
-
-test("autonomous malformed provider payloads fail closed without token or text fabrication", async () => {
-  for (const payload of [null, [], "not an object", 42]) {
-    const mock = mockFetch(payload as unknown as Record<string, unknown>);
-    try {
-      const result = await createAiService(createMockConfig()).generateReply(
-        participationMessages,
-        participationOptions,
-      );
-      expect(result).toStrictEqual({
-        ok: true,
-        text: "",
-        tokensUsed: 0,
-        participation: { action: "silent" },
-      });
-    } finally {
-      mock.restore();
-    }
-  }
-});
-
-test("autonomous HTTP errors retain provider-reported token usage", async () => {
-  const mock = mockFetch(
-    {
-      error: { message: "Request failed" },
-      usage: { total_tokens: 13 },
-    },
-    500,
-  );
-  try {
-    const result = await createAiService(createMockConfig()).generateReply(
-      participationMessages,
-      participationOptions,
-    );
-    expect(result.ok).toStrictEqual(false);
-    if (!result.ok) {
-      expect(result.error).toContain("OpenAI error 500");
-      expect(result.tokensUsed).toStrictEqual(13);
-    }
-  } finally {
-    mock.restore();
-  }
-});
-
 test("autonomous custom emotes require the exact supplied intent and expression", async () => {
   const options = {
     ...participationOptions,

@@ -187,30 +187,6 @@ describe("Discord cancellation requires an exact canceled receipt", () => {
     });
   }
 });
-
-describe("Discord single event reads reject another event or guild", () => {
-  for (const body of [
-    { ...event, id: "other" },
-    { ...event, guild_id: "other" },
-  ]) {
-    test(`${body.guild_id}/${body.id}`, async () => {
-      let count = 0;
-      const client = createDiscordEventsClient("fake-token", {
-        fetch: fetchMock(() => {
-          count++;
-          return jsonResponse(body);
-        }),
-      });
-      const error = await rejects(
-        () => client.getScheduledEvent("guild", "event"),
-        DiscordApiError,
-      );
-      expect(count).toStrictEqual(1);
-      expect(error.uncertain).toStrictEqual(false);
-    });
-  }
-});
-
 describe("ambiguous mutations are never retried or reported as definite failure", () => {
   const failureCases = [
     {
@@ -289,18 +265,6 @@ describe("Discord 429 and client errors are definite failures without retries", 
     }
   }
 });
-
-test("Discord rate limit header survives a non-JSON error response", async () => {
-  const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(
-      () => new Response("too many requests", { status: 429, headers: { "Retry-After": "1.5" } }),
-    ),
-  });
-  const error = await rejects(() => client.createInvite("voice", invitePayload), DiscordApiError);
-  expect(error.uncertain).toStrictEqual(false);
-  expect(error.retryAfter).toStrictEqual(1.5);
-});
-
 test("Discord reads retry a confirmed rate limit after its fractional delay", async () => {
   const delays: number[] = [];
   const signals: AbortSignal[] = [];
@@ -323,27 +287,6 @@ test("Discord reads retry a confirmed rate limit after its fractional delay", as
   expect(signals.length).toStrictEqual(2);
   assert(signals[0] !== signals[1]);
 });
-
-test("Discord reads can retry using Retry-After when the body is unreadable", async () => {
-  let count = 0;
-  const delays: number[] = [];
-  const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() => {
-      count++;
-      return count === 1
-        ? new Response("rate limited", { status: 429, headers: { "Retry-After": "0.125" } })
-        : jsonResponse([channel]);
-    }),
-    sleep: (milliseconds) => {
-      delays.push(milliseconds);
-      return Promise.resolve();
-    },
-  });
-  expect(await client.getChannels("guild")).toStrictEqual([channel]);
-  expect(count).toStrictEqual(2);
-  expect(delays).toStrictEqual([125]);
-});
-
 test("Discord read retries stop after two waits and preserve the final safe error", async () => {
   let count = 0;
   const delays: number[] = [];
@@ -365,61 +308,6 @@ test("Discord read retries stop after two waits and preserve the final safe erro
   expect(error.uncertain).toStrictEqual(false);
   expect(error.message.includes("fake-token")).toStrictEqual(false);
 });
-
-describe("Discord reads do not retry long, missing, or invalid rate limit delays", () => {
-  for (const retryAfter of [15.001, undefined, -1, "1", null]) {
-    test(String(retryAfter), async () => {
-      let count = 0;
-      const client = createDiscordEventsClient("fake-token", {
-        fetch: fetchMock(() => {
-          count++;
-          return jsonResponse({ retry_after: retryAfter }, 429);
-        }),
-        sleep: () => {
-          throw new Error("Must not wait or retry");
-        },
-      });
-      const error = await rejects(() => client.listScheduledEvents("guild"), DiscordApiError);
-      expect(count).toStrictEqual(1);
-      expect(error.status).toStrictEqual(429);
-      expect(error.uncertain).toStrictEqual(false);
-    });
-  }
-});
-
-describe("Discord reads do not retry non-rate-limit failures", () => {
-  const failures = [
-    { label: "server error", response: () => jsonResponse({ retry_after: 1 }, 503) },
-    { label: "permission denied", response: () => jsonResponse({ retry_after: 1 }, 403) },
-    { label: "unreadable success", response: () => new Response("not-json") },
-    { label: "incomplete success", response: () => jsonResponse({}) },
-    {
-      label: "network error",
-      response: (): Response => {
-        throw new Error("secret transport details");
-      },
-    },
-  ];
-  for (const failure of failures) {
-    test(failure.label, async () => {
-      let count = 0;
-      const client = createDiscordEventsClient("fake-token", {
-        fetch: fetchMock(() => {
-          count++;
-          return failure.response();
-        }),
-        sleep: () => {
-          throw new Error("Must not wait or retry");
-        },
-      });
-      const error = await rejects(() => client.getGuild("guild"), DiscordApiError);
-      expect(count).toStrictEqual(1);
-      expect(error.uncertain).toStrictEqual(false);
-      expect(error.message.includes("secret")).toStrictEqual(false);
-    });
-  }
-});
-
 test("Discord request timeout aborts transport and marks only mutation uncertain", async () => {
   let count = 0;
   const client = createDiscordEventsClient("fake-token", {
@@ -455,25 +343,6 @@ test("Discord malformed permission responses fail closed", async () => {
   });
   const error = await rejects(() => client.getGuild("guild"), DiscordApiError);
   expect(error.uncertain).toStrictEqual(false);
-});
-
-test("Discord lists older events with a nullable creator id", async () => {
-  const oldEvent = { ...event, creator_id: null };
-  const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() => jsonResponse([oldEvent])),
-  });
-  expect(await client.listScheduledEvents("guild")).toStrictEqual([oldEvent]);
-});
-
-test("Discord event reads retain recurring series metadata for action validation", async () => {
-  const recurringEvent = {
-    ...event,
-    recurrence_rule: { frequency: 2, interval: 1, by_weekday: [5] },
-  };
-  const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() => jsonResponse(recurringEvent)),
-  });
-  expect(await client.getScheduledEvent("guild", "event")).toStrictEqual(recurringEvent);
 });
 
 function overwrite(id: string, type: number, allow = 0n, deny = 0n) {

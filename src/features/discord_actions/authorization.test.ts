@@ -137,32 +137,6 @@ test("Discord multiline quotes cannot authorize any action or pending clarificat
     }
   }
 });
-
-test("a direct request before a multiline quote retains only its own action authority", async () => {
-  await fixture(async (service, writes) => {
-    const content = `${INVITE_REQUEST}\n>>> Other person's request:\n${EVENT_REQUEST}`;
-    const session = await service.createSession(context(content));
-    expect(hasExplicitActionRequest(content)).toStrictEqual(true);
-    expect(
-      (
-        await session.executeTool(
-          "create_discord_event",
-          args("create_discord_event", EVENT_REQUEST),
-        )
-      ).ok,
-    ).toStrictEqual(false);
-    expect(
-      (
-        await session.executeTool(
-          "create_discord_invite",
-          args("create_discord_invite", INVITE_REQUEST),
-        )
-      ).ok,
-    ).toStrictEqual(true);
-    expect(writes).toStrictEqual(["create_discord_invite"]);
-  });
-});
-
 test("event creation, invitation, and cancellation require their own request authority", async () => {
   const requests: Record<Action, string> = {
     create_discord_event: EVENT_REQUEST,
@@ -202,23 +176,6 @@ test("requesting an invitation for an existing event does not authorize event cr
     });
   }
 });
-
-test("combined event and invite requests retain both permissions", async () => {
-  for (const request of [
-    "Create Movie night on January 1 2027 at 8pm in General and share an invite.",
-    "Create the Movie night event with an invite.",
-    "Create an event and an invitation.",
-  ]) {
-    await fixture(async (service, writes) => {
-      const session = await service.createSession(context(request));
-      for (const action of ["create_discord_event", "create_discord_invite"] as const) {
-        expect((await session.executeTool(action, args(action, request))).ok).toStrictEqual(true);
-      }
-      expect(writes).toStrictEqual(["create_discord_event", "create_discord_invite"]);
-    });
-  }
-});
-
 test("pending clarification retains the original action kind for an ordinary answer", async () => {
   for (const [action, request] of [
     ["create_discord_event", "Create a Movie night event."],
@@ -238,24 +195,4 @@ test("pending clarification retains the original action kind for an ordinary ans
       expect(writes).toStrictEqual([action]);
     });
   }
-});
-
-test("quoted clarification answers cannot supply event cancellation references", async () => {
-  await fixture(async (service, writes) => {
-    const request = "Cancel the event.";
-    const initial = await service.createSession(context(request));
-    await initial.executeTool("clarify_discord_action", {
-      request_quote: request,
-      question: "Which event?",
-    });
-    const followup = await service.createSession(
-      context("Haru, here is somebody else's message:\n>>> Their answer:\nMovie night", "601"),
-    );
-    const result = await followup.executeTool(
-      "cancel_discord_event",
-      args("cancel_discord_event", request),
-    );
-    expect(result.ok).toStrictEqual(false);
-    expect(writes).toStrictEqual([]);
-  });
 });

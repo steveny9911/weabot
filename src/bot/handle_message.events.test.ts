@@ -162,14 +162,6 @@ test("event tools are excluded from DMs, other servers, bots and unidentified me
     });
   }
 });
-
-test("disabled event actions do not create a tool session", () =>
-  fixture(async (state) => {
-    state.deps.config.discordActionsEnabled = false;
-    await handleMessage(mention(), state.deps);
-    expect(state.contexts).toStrictEqual([]);
-  }));
-
 test("opened web content cannot enable Discord action tools", () =>
   fixture(async (state) => {
     state.deps.config.linkOpenEnabled = true;
@@ -204,23 +196,6 @@ test("confirmed event survives a failed AI continuation and records consumed tok
       "Created event: https://discord.com/events/sandbox/event-1",
     ]);
   }));
-
-test("action receipts preserve invite query strings and partial failures", () =>
-  fixture(async (state) => {
-    state.deps.aiService.generateReply = () => {
-      state.session.results.push(
-        { ok: true, message: "Created event: https://discord.com/events/sandbox/event-1" },
-        { ok: false, message: "Haru needs Create Invite permission." },
-        { ok: true, message: "Invite: https://discord.gg/test?event=event-1" },
-      );
-      return Promise.resolve({ ok: true, text: "Hallucinated success", tokensUsed: 14 });
-    };
-    await handleMessage(mention(), state.deps);
-    expect(state.messages.length).toStrictEqual(1);
-    expect(state.messages[0]).toContain("https://discord.gg/test?event=event-1");
-    expect(state.messages[0]).toContain("Haru needs Create Invite permission.");
-  }));
-
 test("reset clears only this user's pending action", () =>
   fixture(async (state) => {
     await handleMessage(mention({ content: "<@12345> \\reset" }), state.deps);

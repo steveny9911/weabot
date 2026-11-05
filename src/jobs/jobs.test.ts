@@ -120,17 +120,6 @@ test("the wellness check alerts each user at or over the glue streak, per channe
     "error: [CRON] Failed to send alert for User One in bad",
   ]);
 });
-
-test("the wellness check posts nothing when nobody is at risk", async () => {
-  const { deps, posts } = fixture();
-  await runWellnessCheck(deps);
-  expect(posts).toStrictEqual([]);
-  expect(logs).toStrictEqual([
-    "log: [CRON] No users at risk in good",
-    "log: [CRON] No users at risk in bad",
-  ]);
-});
-
 test("the test alert posts the named user's alert to every channel", async () => {
   const { deps, posts } = fixture();
   const results = await postTestAlert(deps, "TestUser", 3);

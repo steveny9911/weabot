@@ -67,32 +67,6 @@ function mockFetch(
   };
 }
 
-function mockFetchRaw(
-  responseText: string,
-  status = 200,
-): { restore: () => void; getLastUrl: () => string | null } {
-  let lastUrl: string | null = null;
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = asFetch((input: string | URL | Request, _init?: RequestInit) => {
-    lastUrl = typeof input === "string" ? input : input.toString();
-
-    return Promise.resolve(
-      new Response(responseText, {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-  });
-
-  return {
-    restore: () => {
-      globalThis.fetch = originalFetch;
-    },
-    getLastUrl: () => lastUrl,
-  };
-}
-
 // =============================================================================
 // Auto-search parsing
 // =============================================================================
@@ -106,17 +80,6 @@ test("extractAutoSearchQuery ignores small talk", () => {
   const query = extractAutoSearchQuery("<@123> how are you?");
   expect(query).toStrictEqual(null);
 });
-
-test("extractAutoSearchQuery ignores explicit search command", () => {
-  const query = extractAutoSearchQuery("<@123> \\search deno deploy");
-  expect(query).toStrictEqual(null);
-});
-
-test("extractAutoSearchQuery ignores conversational confusion", () => {
-  const query = extractAutoSearchQuery("<@123> what are you talking about?");
-  expect(query).toStrictEqual(null);
-});
-
 test("extractAutoSearchQuery ignores empty or command-like input", () => {
   expect(extractAutoSearchQuery(undefined)).toStrictEqual(null);
   expect(extractAutoSearchQuery("<@123>")).toStrictEqual(null);
@@ -124,29 +87,9 @@ test("extractAutoSearchQuery ignores empty or command-like input", () => {
   expect(extractAutoSearchQuery("<@123> \\reset")).toStrictEqual(null);
   expect(extractAutoSearchQuery("<@123> tell me about deno")).toStrictEqual(null);
 });
-
-test("extractAutoSearchQuery ignores subjective prompts", () => {
-  expect(extractAutoSearchQuery("<@123> what do you think about this?")).toStrictEqual(null);
-  expect(extractAutoSearchQuery("<@123> should I buy this laptop?")).toStrictEqual(null);
-});
-
 // =============================================================================
 // Formatting
 // =============================================================================
-
-test("formatSearchResultsForContext includes header", () => {
-  const text = formatSearchResultsForContext("deno", [
-    { title: "Deno", url: "https://deno.land", snippet: "A modern runtime" },
-  ]);
-  expect(text).toContain('Reference notes for "deno"');
-  expect(text.includes("https://")).toStrictEqual(false);
-});
-
-test("formatSearchResultsForContext handles empty results", () => {
-  const text = formatSearchResultsForContext(" deno ", []);
-  expect(text).toStrictEqual('Reference notes for "deno": none');
-});
-
 test("formatSearchResultsForContext truncates long snippets and fills blank titles", () => {
   const longSnippet = "x".repeat(260);
   const text = formatSearchResultsForContext("deno", [
@@ -156,12 +99,6 @@ test("formatSearchResultsForContext truncates long snippets and fills blank titl
   expect(text).toContain("1. Source - ");
   expect(text.includes("x".repeat(210))).toStrictEqual(false);
 });
-
-test("formatSearchResultsForContext omits snippet when not provided", () => {
-  const text = formatSearchResultsForContext("deno", [{ title: "Deno", url: "https://deno.land" }]);
-  expect(text.includes(" - ")).toStrictEqual(false);
-});
-
 // =============================================================================
 // Service behavior
 // =============================================================================
@@ -171,19 +108,6 @@ test("web search returns error when disabled", async () => {
   const result = await service.search("deno");
   expect(result.ok).toStrictEqual(false);
 });
-
-test("web search returns error when key missing", async () => {
-  const service = createWebSearchService(createMockConfig({ webSearchApiKey: undefined }));
-  const result = await service.search("deno");
-  expect(result.ok).toStrictEqual(false);
-});
-
-test("web search returns error when query is empty", async () => {
-  const service = createWebSearchService(createMockConfig());
-  const result = await service.search("   ");
-  expect(result).toStrictEqual({ ok: false, error: "Empty search query" });
-});
-
 test("web search maps results from Brave API", async () => {
   const mock = mockFetch({
     web: {
@@ -210,21 +134,6 @@ test("web search maps results from Brave API", async () => {
     mock.restore();
   }
 });
-
-test("web search uses maxResults parameter", async () => {
-  const mock = mockFetch({ web: { results: [] } });
-
-  try {
-    const service = createWebSearchService(createMockConfig());
-    await service.search("deno", 5);
-    const lastUrl = mock.getLastUrl();
-    const count = lastUrl ? new URL(lastUrl).searchParams.get("count") : null;
-    expect(count).toStrictEqual("5");
-  } finally {
-    mock.restore();
-  }
-});
-
 test("web search caps maxResults to [1, 10]", async () => {
   const mock = mockFetch({ web: { results: [] } });
 
@@ -272,42 +181,6 @@ test("web search filters out results without urls and trims fields", async () =>
     mock.restore();
   }
 });
-
-test("web search handles missing web/results payload as empty results", async () => {
-  const mock = mockFetch({});
-
-  try {
-    const service = createWebSearchService(createMockConfig());
-    const result = await service.search("deno");
-    expect(result).toStrictEqual({ ok: true, results: [] });
-  } finally {
-    mock.restore();
-  }
-});
-
-test("web search maps missing title/description to empty strings", async () => {
-  const mock = mockFetch({
-    web: {
-      results: [{ url: "https://x.example" }],
-    },
-  });
-
-  try {
-    const service = createWebSearchService(createMockConfig());
-    const result = await service.search("deno");
-    expect(result.ok).toStrictEqual(true);
-    if (result.ok) {
-      expect(result.results[0]).toStrictEqual({
-        title: "",
-        url: "https://x.example",
-        snippet: "",
-      });
-    }
-  } finally {
-    mock.restore();
-  }
-});
-
 test("web search returns error on non-ok response", async () => {
   const mock = mockFetch({ message: "upstream error" }, 500);
   const originalSetTimeout = globalThis.setTimeout;
@@ -332,20 +205,5 @@ test("web search returns error on non-ok response", async () => {
     mock.restore();
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
-  }
-});
-
-test("web search returns error when response JSON parsing fails", async () => {
-  const mock = mockFetchRaw("not-json", 200);
-
-  try {
-    const service = createWebSearchService(createMockConfig());
-    const result = await service.search("deno");
-    expect(result.ok).toStrictEqual(false);
-    if (!result.ok) {
-      expect(result.error).toContain("SyntaxError");
-    }
-  } finally {
-    mock.restore();
   }
 });

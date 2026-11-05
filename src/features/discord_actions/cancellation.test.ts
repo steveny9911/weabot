@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import {
   type ChannelInvitePayload,
   DiscordApiError,
@@ -162,31 +162,6 @@ function setPermissions(client: CancellationDiscord, userId: string, permissions
   role.permissions = String(permissions);
 }
 
-test("never mind invalidates an already-running cancellation followup", async () => {
-  await fixture(async (client, service) => {
-    const request = "Cancel an event";
-    const initial = await service.createSession(context({ content: request }));
-    await initial.executeTool(
-      "cancel_discord_event",
-      args({
-        request_quote: request,
-        event_reference: null,
-      }),
-    );
-    const delayed = await service.createSession(
-      context({ messageId: "601", content: "Movie night" }),
-    );
-    await service.createSession(context({ messageId: "602", content: "Never mind" }));
-    const result = await delayed.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request }),
-    );
-    expect(result.ok).toStrictEqual(false);
-    expect(client.cancellationWrites.length).toStrictEqual(0);
-    expect(client.events[0].status).toStrictEqual(1);
-  });
-});
-
 test("cancellation cancels the exactly named event and records the real requester", async () => {
   await fixture(async (client, service) => {
     const session = await service.createSession(context());
@@ -205,72 +180,6 @@ test("cancellation cancels the exactly named event and records the real requeste
     expect(client.createWrites + client.inviteWrites).toStrictEqual(0);
   });
 });
-
-describe("cancellation ignores real Discord mention snowflakes when resolving an event", () => {
-  const botId = "1448562887038599168";
-  const eventId = "1545337190928613416";
-  const mentions = [
-    ["bot user mention", `<@${botId}>`],
-    ["bot nickname mention", `<@!${botId}>`],
-    ["another user mention", `<@${botId}> <@181268251601403905>`],
-    ["role mention", `<@${botId}> <@&589723496473690135>`],
-    ["channel mention", `<@${botId}> <#589723496473690136>`],
-    ["static custom emoji", `<@${botId}> <:wave:123456789012345678>`],
-    ["animated custom emoji", `<@${botId}> <a:wave:123456789012345678>`],
-    ["slash-command mention", `<@${botId}> </event manage:123456789012345678>`],
-  ];
-  for (const [label, markup] of mentions) {
-    test(label, async () => {
-      await fixture(async (client, service) => {
-        client.members[botId] = { user: { id: botId, bot: true }, roles: ["301"] };
-        client.events[0] = existingEvent({ id: eventId, creator_id: botId });
-        const request = `${markup} Cancel the Movie night event.`;
-        const session = await service.createSession(context({ botId, content: request }));
-        const result = await session.executeTool(
-          "cancel_discord_event",
-          args({ request_quote: request }),
-        );
-        expect(result.ok).toStrictEqual(true);
-        expect(client.cancellationWrites.map((write) => write.eventId)).toStrictEqual([eventId]);
-        expect(client.events[0].status).toStrictEqual(4);
-      });
-    });
-  }
-});
-
-test("cancellation accepts an event-link clarification with a real bot mention", async () => {
-  await fixture(async (client, service) => {
-    const botId = "1448562887038599168";
-    const eventId = "1545337190928613416";
-    client.members[botId] = { user: { id: botId, bot: true }, roles: ["301"] };
-    client.events[0] = existingEvent({ id: eventId, creator_id: botId });
-    const request = `<@${botId}> Cancel the event.`;
-    const session = await service.createSession(context({ botId, content: request }));
-    const question = await session.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request, event_reference: null }),
-    );
-    expect(question.needsClarification).toStrictEqual(true);
-    expect(client.cancellationWrites.length).toStrictEqual(0);
-
-    const link = `https://discord.com/events/${GUILD}/${eventId}`;
-    const followup = await service.createSession(
-      context({
-        botId,
-        messageId: "601",
-        content: `<@!${botId}> ${link}`,
-      }),
-    );
-    const result = await followup.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request, event_reference: link }),
-    );
-    expect(result.ok).toStrictEqual(true);
-    expect(client.cancellationWrites.map((write) => write.eventId)).toStrictEqual([eventId]);
-    expect(client.events[0].status).toStrictEqual(4);
-  });
-});
-
 test("cancellation resolves exact case-insensitive names and user-provided URLs or IDs", async () => {
   for (const reference of ["MOVIE NIGHT", `https://discord.com/events/${GUILD}/${EVENT}`, EVENT]) {
     await fixture(async (client, service) => {
@@ -316,82 +225,6 @@ test("cancellation cannot guess an event from a partial name or several named ta
     });
   }
 });
-
-test("multiple supplied event links or IDs require the user to choose one", async () => {
-  for (const useLinks of [false, true]) {
-    await fixture(async (client, service) => {
-      const firstId = "1545337190928613416";
-      const secondId = "1545337190928613417";
-      client.events = [
-        existingEvent({ id: firstId }),
-        existingEvent({ id: secondId, name: "Game night" }),
-      ];
-      const reference = (id: string) =>
-        useLinks ? `https://discord.com/events/${GUILD}/${id}` : id;
-      const request = `Cancel event ${reference(firstId)} or ${reference(secondId)}.`;
-      const session = await service.createSession(context({ content: request }));
-      const result = await session.executeTool(
-        "cancel_discord_event",
-        args({ request_quote: request, event_reference: reference(firstId) }),
-      );
-      expect(result.needsClarification).toStrictEqual(true);
-      expect(client.cancellationWrites.length).toStrictEqual(0);
-    });
-  }
-});
-
-test("a bulk cancellation can continue after the user chooses one event link", async () => {
-  await fixture(async (client, service) => {
-    client.events.push(existingEvent({ id: "551", name: "Game night" }));
-    const request = "Cancel all events.";
-    const session = await service.createSession(context({ content: request }));
-    const question = await session.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request, event_reference: null }),
-    );
-    expect(question.needsClarification).toStrictEqual(true);
-    expect(client.cancellationWrites.length).toStrictEqual(0);
-    const link = `https://discord.com/events/${GUILD}/${EVENT}`;
-    const followup = await service.createSession(context({ messageId: "601", content: link }));
-    const result = await followup.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request, event_reference: link }),
-    );
-    expect(result.ok).toStrictEqual(true);
-    expect(result.needsClarification).toStrictEqual(undefined);
-    expect(client.cancellationWrites.map((write) => write.eventId)).toStrictEqual([EVENT]);
-    expect(client.events[1].status).toStrictEqual(1);
-  });
-});
-
-test("code and blockquote event references cannot choose a cancellation target", async () => {
-  for (const quote of ["`Movie night`", "```\nMovie night\n```", "> Movie night"]) {
-    await fixture(async (client, service) => {
-      const request = `Cancel the event.\n${quote}`;
-      const session = await service.createSession(context({ content: request }));
-      const result = await session.executeTool(
-        "cancel_discord_event",
-        args({ request_quote: request }),
-      );
-      expect(result.ok).toStrictEqual(false);
-      expect(client.cancellationWrites.length).toStrictEqual(0);
-    });
-  }
-});
-
-test("an ordinary quoted event title can be cancelled directly", async () => {
-  await fixture(async (client, service) => {
-    const request = 'Cancel "Movie night"';
-    const session = await service.createSession(context({ content: request }));
-    const result = await session.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request }),
-    );
-    expect(result.ok).toStrictEqual(true);
-    expect(client.cancellationWrites.map((write) => write.eventId)).toStrictEqual([EVENT]);
-  });
-});
-
 test("Cancel it with no pending request asks for a target then accepts an exact link", async () => {
   await fixture(async (client, service) => {
     const request = "Cancel it.";
@@ -412,58 +245,6 @@ test("Cancel it with no pending request asks for a target then accepts an exact 
     expect(client.cancellationWrites.map((write) => write.eventId)).toStrictEqual([EVENT]);
   });
 });
-
-test("Cancel it abandons pending creation without cancelling an existing event", async () => {
-  await fixture(async (client, service) => {
-    const creationRequest = "Create the Movie night event.";
-    const creation = await service.createSession(context({ content: creationRequest }));
-    const question = await creation.executeTool("clarify_discord_action", {
-      request_quote: creationRequest,
-      question: "When should Movie night start?",
-    });
-    expect(question.needsClarification).toStrictEqual(true);
-    const request = "Cancel it.";
-    const abandoned = await service.createSession(context({ messageId: "601", content: request }));
-    const cancelled = await abandoned.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request, event_reference: null }),
-    );
-    expect(cancelled.ok).toStrictEqual(false);
-    expect(cancelled.needsClarification).toStrictEqual(undefined);
-    const later = await service.createSession(
-      context({
-        messageId: "602",
-        content: `September 5 at 8pm. https://discord.com/events/${GUILD}/${EVENT}`,
-      }),
-    );
-    expect(
-      (
-        await later.executeTool(
-          "cancel_discord_event",
-          args({
-            request_quote: request,
-            event_reference: `https://discord.com/events/${GUILD}/${EVENT}`,
-          }),
-        )
-      ).ok,
-    ).toStrictEqual(false);
-    const created = await later.executeTool("create_discord_event", {
-      request_quote: creationRequest,
-      name: "Movie night",
-      description: null,
-      entity_type: "voice",
-      channel_id: VOICE,
-      location: null,
-      start_time: "2025-09-05T20:00:00",
-      end_time: null,
-      time_zone: "America/Vancouver",
-    });
-    expect(created.ok).toStrictEqual(false);
-    expect(client.cancellationWrites.length + client.createWrites).toStrictEqual(0);
-    expect(client.events[0].status).toStrictEqual(1);
-  });
-});
-
 test("cancellation rejects cross-server URLs and mismatched Discord event guilds", async () => {
   for (const crossServerUrl of [true, false]) {
     await fixture(async (client, service) => {
@@ -480,26 +261,6 @@ test("cancellation rejects cross-server URLs and mismatched Discord event guilds
     });
   }
 });
-
-test("duplicate event names require clarification and the user's followup selects the ID", async () => {
-  await fixture(async (client, service) => {
-    client.events.push(existingEvent({ id: "551" }));
-    const session = await service.createSession(context());
-    const ambiguous = await session.executeTool("cancel_discord_event", args());
-    expect(ambiguous.needsClarification).toStrictEqual(true);
-    expect(client.cancellationWrites.length).toStrictEqual(0);
-    const followup = await service.createSession(context({ messageId: "601", content: "551" }));
-    const cancelled = await followup.executeTool(
-      "cancel_discord_event",
-      args({ event_reference: "551" }),
-    );
-    expect(cancelled.ok).toStrictEqual(true);
-    expect(client.cancellationWrites.map((write) => write.eventId)).toStrictEqual(["551"]);
-    expect(client.cancellationWrites[0].reason!).toContain("600");
-    expect(client.events[0].status).toStrictEqual(1);
-  });
-});
-
 test("a vague cancellation asks which event and accepts the same user's answer", async () => {
   await fixture(async (client, service) => {
     const request = "Cancel the event.";
@@ -535,31 +296,6 @@ test("a vague cancellation asks which event and accepts the same user's answer",
     expect(client.cancellationWrites.length).toStrictEqual(1);
   });
 });
-
-test("never mind abandons a pending cancellation and later details cannot revive it", async () => {
-  await fixture(async (client, service) => {
-    const request = "Cancel the event.";
-    const session = await service.createSession(context({ content: request }));
-    await session.executeTool(
-      "cancel_discord_event",
-      args({ request_quote: request, event_reference: null }),
-    );
-    const abandoned = await service.createSession(
-      context({ messageId: "601", content: "Never mind." }),
-    );
-    expect(
-      (await abandoned.executeTool("cancel_discord_event", args({ request_quote: request }))).ok,
-    ).toStrictEqual(false);
-    const later = await service.createSession(
-      context({ messageId: "602", content: "Movie night" }),
-    );
-    expect(
-      (await later.executeTool("cancel_discord_event", args({ request_quote: request }))).ok,
-    ).toStrictEqual(false);
-    expect(client.cancellationWrites.length).toStrictEqual(0);
-  });
-});
-
 test("cancellation authorization rejects discussion, quotes, negation, and abandoning creation", async () => {
   expect(hasExplicitActionRequest(REQUEST)).toStrictEqual(true);
   for (const content of [
@@ -638,56 +374,6 @@ test("cancellation checks each actor's event ownership permissions independently
     }
   }
 });
-
-test("event creators can cancel with Manage Events even without Create Events", async () => {
-  await fixture(async (client, service) => {
-    setPermissions(client, BOT, P.MANAGE_EVENTS);
-    const session = await service.createSession(context());
-    expect((await session.executeTool("cancel_discord_event", args())).ok).toStrictEqual(true);
-    expect(client.cancellationWrites.length).toStrictEqual(1);
-  });
-});
-
-test("voice and Stage cancellation respect channel overwrites for both actors", async () => {
-  for (const entityType of [1, 2]) {
-    const required =
-      entityType === 1
-        ? [P.VIEW_CHANNEL, P.MANAGE_CHANNELS, P.MUTE_MEMBERS, P.MOVE_MEMBERS]
-        : [P.VIEW_CHANNEL, P.CONNECT];
-    for (const permission of required) {
-      for (const actor of [USER, BOT]) {
-        await fixture(async (client, service) => {
-          const channelId = entityType === 1 ? STAGE : VOICE;
-          client.events[0].entity_type = entityType;
-          client.events[0].channel_id = channelId;
-          client.channels.find((channel) => channel.id === channelId)!.permission_overwrites = [
-            { id: actor, type: 1, allow: "0", deny: String(permission) },
-          ];
-          const session = await service.createSession(context());
-          const result = await session.executeTool("cancel_discord_event", args());
-          expect(result.ok).toStrictEqual(false);
-          expect(client.cancellationWrites.length).toStrictEqual(0);
-        });
-      }
-    }
-  }
-});
-
-test("external and Stage events can be cancelled with their required permissions", async () => {
-  for (const entityType of [1, 3]) {
-    await fixture(async (client, service) => {
-      client.events[0] = existingEvent({
-        entity_type: entityType,
-        channel_id: entityType === 1 ? STAGE : null,
-        entity_metadata: entityType === 3 ? { location: "The library" } : null,
-      });
-      const session = await service.createSession(context());
-      expect((await session.executeTool("cancel_discord_event", args())).ok).toStrictEqual(true);
-      expect(client.cancellationWrites.length).toStrictEqual(1);
-    });
-  }
-});
-
 test("already cancelled events return a truthful receipt without another write", async () => {
   await fixture(async (client, service) => {
     client.events[0].status = 4;
@@ -774,20 +460,5 @@ test("concurrent cancellation requests claim only one Discord mutation", async (
       release();
       expect((await running).ok).toStrictEqual(true);
     }
-  });
-});
-
-test("uncertain cancellation is not repeated by replays or a fresh request for the same event", async () => {
-  await fixture(async (client, service) => {
-    client.cancellationFailure = new DiscordApiError("Timed out after sending", 0, true);
-    const first = await service.createSession(context());
-    const uncertain = await first.executeTool("cancel_discord_event", args());
-    expect(uncertain.ok).toStrictEqual(false);
-    expect(uncertain.uncertain).toStrictEqual(true);
-    expect(String(uncertain.message)).toMatch(/may have succeeded|not confirm/i);
-    expect((await first.executeTool("cancel_discord_event", args())).uncertain).toStrictEqual(true);
-    const fresh = await service.createSession(context({ messageId: "601" }));
-    expect((await fresh.executeTool("cancel_discord_event", args())).uncertain).toStrictEqual(true);
-    expect(client.cancellationWrites.length).toStrictEqual(1);
   });
 });

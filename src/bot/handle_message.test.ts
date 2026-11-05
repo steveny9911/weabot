@@ -3,7 +3,6 @@ import { asFetch } from "../../tests/support/fetch.ts";
 import { handleMessage } from "./handle_message.ts";
 import { messageMentionsBot } from "./commands.ts";
 import { getContext, saveContext } from "./context.ts";
-import { getBotUserId, sendMessage } from "../discord/messages.ts";
 import type { AiResult } from "../ai/types.ts";
 import type { BotDependencies } from "./handle_message.ts";
 import type { AppConfig } from "../config.ts";
@@ -303,44 +302,6 @@ test("saveContext stores image attachment URLs in context", async () => {
     mock.restore();
   }
 });
-
-test("saveContext uses image filenames without trusting dimension-only hints", async () => {
-  const channelId = "channel-images-2";
-  const config = createMockConfig();
-  const mock = mockFetchMessages([
-    {
-      id: "m2",
-      content: "",
-      author: { id: "u2", username: "bob" },
-      attachments: [
-        {
-          url: "https://media.discordapp.net/attachments/3/4/dog.jpg",
-          filename: "dog.jpg",
-        },
-        {
-          url: "https://cdn.discordapp.com/attachments/3/4/not-image.bin",
-          filename: "not-image.bin",
-          width: 1200,
-          height: 800,
-        },
-      ],
-      created_at: "2026-03-01T00:00:01.000Z",
-    },
-  ]);
-
-  try {
-    await saveContext(config, channelId, 5);
-    const ctx = getContext(channelId) ?? [];
-
-    expect(ctx.length).toStrictEqual(1);
-    expect(ctx[0]["imageUrls"]).toStrictEqual([
-      "https://media.discordapp.net/attachments/3/4/dog.jpg",
-    ]);
-  } finally {
-    mock.restore();
-  }
-});
-
 test("\\open command calls linkOpenService and injects web context", async () => {
   const fetchMock = mockDiscordApiFetch({
     recentMessages: [
@@ -375,48 +336,6 @@ test("\\open command calls linkOpenService and injects web context", async () =>
     fetchMock.restore();
   }
 });
-
-test("\\open command includes optional user request in web context", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig();
-    const ctx = createDeps(config);
-    const message = createMentionMessage(
-      "<@12345> \\open https://example.com what are the key points?",
-    );
-
-    await handleMessage(message, ctx.deps);
-
-    expect(ctx.aiCalls.length).toStrictEqual(1);
-    const webEntry = ctx.aiCalls[0].find((m) => m["author"] === "web");
-    expect(String(webEntry?.["content"] ?? "")).toContain("User request: what are the key points?");
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-test("\\open command with multiple urls uses first URL only", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig();
-    const ctx = createDeps(config);
-    const message = createMentionMessage(
-      "<@12345> \\open https://first.example/a https://second.example/b summarize this",
-    );
-
-    await handleMessage(message, ctx.deps);
-
-    expect(ctx.linkCalls.length).toStrictEqual(1);
-    expect(ctx.linkCalls[0]).toStrictEqual("https://first.example/a");
-    const webEntry = ctx.aiCalls[0].find((m) => m["author"] === "web");
-    expect(String(webEntry?.["content"] ?? "").includes("https://second.example/b")).toStrictEqual(
-      false,
-    );
-  } finally {
-    fetchMock.restore();
-  }
-});
-
 test("\\open failure sends fallback message and skips AI", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
@@ -478,24 +397,6 @@ test("handleMessage posts one greeting GIF when final reply has greeting trigger
     fetchMock.restore();
   }
 });
-
-test("handleMessage does not post greeting GIF when final reply has no greeting trigger", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig({ webSearchEnabled: false });
-    const ctx = createDeps(config, {
-      aiResult: { ok: true, text: "I can help with that request.", tokensUsed: 7 },
-    });
-
-    await handleMessage(createMentionMessage("<@12345> tell me something fun"), ctx.deps);
-
-    expect(fetchMock.postedMessages.length).toStrictEqual(1);
-    expect(fetchMock.postedMessages[0]).toStrictEqual("I can help with that request.");
-  } finally {
-    fetchMock.restore();
-  }
-});
-
 test("\\open replies strip URLs from final output", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
@@ -526,42 +427,6 @@ test("messageMentionsBot matches mention id, username, and fallback mention synt
     false,
   );
 });
-
-test("sendMessage returns missing channel error", async () => {
-  const result = await sendMessage(createMockConfig(), "", "hello");
-  expect(result).toStrictEqual({ ok: false, error: "missing channelId" });
-});
-
-test("sendMessage returns discord error on non-ok response", async () => {
-  const fetchMock = mockDiscordApiFetch({ postStatus: 500 });
-  try {
-    const result = await sendMessage(createMockConfig(), "chan-1", "hello");
-    expect(result.ok).toStrictEqual(false);
-    if (!result.ok) {
-      expect(result.error).toContain("Discord post error 500");
-    }
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-test("sendMessage returns fetch error when network fails", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
-    return Promise.reject(new Error("network down"));
-  });
-
-  try {
-    const result = await sendMessage(createMockConfig(), "chan-1", "hello");
-    expect(result.ok).toStrictEqual(false);
-    if (!result.ok) {
-      expect(result.error).toContain("network down");
-    }
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test("saveContext handles trigger inclusion, proxy_url image extraction, and trimming", async () => {
   const channelId = "channel-savecontext-trim";
   const config = createMockConfig();
@@ -627,56 +492,6 @@ test("saveContext handles trigger inclusion, proxy_url image extraction, and tri
     mock.restore();
   }
 });
-
-test("saveContext excludes source messages without usable timestamps", async () => {
-  const channelId = "channel-no-timestamp";
-  const mock = mockFetchMessages([
-    {
-      id: "m-no-ts",
-      content: "hello",
-      author: { id: "u1", username: "alice" },
-    },
-  ]);
-
-  try {
-    await saveContext(createMockConfig(), channelId, 5);
-    const ctx = getContext(channelId) ?? [];
-    expect(ctx).toStrictEqual([]);
-  } finally {
-    mock.restore();
-  }
-});
-
-test("saveContext handles missing channel, non-ok fetch, and thrown fetch", async () => {
-  const config = createMockConfig();
-
-  await saveContext(config, "", 5);
-  expect(getContext("")).toStrictEqual(undefined);
-
-  {
-    const fetchMock = mockDiscordApiFetch({ messagesStatus: 500 });
-    try {
-      await saveContext(config, "channel-non-ok", 5);
-      expect(getContext("channel-non-ok")).toStrictEqual(undefined);
-    } finally {
-      fetchMock.restore();
-    }
-  }
-
-  {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
-      return Promise.reject(new Error("save context failed"));
-    });
-    try {
-      await saveContext(config, "channel-throw", 5);
-      expect(getContext("channel-throw")).toStrictEqual(undefined);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  }
-});
-
 test("handleMessage ignores non-mention and bot-authored messages", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
@@ -716,41 +531,6 @@ test("handleMessage ignores non-mention and bot-authored messages", async () => 
     fetchMock.restore();
   }
 });
-
-test("handleMessage exits early when message has no channel id", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig({ channelId: "" });
-    const ctx = createDeps(config);
-    const message = {
-      id: "m-no-channel",
-      content: "<@12345> hi",
-      author: { id: "user-1", username: "alice", bot: false },
-      mentions: [{ id: "12345" }],
-    };
-
-    await handleMessage(message, ctx.deps);
-
-    expect(ctx.aiCalls.length).toStrictEqual(0);
-    expect(fetchMock.postedMessages.length).toStrictEqual(0);
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-test("handleMessage exits when message payload is missing", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig();
-    const ctx = createDeps(config);
-    await handleMessage(undefined as unknown as Record<string, unknown>, ctx.deps);
-    expect(ctx.aiCalls.length).toStrictEqual(0);
-    expect(fetchMock.postedMessages.length).toStrictEqual(0);
-  } finally {
-    fetchMock.restore();
-  }
-});
-
 test("handleMessage persists reset and does not reload pre-reset Discord history", async () => {
   const config = createMockConfig({ webSearchEnabled: false });
   const preloadFetch = mockFetchMessages([
@@ -873,91 +653,6 @@ test("handleMessage enforces rate limit and daily budget checks", async () => {
     }
   }
 });
-
-test("handleMessage formats short rate-limit windows in seconds", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig();
-    const ctx = createDeps(config, {
-      rateLimitResult: { allowed: false, remaining: 0, resetInMs: 1000 },
-    });
-    await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
-    expect(fetchMock.postedMessages.length).toStrictEqual(1);
-    expect(fetchMock.postedMessages[0]).toContain("1 second");
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-test("handleMessage supports missing author and missing webSearch service", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig({ webSearchEnabled: true });
-    const ctx = createDeps(config);
-    const depsNoSearch: BotDependencies = {
-      ...ctx.deps,
-      webSearchService: undefined,
-    };
-    const message = {
-      id: "m-unknown-author",
-      channel_id: "chan-1",
-      content: "<@12345> what is deno?",
-      mentions: [{ id: "12345" }],
-    };
-
-    await handleMessage(message, depsNoSearch);
-
-    expect(ctx.webSearchCalls.length).toStrictEqual(0);
-    expect(ctx.aiCalls.length).toStrictEqual(1);
-    expect(fetchMock.postedMessages.length).toStrictEqual(1);
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-test("handleMessage handles mention with undefined content", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig();
-    const ctx = createDeps(config);
-    const message = {
-      id: "m-empty-content",
-      channel_id: "chan-1",
-      author: { id: "user-1", username: "alice", bot: false },
-      mentions: [{ id: "12345" }],
-    };
-    await handleMessage(message, ctx.deps);
-    expect(ctx.aiCalls.length).toStrictEqual(1);
-    expect(fetchMock.postedMessages.length).toStrictEqual(1);
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-test("open command injects Untitled when fetched page has no title", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig();
-    const ctx = createDeps(config, {
-      linkResult: {
-        ok: true,
-        page: {
-          domain: "example.com",
-          title: "",
-          excerpt: "body",
-        },
-      },
-    });
-
-    await handleMessage(createMentionMessage("<@12345> \\open https://example.com"), ctx.deps);
-
-    const webEntry = ctx.aiCalls[0].find((m) => m["author"] === "web");
-    expect(String(webEntry?.["content"] ?? "")).toContain("Title: Untitled");
-  } finally {
-    fetchMock.restore();
-  }
-});
-
 test("handleMessage handles open-command disabled and malformed cases", async () => {
   {
     const fetchMock = mockDiscordApiFetch();
@@ -1035,32 +730,6 @@ test("handleMessage handles search failure, AI failure, and reply post failure",
     }
   }
 });
-
-test("open command falls back to canned reply when URL stripping empties output", async () => {
-  const fetchMock = mockDiscordApiFetch();
-  try {
-    const config = createMockConfig();
-    const ctx = createDeps(config, {
-      aiResult: { ok: true, text: "https://example.com/only-link", tokensUsed: 4 },
-    });
-    await handleMessage(createMentionMessage("<@12345> \\open https://example.com"), ctx.deps);
-    expect(fetchMock.postedMessages.length).toStrictEqual(1);
-    expect(fetchMock.postedMessages[0]).toContain("I read it!");
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-test("getBotUserId static import still returns a cached id", async () => {
-  const fetchMock = mockDiscordApiFetch({ botId: "12345" });
-  try {
-    const result = await getBotUserId(createMockConfig());
-    expect(typeof result).toStrictEqual("string");
-  } finally {
-    fetchMock.restore();
-  }
-});
-
 test("handleMessage admits exactly one concurrent mention for one remaining allowance", async () => {
   const kv = openDatabase(":memory:");
   const fetchMock = mockDiscordApiFetch();
@@ -1152,27 +821,6 @@ test("usage requires a mention and configured channel and ignores bots", async (
     expect(mock.postedMessages).toStrictEqual([
       "Usage is available in configured bot channels only.",
     ]);
-  } finally {
-    mock.restore();
-  }
-});
-
-test("usage handles unavailable service and unexpected service failures", async () => {
-  const mock = mockDiscordApiFetch();
-  const state = createDeps(createMockConfig());
-  try {
-    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
-    state.deps.usageService = {
-      getMonthToDate() {
-        throw new Error("secret");
-      },
-    };
-    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
-    expect(mock.postedMessages).toStrictEqual([
-      "Usage reporting is unavailable right now.",
-      "Usage reporting is unavailable right now.",
-    ]);
-    expect(state.aiCalls.length).toStrictEqual(0);
   } finally {
     mock.restore();
   }

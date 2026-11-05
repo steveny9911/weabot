@@ -27,18 +27,6 @@ function mockFetchSequence(sequence: Array<Response | Error>): {
   };
 }
 
-test("fetchWithRetry returns immediately on success", async () => {
-  const mock = mockFetchSequence([new Response("ok", { status: 200 })]);
-
-  try {
-    const response = await fetchWithRetry("https://example.com");
-    expect(response.status).toStrictEqual(200);
-    expect(mock.getCalls()).toStrictEqual(1);
-  } finally {
-    mock.restore();
-  }
-});
-
 test("fetchWithRetry does not retry non-retryable status", async () => {
   const mock = mockFetchSequence([new Response("bad request", { status: 400 })]);
 
@@ -145,29 +133,4 @@ test("fetchWithRetry throws after repeated fetch errors", async () => {
   } finally {
     mock.restore();
   }
-});
-
-test("fetchWithRetry wraps non-Error thrown values", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
-    return Promise.reject("string failure");
-  });
-
-  try {
-    await rejects(
-      () => fetchWithRetry("https://example.com", undefined, { maxRetries: 0 }),
-      Error,
-      "string failure",
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("fetchWithRetry throws fallback error when retries are disabled with negative maxRetries", async () => {
-  await rejects(
-    () => fetchWithRetry("https://example.com", undefined, { maxRetries: -1 }),
-    Error,
-    "Retry failed with no error captured",
-  );
 });

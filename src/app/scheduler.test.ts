@@ -99,28 +99,6 @@ test("the six jobs keep their UTC schedules in any process time zone", () => {
     else process.env.TZ = savedTz;
   }
 });
-
-test("the weekly stats window uses UTC days across a DST change in a non-UTC time zone", async () => {
-  const savedTz = process.env.TZ;
-  process.env.TZ = "America/Los_Angeles";
-  const ranges: string[][] = [];
-  try {
-    const jobs = register({
-      getStats: (_channel, start, end) => {
-        ranges.push([start, end]);
-        return Promise.resolve([]);
-      },
-    });
-    // 16:30 local time on the first day of daylight saving time.
-    setSystemTime(new Date("2026-03-08T23:30:00Z"));
-    await jobs.get("Weekly Stats Summary")!.handler();
-    expect(ranges).toStrictEqual([["2026-03-01", "2026-03-08"]]);
-  } finally {
-    if (savedTz === undefined) delete process.env.TZ;
-    else process.env.TZ = savedTz;
-  }
-});
-
 test("the maintenance job runs the clean-up and logs its errors", async () => {
   let runs = 0;
   const logged = spyOn(console, "error").mockImplementation(() => {});

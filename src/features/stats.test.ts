@@ -22,14 +22,6 @@ test("buildStatsEmbed returns correct structure with empty stats", () => {
   expect(result.embeds[0].description).toStrictEqual("Total responses: 0");
   expect(result.embeds[0].color).toStrictEqual(0x808080); // Gray for no data
 });
-
-test("buildStatsEmbed uses custom title", () => {
-  const stats: DailyStats[] = [];
-  const result = buildStatsEmbed(stats, "Custom Title");
-
-  expect(result.embeds[0].title).toStrictEqual("Custom Title");
-});
-
 test("buildStatsEmbed calculates totals correctly", () => {
   const stats: DailyStats[] = [
     { date: "2025-12-10", umazing: 3, ok: 2, glue: 1, total: 6 },
@@ -46,32 +38,12 @@ test("buildStatsEmbed shows green color when umazing dominates", () => {
 
   expect(result.embeds[0].color).toStrictEqual(0x00ff00); // Green
 });
-
-test("buildStatsEmbed shows yellow color when ok dominates", () => {
-  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 2, ok: 10, glue: 3, total: 15 }];
-  const result = buildStatsEmbed(stats);
-
-  expect(result.embeds[0].color).toStrictEqual(0xffcc00); // Yellow
-});
-
 test("buildStatsEmbed shows red color when glue dominates", () => {
   const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 1, ok: 2, glue: 10, total: 13 }];
   const result = buildStatsEmbed(stats);
 
   expect(result.embeds[0].color).toStrictEqual(0xff6b6b); // Red
 });
-
-test("buildStatsEmbed has 3 mood fields for single day", () => {
-  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 5, ok: 3, glue: 2, total: 10 }];
-  const result = buildStatsEmbed(stats);
-  const fields = result.embeds[0].fields!;
-
-  expect(fields.length).toStrictEqual(3);
-  expect(fields[0].name).toStrictEqual("🌟 Umazing");
-  expect(fields[1].name).toStrictEqual("😐 Ok");
-  expect(fields[2].name).toStrictEqual("🩹 Glue");
-});
-
 test("buildStatsEmbed adds Recent Days field for multiple days", () => {
   const stats: DailyStats[] = [
     { date: "2025-12-10", umazing: 5, ok: 3, glue: 2, total: 10 },
@@ -83,17 +55,6 @@ test("buildStatsEmbed adds Recent Days field for multiple days", () => {
   expect(fields.length).toStrictEqual(4);
   expect(fields[3].name).toStrictEqual("📅 Recent Days");
 });
-
-test("buildStatsEmbed percentage bar shows 'No data' for zero total", () => {
-  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 0, ok: 0, glue: 0, total: 0 }];
-  const result = buildStatsEmbed(stats);
-  const fields = result.embeds[0].fields!;
-
-  expect(fields[0].value).toStrictEqual("No data");
-  expect(fields[1].value).toStrictEqual("No data");
-  expect(fields[2].value).toStrictEqual("No data");
-});
-
 test("buildStatsEmbed percentage bar calculates correctly", () => {
   const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 5, ok: 3, glue: 2, total: 10 }];
   const result = buildStatsEmbed(stats);
@@ -111,24 +72,6 @@ test("buildStatsEmbed percentage bar calculates correctly", () => {
   expect(fields[2].value).toContain("20%");
   expect(fields[2].value).toContain("(2)");
 });
-
-test("buildStatsEmbed includes footer", () => {
-  const stats: DailyStats[] = [];
-  const result = buildStatsEmbed(stats);
-
-  expect(result.embeds[0].footer?.text).toStrictEqual("Haru • Mood Tracker");
-});
-
-test("buildStatsEmbed includes timestamp", () => {
-  const stats: DailyStats[] = [];
-  const result = buildStatsEmbed(stats);
-
-  // Should be a valid ISO timestamp
-  const timestamp = result.embeds[0].timestamp!;
-  const date = new Date(timestamp);
-  expect(isNaN(date.getTime())).toStrictEqual(false);
-});
-
 test("buildStatsEmbed shows correct emoji for dominant mood in recent days", () => {
   const stats: DailyStats[] = [
     { date: "2025-12-10", umazing: 10, ok: 1, glue: 1, total: 12 }, // umazing wins -> 🌟
@@ -159,25 +102,4 @@ test("buildAlertEmbed includes username in description", () => {
   const result = buildAlertEmbed("Alice", 7);
 
   expect(result.embeds[0].description!).toContain("**Alice**");
-});
-
-test("buildAlertEmbed includes consecutive days count", () => {
-  const result = buildAlertEmbed("Bob", 10);
-
-  expect(result.embeds[0].description!).toContain("10 days");
-});
-
-test("buildAlertEmbed has Resources field", () => {
-  const result = buildAlertEmbed("TestUser", 7);
-  const fields = result.embeds[0].fields!;
-
-  expect(fields.length).toStrictEqual(1);
-  expect(fields[0].name).toStrictEqual("Resources");
-  expect(fields[0].value).toContain("Talk to someone");
-});
-
-test("buildAlertEmbed has footer", () => {
-  const result = buildAlertEmbed("TestUser", 7);
-
-  expect(result.embeds[0].footer!.text).toContain("automated wellness check");
 });

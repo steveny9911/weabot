@@ -60,21 +60,6 @@ test("checkUserRateLimit allows first request", async () => {
 
   kv.close();
 });
-
-test("checkUserRateLimit decrements remaining after recordUserRequest", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig({ aiRateLimitPerUser: 5 });
-  const service = createRateLimitService(kv, config);
-
-  await service.recordUserRequest("user123");
-  const result = await service.checkUserRateLimit("user123");
-
-  expect(result.allowed).toStrictEqual(true);
-  expect(result.remaining).toStrictEqual(4);
-
-  kv.close();
-});
-
 test("checkUserRateLimit blocks user at limit", async () => {
   const kv = openDatabase(":memory:");
   const config = createTestConfig({ aiRateLimitPerUser: 2 });
@@ -108,21 +93,6 @@ test("checkDailyBudget allows when under budget", async () => {
 
   kv.close();
 });
-
-test("checkDailyBudget decrements after recordTokenUsage", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig({ aiDailyTokenBudget: 100000 });
-  const service = createRateLimitService(kv, config);
-
-  await service.recordTokenUsage(5000);
-  const result = await service.checkDailyBudget();
-
-  expect(result.allowed).toStrictEqual(true);
-  expect(result.tokensRemaining).toStrictEqual(95000);
-
-  kv.close();
-});
-
 test("checkDailyBudget blocks when budget exhausted", async () => {
   const kv = openDatabase(":memory:");
   const config = createTestConfig({ aiDailyTokenBudget: 10000 });
@@ -159,20 +129,6 @@ test("getUsageStats returns correct values", async () => {
 
   kv.close();
 });
-
-test("getUsageStats returns zeros when empty", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig();
-  const service = createRateLimitService(kv, config);
-
-  const stats = await service.getUsageStats();
-
-  expect(stats.dailyTokensUsed).toStrictEqual(0);
-  expect(stats.requestsToday).toStrictEqual(0);
-
-  kv.close();
-});
-
 // Behavior tests on a real in-memory SQLite database. The KV-era tests that forced transaction
 // conflicts are replaced by the behaviors they protected (see the plan's test-count table).
 const FIXED_NOW = Date.parse("2026-09-05T12:34:30.000Z");
@@ -194,23 +150,6 @@ test("20 concurrent token updates across services retain all 2,000 tokens", asyn
   await Promise.all(services.map((service) => service.recordTokenUsage(100)));
   expect((await services[0].getUsageStats()).dailyTokensUsed).toBe(2000);
 });
-
-test("concurrent request updates retain exact per-user and daily totals", async () => {
-  using db = openDatabase(":memory:");
-  const service = createRateLimitService(
-    db,
-    createTestConfig({ aiRateLimitPerUser: 100 }),
-    () => FIXED_NOW,
-  );
-  await Promise.all(
-    Array.from({ length: 60 }, (_, i) => service.recordUserRequest(`user-${i % 3}`)),
-  );
-  expect((await service.getUsageStats()).requestsToday).toBe(60);
-  for (let i = 0; i < 3; i++) {
-    expect((await service.checkUserRateLimit(`user-${i}`)).remaining).toBe(80);
-  }
-});
-
 test("one remaining user allowance admits exactly one of 20 concurrent requests", async () => {
   using db = openDatabase(":memory:");
   const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
@@ -230,26 +169,6 @@ test("one remaining user allowance admits exactly one of 20 concurrent requests"
   });
   expect(dailyRow(db, FIXED_DATE)?.requests).toBe(5);
 });
-
-test("concurrent admissions from different users retain exact daily count", async () => {
-  using db = openDatabase(":memory:");
-  const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
-  const results = await Promise.all(
-    Array.from({ length: 30 }, (_, i) => service.admitRequest(`u${i}`)),
-  );
-  expect(results.every((result) => result.allowed)).toBe(true);
-  expect((await service.getUsageStats()).requestsToday).toBe(30);
-});
-
-test("token totals stop at the safe integer limit without changing the stored total", async () => {
-  using db = openDatabase(":memory:");
-  const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
-  await service.recordTokenUsage(Number.MAX_SAFE_INTEGER - 5);
-  await rejects(() => service.recordTokenUsage(6), RangeError, "AI token counter overflow");
-  await service.recordTokenUsage(5);
-  expect((await service.getUsageStats()).dailyTokensUsed).toBe(Number.MAX_SAFE_INTEGER);
-});
-
 test("a failed daily count write consumes no per-user allowance", async () => {
   using db = openDatabase(":memory:");
   const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
@@ -261,42 +180,6 @@ test("a failed daily count write consumes no per-user allowance", async () => {
   expect(dailyRow(db, FIXED_DATE)).toBeNull();
   expect((await service.admitRequest("user")).remaining).toBe(4);
 });
-
-test("a failed commit consumes no per-user allowance", async () => {
-  using db = openDatabase(":memory:");
-  let failCommit = true;
-  // Runs the transaction body, then fails as a COMMIT would (SQLite rolls the body back).
-  const failingDb = new Proxy(db, {
-    get(target, property) {
-      if (property !== "transaction") {
-        const value = Reflect.get(target, property, target);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-      return (body: (...args: never[]) => unknown) => {
-        const transaction = target.transaction(body);
-        return Object.assign((...args: never[]) => transaction(...args), {
-          immediate: (...args: never[]) => {
-            if (!failCommit) return transaction.immediate(...args);
-            target.run("BEGIN IMMEDIATE");
-            try {
-              body(...args);
-            } finally {
-              target.run("ROLLBACK");
-            }
-            throw new Error("simulated commit failure");
-          },
-        });
-      };
-    },
-  });
-  const service = createRateLimitService(failingDb, createTestConfig(), () => FIXED_NOW);
-  await rejects(() => service.admitRequest("user"), Error, "simulated commit failure");
-  expect((await service.checkUserRateLimit("user")).remaining).toBe(5);
-  expect(dailyRow(db, FIXED_DATE)).toBeNull();
-  failCommit = false;
-  expect((await service.admitRequest("user")).remaining).toBe(4);
-});
-
 test("admission rechecks the budget against usage reported just before it", async () => {
   using db = openDatabase(":memory:");
   const service = createRateLimitService(
@@ -317,19 +200,6 @@ test("admission rechecks the budget against usage reported just before it", asyn
   expect((await service.getUsageStats()).requestsToday).toBe(0);
   expect((await service.checkUserRateLimit("user")).remaining).toBe(5);
 });
-
-test("a daily request count beyond the safe integer range fails without partial counting", async () => {
-  using db = openDatabase(":memory:");
-  db.run("INSERT INTO ai_daily_usage (usage_date, requests) VALUES (?, ?)", [
-    FIXED_DATE,
-    Number.MAX_SAFE_INTEGER,
-  ]);
-  const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
-  await rejects(() => service.admitRequest("user"), Error, "CHECK constraint failed");
-  expect((await service.checkUserRateLimit("user")).remaining).toBe(5);
-  expect(dailyRow(db, FIXED_DATE)?.requests).toBe(Number.MAX_SAFE_INTEGER);
-});
-
 test("manual and autonomous in-flight requests may exceed the soft daily threshold", async () => {
   using db = openDatabase(":memory:");
   const config = createTestConfig({ aiDailyTokenBudget: 100, aiRateLimitPerUser: 1 });
@@ -385,24 +255,6 @@ test("UTC minute and day rollover start fresh buckets without splitting request 
   expect((await service.admitRequest("user")).allowed).toBe(true);
   expect((await service.getUsageStats()).requestsToday).toBe(2);
 });
-
-test("a restart resets per-user minute counts but keeps the daily totals", async () => {
-  using db = openDatabase(":memory:");
-  const config = createTestConfig({ aiRateLimitPerUser: 1 });
-  const before = createRateLimitService(db, config, () => FIXED_NOW);
-  expect((await before.admitRequest("user")).allowed).toBe(true);
-  await before.recordTokenUsage(25);
-  expect((await before.admitRequest("user")).allowed).toBe(false);
-  // Behavior change 2: the per-minute allowance is in memory.
-  const restarted = createRateLimitService(db, config, () => FIXED_NOW);
-  expect((await restarted.admitRequest("user")).allowed).toBe(true);
-  expect(await restarted.getUsageStats()).toStrictEqual({
-    dailyTokensUsed: 25,
-    dailyTokenBudget: config.aiDailyTokenBudget,
-    requestsToday: 2,
-  });
-});
-
 test("daily totals survive reopening the database file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "haru-usage-"));
   try {

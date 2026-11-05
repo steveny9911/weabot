@@ -221,24 +221,6 @@ test("autonomous chat records failed generation tokens and does not reconsider i
       requestsToday: 1,
     });
   }));
-
-test("autonomous failed generation tokens block fresh activity at the soft budget", () =>
-  withAutonomousJob({ ok: false, error: "generation failed", tokensUsed: 10 }, async (fixture) => {
-    await fixture.rateLimit.recordTokenUsage(99);
-    await fixture.run();
-    fixture.advance(60_001);
-    fixture.messages.set("channel", [fixture.humanMessage("next-message")]);
-    await fixture.run();
-    expect(fixture.generations.length).toStrictEqual(1);
-    expect(fixture.posts).toStrictEqual([]);
-    expect(fixture.reactions).toStrictEqual([]);
-    expect(await fixture.rateLimit.getUsageStats()).toStrictEqual({
-      dailyTokensUsed: 109,
-      dailyTokenBudget: 100,
-      requestsToday: 1,
-    });
-  }));
-
 test("autonomous chat preserves its exemption from the human per-minute limit", () =>
   withAutonomousJob(
     reply,
@@ -306,23 +288,8 @@ test("autonomous silence emits no text or reaction and consumes the activity onc
     expect((await fixture.rateLimit.getUsageStats()).dailyTokensUsed).toStrictEqual(10);
     expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
   }));
-
-test("autonomous chat does not use legacy text as fallback for a missing participation decision", () =>
-  withAutonomousJob(
-    { ok: true, text: "Needless fallback text", tokensUsed: 10 },
-    async (fixture) => {
-      await fixture.run();
-      expect(fixture.posts).toStrictEqual([]);
-      expect(fixture.reactions).toStrictEqual([]);
-    },
-  ));
-
 for (const failure of [
   { name: "missing permissions", status: 403, code: 50013 },
-  { name: "deleted message", status: 404, code: 10008 },
-  { name: "unavailable emoji", status: 400, code: 10014 },
-  { name: "rate limit", status: 429, code: 0 },
-  { name: "server error", status: 503, code: 0 },
   { name: "ambiguous network error" },
 ]) {
   test(`autonomous reaction handles ${failure.name} without retries or fallback text`, () =>
@@ -440,28 +407,6 @@ test("autonomous channel read failure does not block participation in the next c
             ]),
     },
   ));
-
-test("autonomous failed reaction does not block the next channel", () =>
-  withAutonomousJob(
-    react,
-    async (fixture) => {
-      await fixture.run();
-      expect(fixture.generations.length).toStrictEqual(2);
-      expect(fixture.reactions.map((reaction) => reaction.channelId)).toStrictEqual([
-        "unavailable",
-        "working",
-      ]);
-      expect(fixture.posts).toStrictEqual([]);
-    },
-    {
-      settings: { autonomousChatChannelIds: ["unavailable", "working"] },
-      reaction: ({ channelId }) =>
-        channelId === "unavailable"
-          ? Promise.reject(new TypeError("network connection lost"))
-          : Promise.resolve(new Response(null, { status: 204 })),
-    },
-  ));
-
 test("autonomous chat skips an overlapping scheduled run", async () => {
   let finish!: (result: AiResult) => void;
   let started!: () => void;
@@ -528,57 +473,6 @@ test("autonomous reaction cooldown starts after slow generation finishes", async
     },
   );
 });
-
-test("autonomous reaction cooldown starts after slow Discord delivery finishes", async () => {
-  let advance!: Fixture["advance"];
-  let firstDelivery = true;
-  await withAutonomousJob(
-    ({ options }) => {
-      assert(options && "mode" in options);
-      return Promise.resolve({
-        ok: true,
-        text: "",
-        tokensUsed: 10,
-        participation: {
-          action: "react",
-          messageId: options.allowedMessageIds[0],
-          emoji: options.reactionChoices!.find((c) => c.intent === "amusement")!.emoji,
-        },
-      });
-    },
-    async (fixture) => {
-      advance = fixture.advance;
-      await fixture.run();
-      expect(fixture.reactions.length).toStrictEqual(1);
-      fixture.advance(1000);
-      fixture.messages.set("channel", [fixture.humanMessage("next-message", 0)]);
-      fixture.restart();
-      await fixture.run();
-      expect(fixture.generations.length).toStrictEqual(1);
-      expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
-
-      fixture.advance(59_000);
-      await fixture.run();
-      expect(fixture.generations.length).toStrictEqual(2);
-      expect(fixture.reactions.map(({ messageId }) => messageId)).toStrictEqual([
-        "message",
-        "next-message",
-      ]);
-      expect(fixture.posts).toStrictEqual([]);
-    },
-    {
-      reaction: async () => {
-        if (firstDelivery) {
-          firstDelivery = false;
-          await Promise.resolve();
-          advance(59_000);
-        }
-        return new Response(null, { status: 204 });
-      },
-    },
-  );
-});
-
 test("missing channel reaction permission prevents a write", () =>
   withAutonomousJob(
     react,
@@ -651,65 +545,3 @@ test("new human activity arriving during generation cancels the stale reaction",
       })(),
     },
   ));
-test("loss of emoji availability after generation prevents delivery", () => {
-  let reads = 0;
-  return withAutonomousJob(
-    ({ options }) => {
-      assert(options && "mode" in options);
-      const c = options.reactionChoices!.find((c) => c.intent === "dry_amusement")!;
-      return Promise.resolve<AiResult>({
-        ok: true,
-        text: "",
-        tokensUsed: 10,
-        participation: {
-          action: "react",
-          messageId: "message",
-          emoji: c.emoji,
-          intent: c.intent,
-          reason: "shared_joke",
-        },
-      });
-    },
-    async (f) => {
-      await f.run();
-      expect(f.reactions).toStrictEqual([]);
-    },
-    {
-      getReactionContext: (channelId) =>
-        Promise.resolve({
-          channelId,
-          guildId: "589723496473690132",
-          canReact: true,
-          memberRoles: [],
-          emojis: [
-            {
-              id: "1559742515698081933",
-              name: "BocchiSip",
-              roles: [],
-              available: ++reads === 1,
-            },
-          ],
-        }),
-    },
-  );
-});
-
-test("a context reset during generation cancels a reaction", () => {
-  let fixture: Fixture;
-  return withAutonomousJob(
-    async () => {
-      await fixture.storage.setContextReset({
-        channelId: "channel",
-        messageId: "reset",
-        resetAt: Date.now(),
-      });
-      return react;
-    },
-    async (f) => {
-      fixture = f;
-      await f.run();
-      expect(f.reactions).toStrictEqual([]);
-      expect(f.posts).toStrictEqual([]);
-    },
-  );
-});

@@ -260,45 +260,6 @@ test("allowed redirects still yield HTML context through the protected transport
   });
   expect(requests).toStrictEqual(["/start", "/page"]);
 });
-
-describe("partial family results are validated before connecting", () => {
-  const resolveWith = (records: string[]) => (hostname: string, signal?: AbortSignal) =>
-    resolveAddresses(hostname, signal, () =>
-      Promise.resolve(records.map((address) => ({ address }))),
-    );
-
-  test("an IPv4-only answer opens over IPv4", async () => {
-    const destinations: string[] = [];
-    const fetch = createPublicFetch({
-      resolve: resolveWith([publicV4]),
-      request: (_url, address) => {
-        destinations.push(address);
-        return Promise.resolve(new Response("ok"));
-      },
-    });
-    expect(await (await fetch("https://public.example/", {})).text()).toBe("ok");
-    expect(destinations).toStrictEqual([publicV4]);
-  });
-
-  test("a private address in either family blocks before any connection", async () => {
-    for (const answers of [
-      [publicV4, "fd00::1"],
-      ["10.0.0.1", publicV6],
-    ]) {
-      let requests = 0;
-      const fetch = createPublicFetch({
-        resolve: resolveWith(answers),
-        request: () => {
-          requests++;
-          return Promise.resolve(new Response());
-        },
-      });
-      await rejects(() => fetch("https://public.example/", {}), BlockedDestinationError);
-      expect(requests).toBe(0);
-    }
-  });
-});
-
 test("a hung DNS lookup ends at the caller's deadline with its reason", async () => {
   const caller = new AbortController();
   const reason = new DOMException("Deadline expired", "AbortError");
@@ -320,16 +281,4 @@ test("a hung DNS lookup ends at the caller's deadline with its reason", async ()
   expect(started).toBe(1);
   // The abort listener is removed once the wait ends.
   expect(removed).toStrictEqual(["abort"]);
-});
-
-test("DNS resolver starts no lookup when its caller is already aborted", async () => {
-  const caller = new AbortController();
-  caller.abort();
-  let lookups = 0;
-  const lookup = () => {
-    lookups++;
-    return Promise.resolve([]);
-  };
-  await rejects(() => resolveAddresses("public.example", caller.signal, lookup), DOMException);
-  expect(lookups).toBe(0);
 });

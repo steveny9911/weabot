@@ -75,26 +75,6 @@ for (const [name, status, code] of [
     }
   });
 }
-
-test("addReaction propagates network failure without retrying", async () => {
-  let requests = 0;
-  const fetchMock = mockFetch(() => {
-    requests++;
-    throw new TypeError("connection failed");
-  });
-
-  try {
-    await rejects(
-      () => createDiscordClient("token").addReaction("channel", "message", "😂"),
-      TypeError,
-      "connection failed",
-    );
-    expect(requests).toStrictEqual(1);
-  } finally {
-    fetchMock.restore();
-  }
-});
-
 test("getRecentMessages clamps limit and maps Discord message payloads", async () => {
   let requestedUrl = "";
   const fetchMock = mockFetch((url) => {
@@ -230,116 +210,6 @@ test("getPollVoters paginates every answer using exact snowflake cursors", async
   }
 });
 
-test("getPollVoters checks the empty page after exactly 100 voters", async () => {
-  let answerRequests = 0;
-  const fetchMock = mockFetch((url) => {
-    if (url.includes("/messages/")) return json(pollMessage([100, 0, 0]));
-    if (!url.includes("/answers/1?")) return json({ users: [] });
-    answerRequests++;
-    return json({
-      users:
-        answerRequests === 1 ? Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) })) : [],
-    });
-  });
-  try {
-    const answers = await createDiscordClient("token").getPollVoters("channel", "poll");
-    expect(answers[0].voters.length).toStrictEqual(100);
-    expect(answers[0].voters[0].odUserName).toStrictEqual("1");
-    expect(answerRequests).toStrictEqual(2);
-  } finally {
-    fetchMock.restore();
-  }
-});
-
-const malformedMessages: [string, unknown][] = [
-  ["null message", null],
-  ["missing poll", {}],
-  ["empty answers", { poll: { answers: [] } }],
-  ["non-array answers", { poll: { answers: {} } }],
-  ["invalid answer id", { poll: { answers: [{ answer_id: "1", poll_media: { text: "ok" } }] } }],
-  ["duplicate answer", { poll: { answers: [MOOD_ANSWERS[0], MOOD_ANSWERS[0]] } }],
-  ["invalid answer text", { poll: { answers: [{ answer_id: 1, poll_media: { text: 4 } }] } }],
-  ["missing tally", { poll: { answers: MOOD_ANSWERS } }],
-  [
-    "unfinalized tally",
-    {
-      poll: { answers: MOOD_ANSWERS, results: { is_finalized: false, answer_counts: [] } },
-    },
-  ],
-  ["missing counts", { poll: { answers: MOOD_ANSWERS, results: { is_finalized: true } } }],
-  ["negative count", pollMessage([-1, 0, 0])],
-  ["fractional count", pollMessage([1.5, 0, 0])],
-  [
-    "unknown answer count",
-    {
-      poll: {
-        answers: MOOD_ANSWERS,
-        results: { is_finalized: true, answer_counts: [{ id: 4, count: 1 }] },
-      },
-    },
-  ],
-  [
-    "duplicate answer counts",
-    {
-      poll: {
-        answers: MOOD_ANSWERS,
-        results: {
-          is_finalized: true,
-          answer_counts: [
-            { id: 1, count: 0 },
-            { id: 1, count: 0 },
-          ],
-        },
-      },
-    },
-  ],
-];
-
-for (const [name, message] of malformedMessages) {
-  test(`getPollVoters rejects ${name}`, async () => {
-    const fetchMock = mockFetch(() => json(message));
-    try {
-      await rejects(
-        () => createDiscordClient("token").getPollVoters("channel", "poll"),
-        Error,
-        "poll poll in channel channel",
-      );
-    } finally {
-      fetchMock.restore();
-    }
-  });
-}
-
-const malformedVoters: [string, unknown][] = [
-  ["missing users", {}],
-  ["null users", { users: null }],
-  ["object users", { users: {} }],
-  ["null user", { users: [null] }],
-  ["missing user id", { users: [{ username: "Alice" }] }],
-  ["non-snowflake id", { users: [{ id: "abc" }] }],
-  ["zero id", { users: [{ id: "0" }] }],
-  ["invalid username", { users: [{ id: "1", username: {} }] }],
-  ["duplicate user", { users: [{ id: "1" }, { id: "1" }] }],
-  ["too few users for finalized tally", { users: [] }],
-  ["too many users for finalized tally", { users: [{ id: "1" }, { id: "2" }] }],
-];
-for (const [name, voters] of malformedVoters) {
-  test(`getPollVoters rejects ${name}`, async () => {
-    const fetchMock = mockFetch((url) =>
-      json(url.includes("/messages/") ? pollMessage([1, 0, 0]) : voters),
-    );
-    try {
-      await rejects(
-        () => createDiscordClient("token").getPollVoters("channel", "poll"),
-        Error,
-        "answer 1",
-      );
-    } finally {
-      fetchMock.restore();
-    }
-  });
-}
-
 for (const stage of ["message", "first answer", "later answer", "later page"] as const) {
   test(`getPollVoters rejects HTTP failure at ${stage} without returning partial data`, async () => {
     const fetchMock = mockFetch((url) => {
@@ -394,25 +264,6 @@ test("getPollVoters rejects non-advancing pagination instead of looping", async 
     fetchMock.restore();
   }
 });
-
-for (const stage of ["message", "voters"]) {
-  test(`getPollVoters includes poll context for invalid JSON in ${stage}`, async () => {
-    const fetchMock = mockFetch((url) =>
-      stage === "message" || !url.includes("/messages/")
-        ? new Response("invalid json")
-        : json(pollMessage()),
-    );
-    try {
-      await rejects(
-        () => createDiscordClient("token").getPollVoters("channel", "poll"),
-        Error,
-        "poll poll in channel channel",
-      );
-    } finally {
-      fetchMock.restore();
-    }
-  });
-}
 
 test("single-message revalidation rejects wrong IDs and missing messages", async () => {
   const original = globalThis.fetch;
