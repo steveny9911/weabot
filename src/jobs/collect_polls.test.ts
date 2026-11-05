@@ -5,9 +5,13 @@ import type { AppConfig } from "../config.ts";
 import { registerCronJobs } from "../scheduler.ts";
 import { createRequestHandler } from "../server.ts";
 import type { PollRecord } from "../types/storage.ts";
-import { createDiscordClient, type DiscordClient, type PollAnswerVoters } from "./discord.ts";
-import type { RateLimitService } from "./rate_limit.ts";
-import { createStorageService, type StorageService } from "./storage.ts";
+import {
+  createDiscordClient,
+  type DiscordClient,
+  type PollAnswerVoters,
+} from "../services/discord.ts";
+import type { RateLimitService } from "../services/rate_limit.ts";
+import { createStorageService, type StorageService } from "../services/storage.ts";
 import { openDatabase } from "../db/database.ts";
 
 const config = {

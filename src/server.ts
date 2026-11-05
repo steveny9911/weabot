@@ -9,11 +9,13 @@ import { timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "./config.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { StorageService } from "./services/storage.ts";
-import { collectExpiredPolls } from "./services/poll_collection.ts";
 import type { RateLimitService } from "./services/rate_limit.ts";
-import { buildMoodPollPayload } from "./features/poll/mod.ts";
-import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
-import { DEFAULT_MOOD_CONFIG, type Mood } from "./types/bot.ts";
+import { collectExpiredPolls } from "./jobs/collect_polls.ts";
+import { postMoodPolls } from "./jobs/mood_poll.ts";
+import { postStats } from "./jobs/stats.ts";
+import { postTestAlert } from "./jobs/wellness.ts";
+import { buildStatsEmbed } from "./features/stats/mod.ts";
+import type { Mood } from "./types/bot.ts";
 import type { PollRecord } from "./types/storage.ts";
 
 /**
@@ -33,6 +35,8 @@ export function createRequestHandler(
   dateFormatter: Intl.DateTimeFormat,
   rateLimit?: RateLimitService,
 ) {
+  const deps = { config, discord, storage };
+
   return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
 
@@ -74,39 +78,11 @@ export function createRequestHandler(
       console.log("[SERVER] Triggering poll...");
 
       try {
-        const now = new Date();
-        const dateString = dateFormatter.format(now);
-        const payload = buildMoodPollPayload(dateString, DEFAULT_MOOD_CONFIG);
-        const results: string[] = [];
-        let successCount = 0;
-
-        for (const channelId of config.channelIds) {
-          const response = await discord.postMessage(channelId, payload);
-
-          if (response.ok) {
-            // Parse response to get message ID and save for collection
-            const messageData = (await response.json()) as { id: string };
-            const messageId = messageData.id;
-
-            const pollRecord: PollRecord = {
-              messageId,
-              channelId,
-              date: now.toISOString().split("T")[0],
-              createdAt: Date.now(),
-              expiresAt: Date.now() + DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000,
-              collected: false,
-            };
-
-            await storage.savePendingPoll(pollRecord);
-            console.log(`[SERVER] Poll posted in ${channelId}! Message ID: ${messageId}`);
-            results.push(`✅ ${channelId}: ${messageId}`);
-            successCount++;
-          } else {
-            const body = await response.text();
-            console.error(`[SERVER] Failed to post poll in ${channelId}: ${response.status}`);
-            results.push(`❌ ${channelId}: ${body}`);
-          }
-        }
+        const posts = await postMoodPolls(deps, dateFormatter, "[SERVER]");
+        const results = posts.map((post) =>
+          post.ok ? `✅ ${post.channelId}: ${post.detail}` : `❌ ${post.channelId}: ${post.detail}`,
+        );
+        const successCount = posts.filter((post) => post.ok).length;
 
         if (successCount > 0) {
           return new Response(`Poll posted:\n${results.join("\n")}`);
@@ -124,33 +100,16 @@ export function createRequestHandler(
       console.log(`[SERVER] Triggering stats (last ${days} days)...`);
 
       try {
-        const endDate = new Date();
-        const startDate = new Date(endDate);
-        // UTC calendar days, so the window is the same in any process time zone.
-        startDate.setUTCDate(startDate.getUTCDate() - days);
-
-        const results: string[] = [];
-        let successCount = 0;
-
-        for (const channelId of config.channelIds) {
-          const stats = await storage.getStats(
-            channelId,
-            startDate.toISOString().split("T")[0],
-            endDate.toISOString().split("T")[0],
-          );
-          const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
-          const response = await discord.postMessage(channelId, embed);
-
-          if (response.ok) {
-            console.log(`[SERVER] Stats posted in ${channelId}!`);
-            results.push(`✅ ${channelId}`);
-            successCount++;
-          } else {
-            const body = await response.text();
-            console.error(`[SERVER] Failed to post stats in ${channelId}: ${response.status}`);
-            results.push(`❌ ${channelId}: ${body}`);
-          }
-        }
+        const posts = await postStats(deps, {
+          days,
+          title: `📊 Mood Stats (Last ${days} Days)`,
+          label: "stats",
+          tag: "[SERVER]",
+        });
+        const results = posts.map((post) =>
+          post.ok ? `✅ ${post.channelId}` : `❌ ${post.channelId}: ${post.detail}`,
+        );
+        const successCount = posts.filter((post) => post.ok).length;
 
         if (successCount > 0) {
           return new Response(`✅ Stats embed posted:\n${results.join("\n")}`);
@@ -169,23 +128,11 @@ export function createRequestHandler(
       console.log(`[SERVER] Triggering alert for ${userName} (${days} days)...`);
 
       try {
-        const alertEmbed = buildAlertEmbed(userName, days);
-        const results: string[] = [];
-        let successCount = 0;
-
-        for (const channelId of config.channelIds) {
-          const response = await discord.postMessage(channelId, alertEmbed);
-
-          if (response.ok) {
-            console.log(`[SERVER] Alert posted in ${channelId}!`);
-            results.push(`✅ ${channelId}`);
-            successCount++;
-          } else {
-            const body = await response.text();
-            console.error(`[SERVER] Failed to post alert in ${channelId}: ${response.status}`);
-            results.push(`❌ ${channelId}: ${body}`);
-          }
-        }
+        const posts = await postTestAlert(deps, userName, days);
+        const results = posts.map((post) =>
+          post.ok ? `✅ ${post.channelId}` : `❌ ${post.channelId}: ${post.detail}`,
+        );
+        const successCount = posts.filter((post) => post.ok).length;
 
         if (successCount > 0) {
           return new Response(`✅ Alert embed posted:\n${results.join("\n")}`);

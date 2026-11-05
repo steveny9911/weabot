@@ -1,8 +1,8 @@
 /** Shared scheduled/manual collection. Failures remain pending for the next run. */
 import type { Mood } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
-import type { DiscordClient, PollVoter } from "./discord.ts";
-import type { StorageService } from "./storage.ts";
+import type { DiscordClient, PollVoter } from "../services/discord.ts";
+import type { StorageService } from "../services/storage.ts";
 
 export interface PollCollectionResult {
   collected: { poll: PollRecord; votes: number }[];

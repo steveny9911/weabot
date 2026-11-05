@@ -8,7 +8,7 @@ import {
 } from "./src/features/discord_actions/mod.ts";
 import { TurnStore } from "./src/features/discord_actions/state.ts";
 import { DEFAULT_DATABASE_PATH, openDatabase } from "./src/db/database.ts";
-import { deleteOldAiUsage } from "./src/db/maintenance.ts";
+import { createMaintenanceJob } from "./src/jobs/maintenance.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
 import { createWebSearchService } from "./src/services/web_search.ts";
@@ -66,11 +66,16 @@ const date_formatter = new Intl.DateTimeFormat("en-US", {
 
 // --- Register Services ---
 startGateway(config, bot_deps);
-registerCronJobs(bunCron, config, discord, storage, date_formatter, ai_service, rate_limit, () => {
-  const deleted = deleteOldAiUsage(db, Date.now());
-  const expired = action_turns.sweep();
-  console.log(`[MAINTENANCE] Removed ${deleted} old AI usage day(s), ${expired} expired turn(s)`);
-});
+registerCronJobs(
+  bunCron,
+  config,
+  discord,
+  storage,
+  date_formatter,
+  ai_service,
+  rate_limit,
+  createMaintenanceJob(db, action_turns),
+);
 createServer(config, discord, storage, date_formatter, rate_limit);
 
 // --- Startup Logging ---

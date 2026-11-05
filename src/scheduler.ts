@@ -17,13 +17,11 @@ import type { AiService } from "../ai_service.ts";
 import type { DiscordClient } from "./services/discord.ts";
 import type { RateLimitService } from "./services/rate_limit.ts";
 import type { StorageService } from "./services/storage.ts";
-import { collectExpiredPolls } from "./services/poll_collection.ts";
-import type { PollRecord } from "./types/storage.ts";
-import { getBotUserId } from "./discord/messages.ts";
-import { participateInChannel } from "./features/autonomous_chat/participate.ts";
-import { buildMoodPollPayload } from "./features/poll/mod.ts";
-import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
-import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
+import { createAutonomousChatJob } from "./jobs/autonomous_chat.ts";
+import { collectExpiredPolls } from "./jobs/collect_polls.ts";
+import { postMoodPolls } from "./jobs/mood_poll.ts";
+import { postStats } from "./jobs/stats.ts";
+import { runWellnessCheck } from "./jobs/wellness.ts";
 
 /** Registers one job. The production registrar is {@link bunCron}; tests pass a fake. */
 export type CronRegistrar = (
@@ -69,7 +67,8 @@ export function registerCronJobs(
   rateLimit: RateLimitService,
   maintenance: () => void = () => {},
 ): void {
-  let autonomous_chat_running = false;
+  const deps = { config, discord, storage };
+  const autonomousChat = createAutonomousChatJob(deps, aiService, rateLimit);
 
   // =========================================================================
   // Daily Mood Poll
@@ -79,35 +78,7 @@ export function registerCronJobs(
     console.log("[CRON] Starting scheduled poll job...");
 
     try {
-      const now = new Date();
-      const dateString = dateFormatter.format(now);
-      const payload = buildMoodPollPayload(dateString, DEFAULT_MOOD_CONFIG);
-      for (const channelId of config.channelIds) {
-        const response = await discord.postMessage(channelId, payload);
-
-        if (response.ok) {
-          // Parse response to get message ID
-          const messageData = (await response.json()) as { id: string };
-          const messageId = messageData.id;
-
-          // Save pending poll for later collection
-          const pollRecord: PollRecord = {
-            messageId,
-            channelId,
-            date: now.toISOString().split("T")[0],
-            createdAt: Date.now(),
-            expiresAt: Date.now() + DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000,
-            collected: false,
-          };
-
-          await storage.savePendingPoll(pollRecord);
-          console.log(`[CRON] Poll posted in ${channelId}! Message ID: ${messageId}`);
-        } else {
-          const body = await response.text();
-          console.error(`[CRON] Failed to post poll in ${channelId}: ${response.status}`);
-          console.error(body);
-        }
-      }
+      await postMoodPolls(deps, dateFormatter, "[CRON]");
     } catch (error) {
       console.error("[CRON] Error posting poll:", error);
     }
@@ -122,28 +93,7 @@ export function registerCronJobs(
     console.log("[CRON] Starting wellness check...");
 
     try {
-      for (const channelId of config.channelIds) {
-        const atRisk = await storage.getUsersAtRisk(channelId, config.glueAlertThreshold);
-
-        if (atRisk.length === 0) {
-          console.log(`[CRON] No users at risk in ${channelId}`);
-          continue;
-        }
-
-        console.log(`[CRON] Found ${atRisk.length} user(s) at risk in ${channelId}`);
-
-        for (const userHistory of atRisk) {
-          const user = userHistory[0];
-          const alertEmbed = buildAlertEmbed(user.odUserName, userHistory.length);
-          const response = await discord.postMessage(channelId, alertEmbed);
-
-          if (response.ok) {
-            console.log(`[CRON] Alert sent for ${user.odUserName} in ${channelId}`);
-          } else {
-            console.error(`[CRON] Failed to send alert for ${user.odUserName} in ${channelId}`);
-          }
-        }
-      }
+      await runWellnessCheck(deps);
     } catch (error) {
       console.error("[CRON] Error in wellness check:", error);
     }
@@ -158,28 +108,12 @@ export function registerCronJobs(
     console.log("[CRON] Starting weekly stats summary...");
 
     try {
-      const endDate = new Date();
-      const startDate = new Date(endDate);
-      // UTC calendar days, so the window is the same in any process time zone.
-      startDate.setUTCDate(startDate.getUTCDate() - 7);
-
-      for (const channelId of config.channelIds) {
-        const stats = await storage.getStats(
-          channelId,
-          startDate.toISOString().split("T")[0],
-          endDate.toISOString().split("T")[0],
-        );
-        const embed = buildStatsEmbed(stats, "📊 Weekly Mood Summary");
-        const response = await discord.postMessage(channelId, embed);
-
-        if (response.ok) {
-          console.log(`[CRON] Weekly stats posted in ${channelId}!`);
-        } else {
-          const body = await response.text();
-          console.error(`[CRON] Failed to post weekly stats in ${channelId}: ${response.status}`);
-          console.error(body);
-        }
-      }
+      await postStats(deps, {
+        days: 7,
+        title: "📊 Weekly Mood Summary",
+        label: "weekly stats",
+        tag: "[CRON]",
+      });
     } catch (error) {
       console.error("[CRON] Error posting weekly stats:", error);
     }
@@ -206,48 +140,8 @@ export function registerCronJobs(
   // =========================================================================
   // Autonomous Chat
   // Schedule: Every minute
-  // Joins active conversations only when explicitly enabled and guardrails pass.
   // =========================================================================
-  cron("Autonomous Chat", "* * * * *", async () => {
-    if (!config.autonomousChatEnabled) return;
-    if (!config.aiEnabled || !config.openaiApiKey) {
-      console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
-      return;
-    }
-    if (autonomous_chat_running) {
-      console.log("[CRON] Autonomous chat skipped because previous run is still active");
-      return;
-    }
-
-    autonomous_chat_running = true;
-    try {
-      const bot_user_id = await getBotUserId(config);
-      if (!bot_user_id) {
-        console.error("[CRON] Autonomous chat skipped because bot user id is unavailable");
-        return;
-      }
-
-      for (const channelId of config.autonomousChatChannelIds) {
-        try {
-          const outcome = await participateInChannel(channelId, {
-            config,
-            discord,
-            storage,
-            ai: aiService,
-            rateLimit,
-            botId: bot_user_id,
-          });
-          console.log("[AUTONOMOUS OUTCOME]", JSON.stringify({ channelId, ...outcome }));
-        } catch {
-          console.warn(`[CRON] Autonomous chat skipped in ${channelId} after a channel error`);
-        }
-      }
-    } catch (error) {
-      console.error("[CRON] Error in autonomous chat:", error);
-    } finally {
-      autonomous_chat_running = false;
-    }
-  });
+  cron("Autonomous Chat", "* * * * *", autonomousChat);
 
   // =========================================================================
   // Maintenance
