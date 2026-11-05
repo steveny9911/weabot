@@ -1,5 +1,5 @@
 /** Caller lifecycle over real pinned loopback HTTP/TLS sockets. */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { createServer, type Socket } from "node:net";
 import { requestPinned } from "../src/services/public_fetch.ts";
@@ -11,7 +11,13 @@ import { ca } from "./fixtures/link_tls.ts";
 import { serveFixture } from "./fixtures/serve.ts";
 
 // requestPinned uses the global fetch; this file needs real loopback connections.
-globalThis.fetch = realFetch;
+const blockedFetch = globalThis.fetch;
+beforeAll(() => {
+  globalThis.fetch = realFetch;
+});
+afterAll(() => {
+  globalThis.fetch = blockedFetch;
+});
 
 /** Bypass only DNS policy for isolated transport fixtures, retaining the actual
  * production HTTP/TLS implementation and all service-level response handling. */

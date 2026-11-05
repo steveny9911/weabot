@@ -2,14 +2,20 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { createServer } from "node:net";
-import { requestPinned } from "../src/services/public_fetch.ts";
+import { BlockedDestinationError, requestPinned } from "../src/services/public_fetch.ts";
 import { realFetch } from "../test_support/setup.ts";
 import { rejects } from "../test_support/assert.ts";
 import { ca } from "./fixtures/link_tls.ts";
 import { serveFixture } from "./fixtures/serve.ts";
 
 // requestPinned uses the global fetch; this file needs real loopback connections.
-globalThis.fetch = realFetch;
+const blockedFetch = globalThis.fetch;
+beforeAll(() => {
+  globalThis.fetch = realFetch;
+});
+afterAll(() => {
+  globalThis.fetch = blockedFetch;
+});
 
 /** True when this machine can listen on the IPv6 loopback address. */
 async function hasIpv6Loopback(): Promise<boolean> {
@@ -103,6 +109,31 @@ test("pinned HTTPS refuses hostname mismatch and untrusted certificates before H
   }
 });
 
+test("pinned transport keeps the exact path and port, and refuses zone-scoped addresses", async () => {
+  let path = "";
+  const server = serveFixture((req) => {
+    path = new URL(req.url).pathname + new URL(req.url).search;
+    return new Response("ok");
+  });
+  try {
+    // A path starting with "//" must not be read as a host and port. Bun's fetch sends a leading
+    // "//" as "/" (behavior change 5); the rest of the path and the port are kept.
+    const response = await requestPinned(
+      new URL(`http://public.example:${server.port}//a//b?q=1#frag`),
+      "127.0.0.1",
+    );
+    expect(await response.text()).toBe("ok");
+    expect(path).toBe("/a//b?q=1");
+    // A zone id cannot be put in a URL host, so it would leave the hostname unpinned.
+    await rejects(
+      () => requestPinned(new URL(`http://public.example:${server.port}/`), "fe80::1%eth0"),
+      BlockedDestinationError,
+    );
+  } finally {
+    await server.shutdown();
+  }
+});
+
 test("pinned transport never automatically follows a redirect", async () => {
   let requests = 0;
   const server = serveFixture(() => {
@@ -165,6 +196,7 @@ test("pinned request abort closes a connection waiting for headers", async () =>
     return new Response("late");
   });
   try {
+    const started = performance.now();
     await rejects(
       () =>
         requestPinned(
@@ -175,6 +207,8 @@ test("pinned request abort closes a connection waiting for headers", async () =>
       DOMException,
       "Aborted",
     );
+    // The abort itself must end the request, not a server or test timeout.
+    expect(performance.now() - started).toBeLessThan(2000);
   } finally {
     finish?.();
     await server.shutdown();
@@ -243,8 +277,11 @@ describe("pinned HTTP and HTTPS abort reject a pending body read without uncaugh
         const reader = response.body!.getReader();
         await reader.read();
         const pending = reader.read();
+        const started = performance.now();
         abort.abort();
-        await rejects(() => pending);
+        const error = await rejects(() => pending);
+        expect(error.name).toBe("AbortError");
+        expect(performance.now() - started).toBeLessThan(2000);
         reader.releaseLock();
       } finally {
         await server.shutdown();
@@ -281,7 +318,7 @@ describe("pinned transport reports corrupt or unsupported compression and closes
   }
 });
 
-test("pinned transport returns no body for 204, 205 and 304", async () => {
+test("pinned transport returns no body for 204, 205 and 304 (Bun already drops it; guarded anyway)", async () => {
   for (const status of [204, 205, 304]) {
     const server = serveFixture(() => new Response(null, { status }));
     try {

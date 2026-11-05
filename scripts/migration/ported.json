@@ -24,7 +24,7 @@
     "src/services/link_open.test.ts": null
   },
   "transport": {
-    "tests/public_fetch.integration.ts": 21,
+    "tests/public_fetch.integration.ts": 22,
     "tests/link_open.integration.ts": 21
   },
   "allowedSkips": {

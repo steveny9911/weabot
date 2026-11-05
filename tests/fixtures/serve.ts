@@ -14,7 +14,9 @@ export function serveFixture(
   const server = Bun.serve({
     hostname: options.hostname ?? "127.0.0.1",
     port: 0,
-    idleTimeout: 10,
+    // Longer than the 20 s test timeout, so a client that never closes fails the test instead of
+    // being rescued by the server dropping the idle connection.
+    idleTimeout: 30,
     ...(options.tls ? { tls: { cert, key } } : {}),
     fetch: handler,
   });

@@ -59,7 +59,6 @@
   },
   "compilerOptions": {
     "strict": true,
-    "noImplicitAny": true,
-    "types": ["./scripts/migration/deno_bun_types.d.ts"]
+    "noImplicitAny": true
   }
 }

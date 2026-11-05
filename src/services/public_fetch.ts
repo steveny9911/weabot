@@ -180,11 +180,14 @@ export async function resolveAddresses(
     onAbort = () => reject(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
-  const answers = lookup(hostname).catch((error: unknown) => {
-    const code = (error as { code?: unknown } | null)?.code;
-    if (code === "DNS_ENOTFOUND" || code === "DNS_ENODATA") return [];
-    throw error;
-  });
+  // Promise.resolve().then also turns a synchronous throw into a rejection.
+  const answers = Promise.resolve()
+    .then(() => lookup(hostname))
+    .catch((error: unknown) => {
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code === "DNS_ENOTFOUND" || code === "DNS_ENODATA") return [];
+      throw error;
+    });
   try {
     return (await Promise.race([answers, aborted])).map((record) => record.address);
   } finally {
@@ -209,12 +212,16 @@ export async function requestPinned(
   ca?: string,
 ): Promise<Response> {
   const family = isIP(address);
-  if (!family) throw new BlockedDestinationError();
+  // A zone id ("fe80::1%eth0") is not a valid URL host, so the swap below would be ignored.
+  if (!family || address.includes("%")) throw new BlockedDestinationError();
   signal?.throwIfAborted();
   const hostname = szNormalizeHost(url.hostname);
   // Only the socket destination changes. The Host header and the TLS server
   // name keep the original identity, and the hostname is never resolved again.
-  const target = new URL(url.pathname + url.search, url.origin);
+  const target = new URL(url.href);
+  target.hash = "";
+  target.username = "";
+  target.password = "";
   target.hostname = family === 6 ? `[${address}]` : address;
   let response: Response;
   try {

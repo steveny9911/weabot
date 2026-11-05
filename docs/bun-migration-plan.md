@@ -55,13 +55,19 @@ Accepted on purpose:
    sent instead of one that reveals the runtime and version.
 4. **The AWS cost request sends the AWS SDK's default user agent** (SDK version, OS and kernel
    release, runtime) instead of `weabot/1`. Only the bot's own AWS account sees it.
+5. **A link path starting with `//` is requested with a single `/`** (`https://site.com//a//b` asks
+   for `/a//b`). Bun's `fetch` rewrites the leading `//` in the request line; the old transport sent
+   it unchanged. Most servers treat the two the same.
+6. **A gzip body followed by trailing zero bytes fails to decode** (`fetch_failed`). Deno's zlib
+   ignored the padding; `DecompressionStream` rejects it. Rare.
 
 Side effects of the new runtime, all safe because every address is validated before connecting:
 
 - **Partial DNS failure.** A host whose AAAA (IPv6) lookup fails but whose A (IPv4) lookup succeeds
   now opens over IPv4 instead of failing.
 - **DNS caching.** Bun caches lookups, so a DNS change can take effect slightly later.
-- **`/etc/hosts`.** Lookups read `/etc/hosts`.
+- **`/etc/hosts`.** Lookups read `/etc/hosts`. A name defined only there that points to a private
+  address now reports `blocked_host` instead of `fetch_failed`.
 
 Fixed bug: weekly stats no longer drop or duplicate a day across a DST change when the process runs
 in a non-UTC time zone.
@@ -489,12 +495,16 @@ import a module that still uses Deno; shared types and helpers move first.
 
   ```ts
   const target = new URL(url.href);
+  target.hash = "";
+  target.username = "";
+  target.password = "";
   target.hostname = isIP(address) === 6 ? `[${address}]` : address;
   const response = await fetch(target, {
     method: "GET",
     redirect: "manual",
     decompress: false,
     keepalive: false,
+    proxy: false,
     signal,
     headers: {
       Host: url.host,
@@ -522,7 +532,7 @@ import a module that still uses Deno; shared types and helpers move first.
 
 **Verify**
 
-- `bun run test:transport` reports exactly 42 tests (41 run where IPv6 is unavailable). These cover:
+- `bun run test:transport` reports exactly 43 tests (42 run where IPv6 is unavailable). These cover:
   - pinning, `Host` and SNI, and wrong-certificate rejection;
   - redirects not followed;
   - stalled and trickling bodies ending at the 8-second deadline;
@@ -796,17 +806,40 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
 - **Tests:**
   - `public_fetch.test.ts` (44) and `link_open.test.ts` (36) match the baseline. The five
     `Deno.resolveDns` tests are replaced by five `Bun.dns.lookup` tests (see the table below).
-  - Transport tests use `Bun.serve` (`tests/fixtures/serve.ts`, `idleTimeout: 10`) and `node:net`
-    for raw responses. The body-cancellation tests now also wait for the server to see the cancel.
+  - Transport tests use `Bun.serve` (`tests/fixtures/serve.ts`) and `node:net` for raw responses.
+    The body-cancellation tests now also wait for the server to see the cancel.
   - The IPv6 test skips where the machine has no IPv6 loopback (as in this sandbox). The gate
     accepts that one declared skip (`allowedSkips` in `ported.json`) and fails on any other.
-- **Deno job:** `bot_actions.test.ts` still runs on Deno and imports `public_fetch.ts`, so
-  `scripts/migration/deno_bun_types.d.ts` gives Deno's type checker a stand-in for the `Bun` global
-  (set in `deno.json` `compilerOptions.types`, excluded in `tsconfig.json`). Deno now runs 262 tests
-  (8 steps), i.e. 270 testcases: 355 minus the 85 moved here.
+- **Deno job:** Deno now runs 262 tests (8 steps), i.e. 270 testcases: 355 minus the 85 moved here.
 - **CI:** the Deno transport step and `test:transport` task are removed in this commit; the gate
   runs the Bun transport files with exact counts.
 - **AWS user agent:** accepted as behavior change 4.
+
+#### Slice 2 review follow-up
+
+- **Fixed: links whose path starts with `//`.** `requestPinned` built the pinned URL as
+  `new URL(url.pathname + url.search, url.origin)`, which reads `//host:port/...` as a new host and
+  port: `https://site.com//index.html` fetched `/` instead. It now copies the whole URL and replaces
+  only the host. Bun's `fetch` still sends a leading `//` as `/` (behavior change 5). New test: the
+  exact path and port reach the server.
+- **Fixed: zone-scoped addresses** (`fe80::1%eth0`) are refused by `requestPinned`. The URL host
+  setter silently ignores them, which would have left the hostname unpinned. DNS answers do not
+  carry zone ids, so this is defense in depth.
+- **Fixed: a synchronous throw from the DNS lookup** (`Bun.dns.lookup("")` throws instead of
+  rejecting) becomes a rejection, so the abort listener is always removed.
+- **Tests strengthened:** the three abort tests passed even with the signal removed from `fetch`,
+  because the fixture server's 10 s idle timeout ended the request. They now require an `AbortError`
+  within 2 s, and the fixture idle timeout is 30 s (above the 20 s test timeout). Both integration
+  files set the real `fetch` in `beforeAll` and restore the network guard in `afterAll`. Verified by
+  mutation: the old URL code and a missing signal each fail the tests.
+- **Deno CI reduced to a behavior reference:** newer Deno failed to type-check Bun-only `fetch`
+  options (`decompress`, `proxy`, `tls`); Deno 2.6.0 only passed through a permissive overload. The
+  Deno job now runs only the unported tests, on 2.6.0, with `--no-check`, and no lint or type check.
+  The Deno type stub is removed. The job goes in slice 5.
+- **Behavior changes 5 and 6** and the `/etc/hosts` error note added.
+- **Left as is:** the gate allows the IPv6 skip by count rather than by test name (the gate is
+  removed in slice 5); the socket-level close tests for rejected responses are secondary to the unit
+  tests that count cancellations.
 
 ## Future work
 
@@ -827,5 +860,5 @@ Filled in during the port.
 | File                                | Deno tests + steps | Bun tests       | Reason / replacement                                                                                                                                                                                                                        |
 | ----------------------------------- | ------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/services/public_fetch.test.ts` | 46 (2 groups)      | 44              | Five `Deno.resolveDns` tests (requires both families, family failure ×2, caller cancellation, already aborted) replaced by: default lookup and error mapping; partial family results ×2; hung lookup ends at the deadline; already aborted. |
-| `tests/public_fetch.integration.ts` | 19 (4 groups) → 15 | 21 (1 may skip) | Added: corrupt `br`, `zstd` and `constructor` encodings (3); 204/205/304 return no body (1); proxy variables ignored (1); IPv6 literal (1, skips without IPv6).                                                                             |
+| `tests/public_fetch.integration.ts` | 19 (4 groups) → 15 | 22 (1 may skip) | Added: corrupt `br`, `zstd` and `constructor` encodings (3); 204/205/304 return no body (1); proxy variables ignored (1); IPv6 literal (1, skips without IPv6); exact path and port, zone ids refused (1).                                  |
 | `tests/link_open.integration.ts`    | 26 (6 groups) → 20 | 21              | Added: malformed `br` (Deno 2.6 accepted some malformed Brotli, so the Deno test left it out).                                                                                                                                              |

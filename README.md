@@ -371,8 +371,8 @@ single 8-second deadline covers DNS, connection setup, up to three redirects, re
 and decompression. Redirects and slowly arriving chunks do not reset the deadline. The 1 MiB body
 limit applies to decoded bytes. Abandoned bodies are canceled, readers released, and the deadline
 timer cleared on every exit; download and decoding errors return structured failures.
-`deno task test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI
-runs these checks on both the production Deno 2.6.0 runtime and the current Deno 2.x release.
+`bun run test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI runs
+it on Bun through `bun run migration:gate`.
 
 ### Available Endpoints
 

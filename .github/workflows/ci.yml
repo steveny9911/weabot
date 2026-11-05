@@ -25,11 +25,10 @@ jobs:
           cfn-lint --info --non-zero-exit-code error --regions us-west-2 --template deploy/aws/cloudformation.yml
           cfn-lint --info --non-zero-exit-code error --regions us-west-2 --template deploy/aws/cloudformation.yml --parameters ExistingAmiId=ami-0123456789abcdef0 RepositoryRef=ci-validation VpcId=vpc-0123456789abcdef0 SubnetId=subnet-0123456789abcdef0
 
-  lint-and-test:
+  # Behavior reference for the tests not yet ported to Bun (removed in slice 5). Only the
+  # production Deno version, without lint or type checking: Bun-only code is not Deno-typed.
+  deno-reference-tests:
     runs-on: ubuntu-24.04-arm
-    strategy:
-      matrix:
-        deno: [v2.6.0, v2.x]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,16 +36,10 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
-          deno-version: ${{ matrix.deno }}
+          deno-version: v2.6.0
 
-      - name: Run linter
-        run: deno lint
-
-      - name: Type check
-        run: deno task check
-
-      - name: Run all tests, including concurrency and poll collection regressions
-        run: deno task test --reporter=pretty
+      - name: Run the unported tests, including concurrency and poll collection regressions
+        run: deno task test --no-check --reporter=pretty
 
   bun:
     runs-on: ubuntu-24.04-arm
