@@ -24,7 +24,7 @@ const SANDBOX_ID = "589723496473690132";
 const TEXT_CHANNEL_ID = "589723496473690134";
 const VOICE_CHANNEL_ID = "589723496473690136";
 const TIME_ZONE = "America/Vancouver";
-const API_BASE = "https://discord.com/api/v10";
+import { DISCORD_API_BASE as API_BASE } from "../../src/discord/api.ts";
 
 function ensure(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

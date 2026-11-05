@@ -5,6 +5,7 @@ import { loadConfig } from "../../src/config.ts";
 import { participateInChannel } from "../../src/features/autonomous_chat/participate.ts";
 import { createDiscordClient, type DiscordClient } from "../../src/discord/client.ts";
 import { createDiscordEventsClient } from "../../src/discord/events.ts";
+import { DISCORD_API_BASE } from "../../src/discord/api.ts";
 import { createRateLimitService } from "../../src/services/rate_limit.ts";
 import { createStorageService } from "../../src/services/storage.ts";
 
@@ -69,7 +70,7 @@ async function main() {
   };
   if (!config.openaiApiKey) throw new Error("OPENAI_API_KEY is required.");
   const real = createDiscordClient(config.discordToken);
-  const r = await fetch("https://discord.com/api/v10/users/@me", {
+  const r = await fetch(`${DISCORD_API_BASE}/users/@me`, {
     headers: { Authorization: "Bot " + config.discordToken },
     signal: AbortSignal.timeout(15000),
   });

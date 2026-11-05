@@ -959,6 +959,34 @@ Haru will not run on AWS. Production will run on a self-hosted server with Docke
   `.env.sample` AWS entries are removed; this plan's deployment notes are removed.
 - **Kept:** `instance-data.ec2.internal` in the link fetch block list (security, not deployment).
 
+### Code organization (done)
+
+The code is reorganized into layers (see README "Project Structure"). Paths named earlier in this
+plan are the paths at the time; the move map is in commit "refactor: move files into the src/
+layout".
+
+- **Dead code removed:** `postPoll`, `generateReplyFromMessages` and the default export of the AI
+  service, the `messageMentionsBot` alias, `AlertConfig`/`DEFAULT_ALERT_CONFIG`, and their 4 tests.
+- **One Discord API base:** `src/discord/api.ts`. The bot's own replies, user ID and history reads
+  moved to `src/discord/messages.ts`, still one attempt each without retry.
+- **`src/jobs/`:** the cron jobs and the admin HTTP triggers share the poll, stats, alert,
+  collection, autonomous chat and maintenance code. Only log output changes: a failed
+  `/trigger_poll` or `/trigger_stats` post now also logs Discord's error body.
+- **Split files:** `bot/` (handler, commands, context), `ai/` (service, types, responses,
+  participation, context images, text) and `features/discord_actions/` (intent, results).
+- **Names:** type prefixes (`sz`, `b`, `o`, …) and snake_case variables are camelCase, renamed with
+  the TypeScript language service; the commit is in `.git-blame-ignore-revs`.
+- **New tests:** `src/jobs/jobs.test.ts` covers poll, stats and wellness posting, which had no tests
+  inside `scheduler.ts` and `server.ts`; `src/jobs/maintenance.test.ts` covers the maintenance job.
+  Coverage rose from 91.3% functions / 91.6% lines to 92.7% / 93.6%.
+- **Rules:** `tests/architecture.test.ts` enforces the import layers, which folders may call
+  `fetch`, the single Discord API address and no import cycles.
+- **Validation:** after each step, the full gate plus a comparison with the pre-refactor baseline:
+  every test name and its assertion count (only the 4 removed tests and the deliberate renames
+  differ), and a golden trace of the real server routes, cron jobs and message handler (every
+  outbound request, log line, HTTP response and database row) that stayed byte-identical. Totals:
+  720 tests (677 unit, 43 transport).
+
 ## Future work
 
 - Switch to stable `bun lint` when it ships.

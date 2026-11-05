@@ -448,39 +448,38 @@ it too.
 
 ```
 weabot/
-├── main.ts                     # Entry point
+├── main.ts                     # Entry point: wires services together and starts the app
 ├── src/
 │   ├── config.ts               # Environment configuration
-│   ├── server.ts               # HTTP server & endpoints
-│   ├── scheduler.ts            # Cron job definitions
-│   ├── types/
-│   │   ├── bot.ts              # Domain types (Mood, MoodPollConfig)
-│   │   ├── discord.ts          # Discord API types
-│   │   └── storage.ts          # Storage types (VoteRecord, etc.)
-│   ├── db/
-│   │   ├── database.ts         # Opens SQLite, applies migrations
-│   │   ├── migrations.ts       # Schema
-│   │   └── *.ts                # Queries per table group
-│   ├── services/
-│   │   ├── discord.ts          # Discord API client
-│   │   ├── storage.ts          # Polls, votes and chat state
-│   │   ├── web_search.ts       # Brave web search integration
-│   │   ├── link_open.ts        # Safe HTML link opener for \open command
-│   │   └── rate_limit.ts       # AI usage/rate limiting
-│   └── features/
-│       ├── poll/               # Poll creation logic
-│       │   ├── mod.ts
-│       │   ├── payload.ts
-│       │   └── poll.test.ts
-│       └── stats/              # Stats & embed generation
-│           ├── mod.ts
-│           └── embed.ts
+│   ├── app/                    # Gateway, HTTP server and cron schedule (started by main.ts)
+│   ├── jobs/                   # Work shared by cron jobs and admin HTTP triggers
+│   ├── bot/                    # Message handling: mentions, \usage, \reset, \open, AI replies
+│   ├── ai/                     # OpenAI Responses client, autonomous participation, reply text
+│   ├── features/               # Bot logic (polls, stats, chat context, reactions, Discord actions)
+│   ├── services/               # Storage, rate limits and usage reporting
+│   ├── discord/                # The only code that calls the Discord REST API
+│   ├── net/                    # Public-web fetches: link opening, web search, retry
+│   ├── db/                     # SQLite: opening, migrations, queries per table group
+│   └── types/                  # Shared domain types
+├── tests/
+│   ├── architecture.test.ts    # Enforces the layering rules above
+│   ├── support/                # Test helpers and the test preload
+│   ├── fixtures/               # Loopback servers for transport tests
+│   └── *.integration.ts        # HTTP/TLS transport tests (bun run test:transport)
+├── scripts/
+│   ├── sandbox/                # Manual runs against the sandbox Discord server
+│   ├── eval/                   # Reaction evaluation
+│   └── issue_agent/            # GitHub issue automation
 ├── package.json                # Scripts and dependencies
 ├── bun.lock                    # Dependency lock file
 ├── bunfig.toml                 # Bun settings (tests, format, lint)
 ├── tsconfig.json               # Type-check settings
 └── .github/workflows/ci.yml    # CI pipeline
 ```
+
+Unit tests sit next to the file they test. Imports flow one way, from `main.ts` and `app/` down to
+`types/`: lower layers never import `app/`, `bot/` or `jobs/`, and only `ai/`, `discord/` and `net/`
+make network calls. `tests/architecture.test.ts` checks these rules.
 
 ---
 
