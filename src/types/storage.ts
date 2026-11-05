@@ -1,12 +1,5 @@
-/**
- * Storage Types
- *
- * Types for persisted data and the storage service interface.
- */
-
 import type { Mood } from "./bot.ts";
 
-/** A single vote record from a user */
 export interface VoteRecord {
   channelId: string;
   odUserId: string;
@@ -16,7 +9,6 @@ export interface VoteRecord {
   timestamp: number;
 }
 
-/** Aggregated stats for a single day */
 export interface DailyStats {
   date: string;
   umazing: number;
@@ -25,7 +17,6 @@ export interface DailyStats {
   total: number;
 }
 
-/** A pending poll waiting for results collection */
 export interface PollRecord {
   messageId: string;
   channelId: string;
@@ -51,7 +42,6 @@ export interface AutonomousParticipationRecord {
   lastReactionEmoji?: string;
 }
 
-/** Storage service interface for dependency injection */
 export interface StorageService {
   /** Record a user's vote */
   recordVote(

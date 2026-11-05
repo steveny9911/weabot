@@ -201,10 +201,7 @@ const DECODERS = new Map<string, Bun.CompressionFormat>([
   ["br", "brotli"],
 ]);
 
-/** Low-level transport: callers must validate address before calling this.
- * Exported separately so CI can prove numeric pinning and TLS verification on
- * isolated loopback fixtures without weakening production destination policy.
- */
+/** Low-level transport; callers must validate the address first. Exported for transport tests. */
 export async function requestPinned(
   url: URL,
   address: string,

@@ -3,9 +3,6 @@ import type { LinkOpenError } from "../net/link_open.ts";
 
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 
-/**
- * Returns true if the message mentions the bot.
- */
 export function messageMentionsBot(message: Record<string, unknown>, botId: string): boolean {
   if (!message) return false;
 
@@ -20,7 +17,6 @@ export function messageMentionsBot(message: Record<string, unknown>, botId: stri
     }
   }
 
-  // Fallback: check content for <@ID> or <@!ID>
   const content = message.content as unknown;
   if (typeof content === "string") {
     if (content.includes(`<@${botId}>`) || content.includes(`<@!${botId}>`)) {
@@ -31,19 +27,13 @@ export function messageMentionsBot(message: Record<string, unknown>, botId: stri
   return false;
 }
 
-/**
- * Returns true if the message includes the reset context command.
- * Expected format: "@Haru \\reset"
- */
+/** `@Haru \\reset` */
 export function isResetCommand(content: string | undefined): boolean {
   if (!content) return false;
   return /(^|\s)\\reset(\s|$)/i.test(content);
 }
 
-/**
- * Returns true if the message includes the open-link command.
- * Expected format: "@Haru \\open <url> [optional question]"
- */
+/** `@Haru \\open <url> [question]` */
 export function isOpenCommand(content: string | undefined): boolean {
   if (!content) return false;
   const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
@@ -55,10 +45,7 @@ export interface OpenCommand {
   userRequest?: string;
 }
 
-/**
- * Parses an open-link command.
- * Uses the first URL only and treats remaining text as optional user request.
- */
+/** Uses the first URL; the remaining text is the optional user request. */
 export function parseOpenCommand(content: string | undefined): OpenCommand | null {
   if (!content) return null;
   const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
@@ -78,9 +65,6 @@ export function parseOpenCommand(content: string | undefined): OpenCommand | nul
   return userRequest ? { url, userRequest: userRequest } : { url };
 }
 
-/**
- * Remove explicit URL tokens from model output.
- */
 export function stripUrls(text: string): string {
   return text
     .replace(URL_RE, "")
@@ -93,9 +77,6 @@ export function openFailureMessage(_error: LinkOpenError): string {
   return "Eep... I couldn't safely open that link. Can you try another one?~";
 }
 
-/**
- * Formats milliseconds into a human-readable string (seconds or minutes).
- */
 export function formatTime(ms: number): string {
   const seconds = Math.ceil(ms / 1000);
   if (seconds < 60) {

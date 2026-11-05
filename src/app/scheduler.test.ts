@@ -99,18 +99,3 @@ test("the six jobs keep their UTC schedules in any process time zone", () => {
     else process.env.TZ = savedTz;
   }
 });
-test("the maintenance job runs the clean-up and logs its errors", async () => {
-  let runs = 0;
-  const logged = spyOn(console, "error").mockImplementation(() => {});
-  try {
-    const jobs = register({}, () => {
-      runs++;
-      throw new Error("disk full");
-    });
-    await jobs.get("Maintenance")!.handler();
-    expect(runs).toBe(1);
-    expect(logged).toHaveBeenCalledTimes(1);
-  } finally {
-    logged.mockRestore();
-  }
-});

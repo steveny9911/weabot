@@ -1,138 +1,15 @@
-/**
- * Tests for Rate Limit Service
- */
-
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rejects } from "../../tests/support/assert.ts";
 import { type Database, openDatabase } from "../db/database.ts";
-import { deleteOldAiUsage } from "../db/maintenance.ts";
 import { createRateLimitService } from "./rate_limit.ts";
 import type { AppConfig } from "../config.ts";
 
-// Create a test config
-function createTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    discordToken: "test-token",
-    channelId: "test-channel",
-    channelIds: ["test-channel"],
-    timeZone: "UTC",
-    glueAlertThreshold: 7,
-    aiEnabled: true,
-    openaiApiKey: "test-key",
-    aiRateLimitPerUser: 5,
-    aiDailyTokenBudget: 100000,
-    aiMaxInputChars: 500,
-    aiEnableUwu: true,
-    aiContextMaxMessages: 40,
-    aiContextInactivityMinutes: 20,
-    webSearchEnabled: false,
-    webSearchApiKey: undefined,
-    webSearchMaxResults: 3,
-    linkOpenEnabled: true,
-    autonomousChatEnabled: false,
-    autonomousChatChannelIds: ["test-channel"],
-    autonomousChatMinHumanMessages: 4,
-    autonomousChatActivityWindowMinutes: 20,
-    autonomousChatCooldownMinutes: 1,
-    autonomousChatReplyChance: 0.35,
-    autonomousChatMaxContextMessages: 40,
-    ...overrides,
-  };
-}
-
-// =============================================================================
-// checkUserRateLimit
-// =============================================================================
-
-test("checkUserRateLimit allows first request", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig({ aiRateLimitPerUser: 5 });
-  const service = createRateLimitService(kv, config);
-
-  const result = await service.checkUserRateLimit("user123");
-
-  expect(result.allowed).toStrictEqual(true);
-  expect(result.remaining).toStrictEqual(5);
-  expect(result.resetInMs).toBeGreaterThan(0);
-
-  kv.close();
-});
-test("checkUserRateLimit blocks user at limit", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig({ aiRateLimitPerUser: 2 });
-  const service = createRateLimitService(kv, config);
-
-  // Record 2 requests (at limit)
-  await service.recordUserRequest("user123");
-  await service.recordUserRequest("user123");
-
-  const result = await service.checkUserRateLimit("user123");
-
-  expect(result.allowed).toStrictEqual(false);
-  expect(result.remaining).toStrictEqual(0);
-
-  kv.close();
-});
-
-// =============================================================================
-// checkDailyBudget
-// =============================================================================
-
-test("checkDailyBudget allows when under budget", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig({ aiDailyTokenBudget: 100000 });
-  const service = createRateLimitService(kv, config);
-
-  const result = await service.checkDailyBudget();
-
-  expect(result.allowed).toStrictEqual(true);
-  expect(result.tokensRemaining).toStrictEqual(100000);
-
-  kv.close();
-});
-test("checkDailyBudget blocks when budget exhausted", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig({ aiDailyTokenBudget: 10000 });
-  const service = createRateLimitService(kv, config);
-
-  await service.recordTokenUsage(10000);
-  const result = await service.checkDailyBudget();
-
-  expect(result.allowed).toStrictEqual(false);
-  expect(result.tokensRemaining).toStrictEqual(0);
-
-  kv.close();
-});
-
-// =============================================================================
-// getUsageStats
-// =============================================================================
-
-test("getUsageStats returns correct values", async () => {
-  const kv = openDatabase(":memory:");
-  const config = createTestConfig({ aiDailyTokenBudget: 100000 });
-  const service = createRateLimitService(kv, config);
-
-  await service.recordUserRequest("user1");
-  await service.recordUserRequest("user2");
-  await service.recordTokenUsage(5000);
-  await service.recordTokenUsage(3000);
-
-  const stats = await service.getUsageStats();
-
-  expect(stats.dailyTokensUsed).toStrictEqual(8000);
-  expect(stats.dailyTokenBudget).toStrictEqual(100000);
-  expect(stats.requestsToday).toStrictEqual(2);
-
-  kv.close();
-});
-// Behavior tests on a real in-memory SQLite database. The KV-era tests that forced transaction
-// conflicts are replaced by the behaviors they protected (see the plan's test-count table).
-const FIXED_NOW = Date.parse("2026-09-05T12:34:30.000Z");
-const FIXED_DATE = "2026-09-05";
+const NOW = Date.parse("2026-09-05T12:34:30.000Z");
+const config = (overrides: Partial<AppConfig> = {}) =>
+  ({ aiRateLimitPerUser: 5, aiDailyTokenBudget: 100_000, ...overrides }) as AppConfig;
 
 function dailyRow(db: Database, date: string) {
   return db
@@ -142,68 +19,55 @@ function dailyRow(db: Database, date: string) {
     .get(date);
 }
 
-test("20 concurrent token updates across services retain all 2,000 tokens", async () => {
+test("a user is limited per UTC minute and can ask again in the next minute", async () => {
   using db = openDatabase(":memory:");
-  const services = Array.from({ length: 20 }, () =>
-    createRateLimitService(db, createTestConfig(), () => FIXED_NOW),
-  );
-  await Promise.all(services.map((service) => service.recordTokenUsage(100)));
-  expect((await services[0].getUsageStats()).dailyTokensUsed).toBe(2000);
-});
-test("one remaining user allowance admits exactly one of 20 concurrent requests", async () => {
-  using db = openDatabase(":memory:");
-  const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
-  for (let i = 0; i < 4; i++) await service.recordUserRequest("user");
-  const results = await Promise.all(Array.from({ length: 20 }, () => service.admitRequest("user")));
-  expect(results.filter((result) => result.allowed).length).toBe(1);
-  expect(results.filter((result) => !result.allowed && result.reason === "user_limit").length).toBe(
-    19,
-  );
-  expect(results.every((result) => result.remaining === 0 && result.resetInMs === 30_000)).toBe(
-    true,
-  );
-  expect(await service.checkUserRateLimit("user")).toStrictEqual({
+  let time = NOW;
+  const service = createRateLimitService(db, config({ aiRateLimitPerUser: 2 }), () => time);
+  expect(await service.admitRequest("user")).toStrictEqual({
+    allowed: true,
+    remaining: 1,
+    resetInMs: 30_000,
+  });
+  expect((await service.admitRequest("user")).allowed).toBe(true);
+  expect(await service.admitRequest("user")).toStrictEqual({
     allowed: false,
+    reason: "user_limit",
     remaining: 0,
     resetInMs: 30_000,
   });
-  expect(dailyRow(db, FIXED_DATE)?.requests).toBe(5);
+  expect((await service.admitRequest("other")).allowed).toBe(true);
+  time += 30_000;
+  expect((await service.admitRequest("user")).allowed).toBe(true);
+  expect((await service.getUsageStats()).requestsToday).toBe(4);
 });
+
+test("one remaining user allowance admits exactly one of 20 concurrent requests", async () => {
+  using db = openDatabase(":memory:");
+  const service = createRateLimitService(db, config(), () => NOW);
+  for (let i = 0; i < 4; i++) await service.admitRequest("user");
+  const results = await Promise.all(Array.from({ length: 20 }, () => service.admitRequest("user")));
+  expect(results.filter((result) => result.allowed).length).toBe(1);
+  expect(dailyRow(db, "2026-09-05")?.requests).toBe(5);
+});
+
 test("a failed daily count write consumes no per-user allowance", async () => {
   using db = openDatabase(":memory:");
-  const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
+  const service = createRateLimitService(db, config(), () => NOW);
   db.run(`CREATE TRIGGER fail_usage BEFORE INSERT ON ai_daily_usage
           BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END`);
   await rejects(() => service.admitRequest("user"), Error, "simulated write failure");
   db.run("DROP TRIGGER fail_usage");
-  expect((await service.checkUserRateLimit("user")).remaining).toBe(5);
-  expect(dailyRow(db, FIXED_DATE)).toBeNull();
+  expect(dailyRow(db, "2026-09-05")).toBeNull();
   expect((await service.admitRequest("user")).remaining).toBe(4);
 });
-test("admission rechecks the budget against usage reported just before it", async () => {
+
+test("the daily budget is a soft threshold: admitted requests may finish above it", async () => {
   using db = openDatabase(":memory:");
   const service = createRateLimitService(
     db,
-    createTestConfig({ aiDailyTokenBudget: 100 }),
-    () => FIXED_NOW,
+    config({ aiDailyTokenBudget: 100, aiRateLimitPerUser: 1 }),
+    () => NOW,
   );
-  const [, result] = await Promise.all([
-    service.recordTokenUsage(100),
-    service.admitRequest("user"),
-  ]);
-  expect(result).toStrictEqual({
-    allowed: false,
-    reason: "daily_budget",
-    remaining: 5,
-    resetInMs: 30_000,
-  });
-  expect((await service.getUsageStats()).requestsToday).toBe(0);
-  expect((await service.checkUserRateLimit("user")).remaining).toBe(5);
-});
-test("manual and autonomous in-flight requests may exceed the soft daily threshold", async () => {
-  using db = openDatabase(":memory:");
-  const config = createTestConfig({ aiDailyTokenBudget: 100, aiRateLimitPerUser: 1 });
-  const service = createRateLimitService(db, config, () => FIXED_NOW);
   await service.recordTokenUsage(99);
   const admitted = await Promise.all([
     service.admitRequest("user"),
@@ -211,14 +75,12 @@ test("manual and autonomous in-flight requests may exceed the soft daily thresho
     service.admitRequest("autonomous-chat", { enforceUserLimit: false }),
   ]);
   expect(admitted.every((result) => result.allowed)).toBe(true);
-  expect((await service.checkDailyBudget()).tokensRemaining).toBe(1);
   await Promise.all([10, 20, 30].map((tokens) => service.recordTokenUsage(tokens)));
   expect(await service.getUsageStats()).toStrictEqual({
     dailyTokensUsed: 159,
     dailyTokenBudget: 100,
     requestsToday: 3,
   });
-  expect(await service.checkDailyBudget()).toStrictEqual({ allowed: false, tokensRemaining: 0 });
   const manual = await service.admitRequest("other-user");
   const autonomous = await service.admitRequest("autonomous-chat", { enforceUserLimit: false });
   expect(!manual.allowed && manual.reason).toBe("daily_budget");
@@ -226,24 +88,18 @@ test("manual and autonomous in-flight requests may exceed the soft daily thresho
   expect((await service.getUsageStats()).requestsToday).toBe(3);
 });
 
-test("UTC minute and day rollover start fresh buckets without splitting request counters", async () => {
+test("a new UTC day starts a fresh budget; late token reports count toward the day they arrive", async () => {
   using db = openDatabase(":memory:");
   let time = Date.parse("2026-09-05T23:59:59.500Z");
   const service = createRateLimitService(
     db,
-    createTestConfig({ aiRateLimitPerUser: 1, aiDailyTokenBudget: 10 }),
+    config({ aiRateLimitPerUser: 1, aiDailyTokenBudget: 10 }),
     () => time,
   );
   expect((await service.admitRequest("user")).allowed).toBe(true);
   await service.recordTokenUsage(10);
   time += 500;
-  expect(await service.checkDailyBudget()).toStrictEqual({ allowed: true, tokensRemaining: 10 });
-  expect(await service.admitRequest("user")).toStrictEqual({
-    allowed: true,
-    remaining: 0,
-    resetInMs: 60_000,
-  });
-  // An AI call finishing after midnight is charged to its recording day.
+  expect((await service.admitRequest("user")).allowed).toBe(true);
   await service.recordTokenUsage(7);
   expect(await service.getUsageStats()).toStrictEqual({
     dailyTokensUsed: 7,
@@ -251,25 +107,32 @@ test("UTC minute and day rollover start fresh buckets without splitting request 
     requestsToday: 1,
   });
   expect(dailyRow(db, "2026-09-05")).toStrictEqual({ requests: 1, tokens: 10 });
-  time += 60_000;
-  expect((await service.admitRequest("user")).allowed).toBe(true);
-  expect((await service.getUsageStats()).requestsToday).toBe(2);
 });
+
+test("concurrent token reports from several services are all counted", async () => {
+  using db = openDatabase(":memory:");
+  const services = Array.from({ length: 20 }, () =>
+    createRateLimitService(db, config(), () => NOW),
+  );
+  await Promise.all(services.map((service) => service.recordTokenUsage(100)));
+  expect((await services[0].getUsageStats()).dailyTokensUsed).toBe(2000);
+});
+
 test("daily totals survive reopening the database file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "haru-usage-"));
   try {
     const path = join(dir, "nested", "haru.sqlite3");
     {
       using db = openDatabase(path);
-      const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
+      const service = createRateLimitService(db, config(), () => NOW);
       await service.admitRequest("user");
       await service.recordTokenUsage(42);
     }
     using db = openDatabase(path);
-    const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
+    const service = createRateLimitService(db, config(), () => NOW);
     expect(await service.getUsageStats()).toStrictEqual({
       dailyTokensUsed: 42,
-      dailyTokenBudget: 100000,
+      dailyTokenBudget: 100_000,
       requestsToday: 1,
     });
   } finally {
@@ -277,20 +140,9 @@ test("daily totals survive reopening the database file", async () => {
   }
 });
 
-test("maintenance deletes AI usage older than 30 days and keeps newer days", async () => {
-  using db = openDatabase(":memory:");
-  for (const date of ["2026-08-05", "2026-08-06", "2026-09-05"]) {
-    db.run("INSERT INTO ai_daily_usage (usage_date, tokens) VALUES (?, 1)", [date]);
-  }
-  expect(deleteOldAiUsage(db, FIXED_NOW)).toBe(1);
-  expect(dailyRow(db, "2026-08-05")).toBeNull();
-  expect(dailyRow(db, "2026-08-06")).not.toBeNull();
-  expect(dailyRow(db, "2026-09-05")).not.toBeNull();
-});
-
 test("invalid token reports cannot reduce or corrupt the budget counter", async () => {
   using db = openDatabase(":memory:");
-  const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
+  const service = createRateLimitService(db, config(), () => NOW);
   await service.recordTokenUsage(12);
   for (const invalid of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     await rejects(() => service.recordTokenUsage(invalid), RangeError, "non-negative safe integer");

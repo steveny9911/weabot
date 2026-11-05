@@ -19,30 +19,24 @@ import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
 import { startGateway } from "./src/app/gateway.ts";
 import type { BotDependencies } from "./src/bot/handle_message.ts";
 
-// --- Initialization ---
-// Throws immediately if required env vars are missing (Fail Fast pattern)
 const config = loadConfig();
 
-// One SQLite database for the whole process. Production sets HARU_DB_PATH to a persistent volume.
 const dbPath = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
 const db = openDatabase(dbPath);
 const storage = createStorageService(db);
 const actionTurns = new TurnStore<PendingRequest>();
 
-// Create the Discord API client
 const discord = createDiscordClient(config.discordToken);
 
-// Create AI-related services
 const rateLimit = createRateLimitService(db, config);
 const aiService = createAiService(config);
 const webSearch = createWebSearchService(config);
 const linkOpen = createLinkOpenService(config);
 
-// Bundle dependencies for bot actions
 const botDeps: BotDependencies = {
   config,
   usageService: createUsageService(config),
-  aiService: aiService,
+  aiService,
   rateLimitService: rateLimit,
   linkOpenService: linkOpen,
   storageService: storage,
@@ -56,7 +50,6 @@ const botDeps: BotDependencies = {
   ),
 };
 
-// Set up the date formatter with configured timezone
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   month: "long",
@@ -64,7 +57,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: config.timeZone,
 });
 
-// --- Register Services ---
 startGateway(config, botDeps);
 registerCronJobs(
   bunCron,
@@ -78,7 +70,6 @@ registerCronJobs(
 );
 createServer(config, discord, storage, dateFormatter, rateLimit);
 
-// --- Startup Logging ---
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);
 console.log(`   Database: ${dbPath}`);

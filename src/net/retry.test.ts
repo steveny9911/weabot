@@ -49,7 +49,6 @@ test("fetchWithRetry retries retryable status and eventually succeeds", async ()
     const response = await fetchWithRetry("https://example.com", undefined, {
       maxRetries: 2,
       initialDelayMs: 1,
-      maxDelayMs: 2,
     });
     expect(response.status).toStrictEqual(200);
     expect(mock.getCalls()).toStrictEqual(2);
@@ -71,7 +70,6 @@ test("fetchWithRetry retries with Retry-After on 429", async () => {
     const response = await fetchWithRetry("https://example.com", undefined, {
       maxRetries: 1,
       initialDelayMs: 1,
-      maxDelayMs: 5,
     });
     expect(response.status).toStrictEqual(200);
     expect(mock.getCalls()).toStrictEqual(2);
@@ -90,7 +88,6 @@ test("fetchWithRetry returns last failed retryable response after max retries", 
     const response = await fetchWithRetry("https://example.com", undefined, {
       maxRetries: 1,
       initialDelayMs: 1,
-      maxDelayMs: 2,
     });
     expect(response.status).toStrictEqual(503);
     expect(mock.getCalls()).toStrictEqual(2);
@@ -106,7 +103,6 @@ test("fetchWithRetry retries fetch errors and succeeds", async () => {
     const response = await fetchWithRetry("https://example.com", undefined, {
       maxRetries: 2,
       initialDelayMs: 1,
-      maxDelayMs: 2,
     });
     expect(response.status).toStrictEqual(200);
     expect(mock.getCalls()).toStrictEqual(2);
@@ -124,7 +120,6 @@ test("fetchWithRetry throws after repeated fetch errors", async () => {
         fetchWithRetry("https://example.com", undefined, {
           maxRetries: 1,
           initialDelayMs: 1,
-          maxDelayMs: 2,
         }),
       Error,
       "boom-2",

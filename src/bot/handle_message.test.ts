@@ -8,7 +8,7 @@ import type { BotDependencies } from "./handle_message.ts";
 import type { AppConfig } from "../config.ts";
 import { createRateLimitService } from "../services/rate_limit.ts";
 import { openDatabase } from "../db/database.ts";
-import type { BudgetResult, RateLimitResult, UsageStats } from "../services/rate_limit.ts";
+import type { RequestAdmission, UsageStats } from "../services/rate_limit.ts";
 import type { LinkOpenError } from "../net/link_open.ts";
 import type { SearchResult } from "../net/web_search.ts";
 import { haruGreetingGifPool } from "../features/reaction_gif.ts";
@@ -151,8 +151,7 @@ function createDeps(
           error: LinkOpenError;
         };
     webSearchResult?: { ok: true; results: SearchResult[] } | { ok: false; error: string };
-    rateLimitResult?: RateLimitResult;
-    budgetResult?: BudgetResult;
+    admission?: RequestAdmission;
   } = {},
 ): {
   deps: BotDependencies;
@@ -178,32 +177,10 @@ function createDeps(
       },
     },
     rateLimitService: {
-      async admitRequest(userId) {
-        const rate = await this.checkUserRateLimit(userId);
-        if (!rate.allowed) return { ...rate, allowed: false, reason: "user_limit" };
-        if (!(await this.checkDailyBudget()).allowed) {
-          return { ...rate, allowed: false, reason: "daily_budget" };
-        }
-        await this.recordUserRequest(userId);
-        return { ...rate, allowed: true };
-      },
-      checkUserRateLimit(_userId: string): Promise<RateLimitResult> {
-        return Promise.resolve(
-          overrides.rateLimitResult ?? {
-            allowed: true,
-            remaining: 99,
-            resetInMs: 1000,
-          },
-        );
-      },
-      recordUserRequest(_userId: string): Promise<void> {
-        requestCount++;
-        return Promise.resolve();
-      },
-      checkDailyBudget(): Promise<BudgetResult> {
-        return Promise.resolve(
-          overrides.budgetResult ?? { allowed: true, tokensRemaining: 999999 },
-        );
+      admitRequest() {
+        const admission = overrides.admission ?? { allowed: true, remaining: 99, resetInMs: 1000 };
+        if (admission.allowed) requestCount++;
+        return Promise.resolve(admission);
       },
       recordTokenUsage(tokens: number): Promise<void> {
         recordedTokens.push(tokens);
@@ -624,7 +601,7 @@ test("handleMessage enforces rate limit and daily budget checks", async () => {
     try {
       const config = createMockConfig();
       const ctx = createDeps(config, {
-        rateLimitResult: { allowed: false, remaining: 0, resetInMs: 60000 },
+        admission: { allowed: false, reason: "user_limit", remaining: 0, resetInMs: 60000 },
       });
       await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
       expect(ctx.requestCount).toStrictEqual(0);
@@ -641,7 +618,7 @@ test("handleMessage enforces rate limit and daily budget checks", async () => {
     try {
       const config = createMockConfig();
       const ctx = createDeps(config, {
-        budgetResult: { allowed: false, tokensRemaining: 0 },
+        admission: { allowed: false, reason: "daily_budget", remaining: 0, resetInMs: 0 },
       });
       await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
       expect(ctx.requestCount).toStrictEqual(0);
@@ -765,8 +742,7 @@ test("handleMessage admits exactly one concurrent mention for one remaining allo
 test("usage command bypasses AI budgets and does not mutate conversation context", async () => {
   const mock = mockDiscordApiFetch();
   const state = createDeps(createMockConfig({ aiEnabled: false }), {
-    rateLimitResult: { allowed: false, remaining: 0, resetInMs: 1000 },
-    budgetResult: { allowed: false, tokensRemaining: 0 },
+    admission: { allowed: false, reason: "daily_budget", remaining: 0, resetInMs: 0 },
   });
   let reads = 0;
   state.deps.usageService = {

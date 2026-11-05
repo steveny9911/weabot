@@ -12,7 +12,6 @@ export type AutonomousParticipation =
     }
   | { action: "silent"; reason?: DecisionReason };
 
-/** Successful AI response with token usage */
 export interface AiSuccessResult {
   ok: true;
   text: string;
@@ -21,7 +20,6 @@ export interface AiSuccessResult {
   participation?: AutonomousParticipation;
 }
 
-/** Failed AI response */
 export interface AiErrorResult {
   ok: false;
   error: string;
@@ -49,7 +47,6 @@ export interface AiParticipationOptions {
   reactionChoices?: ReactionChoice[];
 }
 
-/** AI service interface for dependency injection */
 export interface AiService {
   /** Generate a reply from conversation messages */
   generateReply(

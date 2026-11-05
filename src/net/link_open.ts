@@ -1,9 +1,6 @@
 /**
- * Link Open Service
- *
- * Safely fetches and extracts text from user-provided links for AI context.
- * This service is intentionally strict: HTML-only, limited redirects, and
- * blocked local/private/metadata hosts.
+ * Fetches a user-provided link and extracts its text for AI context. Deliberately strict: HTML
+ * only, few redirects, and no local, private or metadata hosts.
  */
 
 import type { AppConfig } from "../config.ts";
@@ -175,9 +172,6 @@ function isRedirectStatus(status: number): boolean {
   return status >= 300 && status < 400;
 }
 
-/**
- * Create link open service.
- */
 export function createLinkOpenService(
   _config: AppConfig,
   dependencies: { fetch?: LinkFetch; timeoutMs?: number } = {},

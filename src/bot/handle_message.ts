@@ -1,8 +1,3 @@
-/**
- * Handles incoming Discord messages: the \\usage, \\reset and \\open commands and AI replies.
- * Uses dependency injection for testability and rate limiting.
- */
-
 import type { UsageService } from "../services/usage.ts";
 import { formatUsageMessage } from "../features/usage.ts";
 import type { AppConfig } from "../config.ts";
@@ -30,9 +25,6 @@ import {
 } from "./commands.ts";
 import { clearContext, getContext, saveContext } from "./context.ts";
 
-/**
- * Dependencies required by bot action handlers.
- */
 export interface BotDependencies {
   config: AppConfig;
   usageService?: UsageService;
@@ -44,10 +36,7 @@ export interface BotDependencies {
   discordActionService?: DiscordActionService;
 }
 
-/**
- * Handle an incoming message. If it mentions the bot, check rate limits
- * and generate an AI response.
- */
+/** Answers mentions: \\usage, \\reset, \\open, and otherwise an AI reply within the rate limits. */
 export async function handleMessage(
   message: Record<string, unknown>,
   deps: BotDependencies,
@@ -55,7 +44,6 @@ export async function handleMessage(
   const { config, aiService, rateLimitService, webSearchService, linkOpenService, storageService } =
     deps;
 
-  // Get bot user ID
   const botId = await getBotUserId(config);
   if (!botId) return;
   if (!message) return;
@@ -76,7 +64,6 @@ export async function handleMessage(
     return;
   }
 
-  // Check if message mentions the bot
   if (!messageMentionsBot(message, botId)) {
     return;
   }
@@ -105,7 +92,6 @@ export async function handleMessage(
   const openRequested = isOpenCommand(content);
   const openCommand = openRequested ? parseOpenCommand(content) : null;
 
-  // Handle reset context command
   if (isResetCommand(content)) {
     if (typeof message["guild_id"] === "string") {
       await deps.discordActionService?.clearPending(
@@ -131,7 +117,6 @@ export async function handleMessage(
 
   console.log(`Bot mentioned by user ${userId} in channel ${channelId}`);
 
-  // Check if AI is enabled
   if (!config.aiEnabled) {
     console.log("AI is disabled, ignoring mention");
     return;
@@ -257,10 +242,8 @@ export async function handleMessage(
     return;
   }
 
-  // Record token usage
   await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
 
-  // Send the AI reply
   let finalReply = actionReply ?? aiResult.text;
   if (stripUrlsFromReply) {
     const stripped = stripUrls(finalReply);

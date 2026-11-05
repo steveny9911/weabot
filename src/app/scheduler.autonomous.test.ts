@@ -148,7 +148,6 @@ async function withAutonomousJob(
               )
             );
           },
-          sendDM: () => Promise.reject(new Error("unexpected DM")),
           getPollVoters: () => Promise.reject(new Error("unexpected poll")),
           getRecentMessages:
             options.getRecentMessages ??

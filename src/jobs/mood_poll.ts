@@ -18,7 +18,6 @@ export async function postMoodPolls(
     const response = await discord.postMessage(channelId, payload);
 
     if (response.ok) {
-      // Parse response to get message ID and save for collection
       const messageData = (await response.json()) as { id: string };
       const messageId = messageData.id;
 

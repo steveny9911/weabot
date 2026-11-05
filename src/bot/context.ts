@@ -7,12 +7,8 @@ import {
   selectActiveConversation,
 } from "../features/chat_context.ts";
 
-// In-memory cache of recent messages per channel
 const messagesCache = new Map<string, Array<Record<string, unknown>>>();
 
-/**
- * Fetch the most recent N messages from a channel and cache them.
- */
 export async function saveContext(
   config: AppConfig,
   channelId: string,
@@ -28,7 +24,6 @@ export async function saveContext(
     if (!fetched) return;
     let msgs = fetched;
 
-    // Ensure the triggering message is included
     if (triggerMessage) {
       const trigId = triggerMessage["id"] as string | undefined;
       if (trigId) {
@@ -51,14 +46,10 @@ export async function saveContext(
   }
 }
 
-/**
- * Retrieve cached context for a channel.
- */
 export function getContext(channelId: string): Array<Record<string, unknown>> | undefined {
   return messagesCache.get(channelId);
 }
 
-/** Forget the cached context for a channel, as the \\reset command does. */
 export function clearContext(channelId: string): void {
   messagesCache.delete(channelId);
 }

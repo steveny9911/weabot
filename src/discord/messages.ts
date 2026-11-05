@@ -5,12 +5,8 @@
 import type { AppConfig } from "../config.ts";
 import { botJsonHeaders, DISCORD_API_BASE } from "./api.ts";
 
-// Cached bot user ID
 let cachedBotUserId: string | undefined;
 
-/**
- * Fetch and cache the bot's user ID from Discord API.
- */
 export async function getBotUserId(config: AppConfig): Promise<string | undefined> {
   if (cachedBotUserId) return cachedBotUserId;
 
@@ -38,9 +34,6 @@ export async function getBotUserId(config: AppConfig): Promise<string | undefine
   }
 }
 
-/**
- * Send a message to a channel.
- */
 export async function sendMessage(
   config: AppConfig,
   channelId: string,
@@ -74,10 +67,7 @@ export async function sendMessage(
   }
 }
 
-/**
- * Fetch up to `limit` recent messages (Discord API order, newest first).
- * Returns null after logging when Discord answers with an error; network errors propagate.
- */
+/** Newest first. Returns null on a Discord error; network errors propagate. */
 export async function fetchChannelMessages(
   config: AppConfig,
   channelId: string,

@@ -1,27 +1,10 @@
-/**
- * Persistent AI usage counters and atomic request admission.
- *
- * The daily budget is a soft threshold on reported usage: admitted requests may
- * finish above it. It is not a reservation or a strict cap on in-flight tokens.
- */
-
 import { type Database, SQLiteError } from "bun:sqlite";
 import type { AppConfig } from "../config.ts";
 import { createAiUsageQueries } from "../db/ai_usage.ts";
 
-export interface RateLimitResult {
-  allowed: boolean;
-  remaining: number;
-  resetInMs: number;
-}
-
-export type RequestAdmission = RateLimitResult &
-  ({ allowed: true } | { allowed: false; reason: "user_limit" | "daily_budget" });
-
-export interface BudgetResult {
-  allowed: boolean;
-  tokensRemaining: number;
-}
+export type RequestAdmission = { remaining: number; resetInMs: number } & (
+  { allowed: true } | { allowed: false; reason: "user_limit" | "daily_budget" }
+);
 
 export interface UsageStats {
   dailyTokensUsed: number;
@@ -30,25 +13,16 @@ export interface UsageStats {
 }
 
 export interface RateLimitService {
-  /** Atomically check limits and count one accepted request. */
+  /** Atomically checks the limits and counts one accepted request. */
   admitRequest(userId: string, options?: { enforceUserLimit?: boolean }): Promise<RequestAdmission>;
-  /** Read-only snapshot; use admitRequest to authorize generation. */
-  checkUserRateLimit(userId: string): Promise<RateLimitResult>;
-  /** Unconditionally count a request, without authorizing it. */
-  recordUserRequest(userId: string): Promise<void>;
-  /** Read-only soft budget snapshot, excluding unreported in-flight usage. */
-  checkDailyBudget(): Promise<BudgetResult>;
-  /** Record reported tokens in the UTC day when this method is called. */
+  /** Records reported tokens in the current UTC day. */
   recordTokenUsage(tokens: number): Promise<void>;
   getUsageStats(): Promise<UsageStats>;
 }
 
 /**
- * Per-user request counts live in memory for the current UTC minute (a restart resets them,
- * behavior change 2). Daily request and token totals are stored in SQLite.
- *
- * `bun:sqlite` is synchronous and nothing below awaits between reading and writing, so admission
- * cannot interleave with another admission or a token report.
+ * Per-user counts live in memory for the current UTC minute; daily totals are in SQLite. The daily
+ * budget is a soft threshold: requests already admitted may finish above it.
  */
 export function createRateLimitService(
   db: Database,
@@ -56,8 +30,6 @@ export function createRateLimitService(
   now: () => number = Date.now,
 ): RateLimitService {
   const usage = createAiUsageQueries(db);
-  // Counts for the current UTC minute only. Entries from earlier minutes are dropped when the
-  // minute changes, so the map holds at most the users seen in one minute.
   const minuteCounts = new Map<string, { minute: string; count: number }>();
   let prunedMinute = "";
 
@@ -81,12 +53,10 @@ export function createRateLimitService(
     prunedMinute = minute;
   }
 
-  // The daily count is written in the transaction; the minute count is updated only after the
-  // transaction commits, so a failed commit cannot leave memory ahead of the database.
+  // The minute count is updated only after the commit, so a failed write consumes no allowance.
   const admitTransaction = db.transaction(
     (
       userId: string,
-      enforceBudget: boolean,
       enforceUserLimit: boolean,
     ): { admission: RequestAdmission; minute: string; count: number } => {
       const current = bucket();
@@ -102,7 +72,7 @@ export function createRateLimitService(
         count,
       });
       if (enforceUserLimit && count >= config.aiRateLimitPerUser) return refused("user_limit");
-      if (enforceBudget && usage.get(current.date).tokens >= config.aiDailyTokenBudget) {
+      if (usage.get(current.date).tokens >= config.aiDailyTokenBudget) {
         return refused("daily_budget");
       }
       usage.addRequest(current.date);
@@ -114,45 +84,14 @@ export function createRateLimitService(
     },
   );
 
-  function admit(
-    userId: string,
-    enforceBudget: boolean,
-    enforceUserLimit: boolean,
-  ): RequestAdmission {
-    const { admission, minute, count } = admitTransaction.immediate(
-      userId,
-      enforceBudget,
-      enforceUserLimit,
-    );
-    if (admission.allowed) minuteCounts.set(userId, { minute, count });
-    return admission;
-  }
-
   return {
     async admitRequest(userId, options) {
-      return admit(userId, true, options?.enforceUserLimit ?? true);
-    },
-
-    async checkUserRateLimit(userId) {
-      const current = bucket();
-      const count = userCount(userId, current.minute);
-      return {
-        allowed: count < config.aiRateLimitPerUser,
-        remaining: Math.max(0, config.aiRateLimitPerUser - count),
-        resetInMs: current.resetInMs,
-      };
-    },
-
-    async recordUserRequest(userId) {
-      admit(userId, false, false);
-    },
-
-    async checkDailyBudget() {
-      const used = usage.get(bucket().date).tokens;
-      return {
-        allowed: used < config.aiDailyTokenBudget,
-        tokensRemaining: Math.max(0, config.aiDailyTokenBudget - used),
-      };
+      const { admission, minute, count } = admitTransaction.immediate(
+        userId,
+        options?.enforceUserLimit ?? true,
+      );
+      if (admission.allowed) minuteCounts.set(userId, { minute, count });
+      return admission;
     },
 
     async recordTokenUsage(tokens) {

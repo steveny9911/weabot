@@ -1,9 +1,4 @@
-/**
- * Web Search Service
- *
- * Provides a simple, injectable interface for internet search.
- * Uses Brave Search API for reliable results and easy setup.
- */
+/** Web search through the Brave Search API. */
 
 import type { AppConfig } from "../config.ts";
 import { fetchWithRetry } from "./retry.ts";
@@ -18,9 +13,6 @@ export interface SearchResult {
 }
 
 export interface WebSearchService {
-  /**
-   * Perform a web search and return top results.
-   */
   search(
     query: string,
     maxResults?: number,
@@ -44,21 +36,16 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen - 3) + "...";
 }
 
-/**
- * Extract a search query for auto-search from a mention message.
- * This is a conservative heuristic to avoid searching small talk.
- */
+/** A search query for a factual mention, or null. Conservative, to skip small talk. */
 export function extractAutoSearchQuery(content: string | undefined): string | null {
   if (!content) return null;
 
   const cleaned = content.replace(/<@!?\d+>/g, "").trim();
   if (!cleaned) return null;
 
-  // Skip explicit commands
   if (/^\\search\b/i.test(cleaned) || /^search[:\s]/i.test(cleaned)) return null;
   if (/\\reset\b/i.test(cleaned)) return null;
 
-  // Avoid small talk or subjective prompts
   if (
     /^(hi|hello|hey|yo|sup|how are you|how r u|how's it going|what's up|whats up)\b/i.test(cleaned)
   ) {
@@ -89,9 +76,6 @@ export function extractAutoSearchQuery(content: string | undefined): string | nu
   return cleaned;
 }
 
-/**
- * Format search results for AI context (neutral, no character voice).
- */
 export function formatSearchResultsForContext(query: string, results: SearchResult[]): string {
   const cleanQuery = query.trim();
   if (results.length === 0) {
@@ -108,9 +92,6 @@ export function formatSearchResultsForContext(query: string, results: SearchResu
   return [header, ...lines].join("\n");
 }
 
-/**
- * Create a web search service using Brave Search API.
- */
 export function createWebSearchService(config: AppConfig): WebSearchService {
   return {
     async search(query: string, maxResults?: number) {

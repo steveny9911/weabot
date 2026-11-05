@@ -1,19 +1,10 @@
-/**
- * Discord Gateway
- *
- * Establishes a WebSocket connection to Discord's Gateway API
- * to receive real-time events like MESSAGE_CREATE.
- */
+/** Discord Gateway WebSocket: receives MESSAGE_CREATE events and hands them to the bot. */
 
 import { type BotDependencies, handleMessage } from "../bot/handle_message.ts";
 import type { AppConfig } from "../config.ts";
 
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
 
-/**
- * Starts the Discord Gateway WebSocket connection.
- * Receives real-time events and dispatches them to handlers.
- */
 export function startGateway(
   config: AppConfig,
   deps: BotDependencies,
@@ -103,7 +94,6 @@ export function startGateway(
           const interval = (d["heartbeat_interval"] as number) ?? 45000;
           startHeartbeatLoop(interval);
 
-          // Send identify payload
           // Intents breakdown:
           // - GUILDS (1 << 0 = 1) - Required to receive GUILD_CREATE events
           // - GUILD_MESSAGES (1 << 9 = 512) - Receive messages in guilds
@@ -131,7 +121,6 @@ export function startGateway(
           ws?.send(JSON.stringify(identify));
         } // Op 0: Dispatch events
         else if (op === 0 && t === "READY" && d) {
-          // Log bot info and guilds on ready
           const user = d["user"] as Record<string, unknown> | undefined;
           const guilds = d["guilds"] as Array<Record<string, unknown>> | undefined;
           console.log(
@@ -140,7 +129,6 @@ export function startGateway(
           console.log(`[GATEWAY] Connected to ${guilds?.length ?? 0} guild(s)`);
           sendOnlinePresence();
         } else if (op === 0 && t === "GUILD_CREATE" && d) {
-          // Log when we receive guild info
           const guildName = d["name"] as string | undefined;
           const guildId = d["id"] as string | undefined;
           console.log(`[GATEWAY] Guild available: "${guildName}" (${guildId})`);
@@ -165,7 +153,6 @@ export function startGateway(
       if (heartbeatHandle) clearInterval(heartbeatHandle);
       heartbeatHandle = undefined;
       awaitingHeartbeatAck = false;
-      // Reconnect after 5 seconds
       setTimeout(connect, 5000);
     };
 

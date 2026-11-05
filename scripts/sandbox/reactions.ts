@@ -48,7 +48,6 @@ export function sandboxDiscord(client: DiscordClient, after: string): DiscordCli
       }
       return client.addReaction(channelId, messageId, emoji);
     },
-    sendDM: () => Promise.reject(new Error("Sandbox test cannot send DMs.")),
   };
 }
 async function main() {

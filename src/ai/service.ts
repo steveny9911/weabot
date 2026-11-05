@@ -1,10 +1,3 @@
-/**
- * AI Service
- *
- * Handles OpenAI Responses API calls with safety controls.
- * Uses dependency injection for testability and configuration.
- */
-
 import type { AppConfig } from "../config.ts";
 import { DECISION_REASONS, type ReactionIntent } from "../features/reactions.ts";
 import {
@@ -38,9 +31,6 @@ const MAX_TOOL_CALLS = 8;
 const RESPONSE_TIMEOUT_MS = 60_000;
 const TOOL_LOOP_TIMEOUT_MS = 120_000;
 
-/**
- * Creates an AI service with the given configuration.
- */
 export function createAiService(
   config: AppConfig,
   runtime: {
@@ -67,17 +57,14 @@ export function createAiService(
       const allowedMessageIds = new Set(
         participationOptions?.allowedMessageIds.filter((id) => contextIds.has(id)) ?? [],
       );
-      // Check if AI is enabled
       if (!config.aiEnabled) {
         return { ok: false, error: "AI is disabled" };
       }
 
-      // Check if API key is configured
       if (!config.openaiApiKey) {
         return { ok: false, error: "OPENAI_API_KEY not set" };
       }
 
-      // Build prompt from messages (no truncation unless explicitly configured)
       const choices =
         participationOptions?.reactionChoices ??
         AUTONOMOUS_REACTION_EMOJIS.map((emoji) => ({

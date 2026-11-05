@@ -21,10 +21,7 @@ export async function withResponseDeadline<T>(
   }
 }
 
-/**
- * Extracts assistant text from OpenAI Responses API payloads.
- * Handles both `output_text` and structured `output[].content[]` shapes.
- */
+/** Reply text from either `output_text` or the structured `output[].content[]` shape. */
 export function extractResponseText(data: Record<string, unknown>): string | null {
   const topLevelOutputText = data.output_text;
   if (typeof topLevelOutputText === "string" && topLevelOutputText.trim().length > 0) {

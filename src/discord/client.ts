@@ -1,96 +1,46 @@
-/**
- * Discord API Client Service
- *
- * Abstracts all Discord REST API calls behind an injectable interface.
- * This keeps HTTP details out of the business logic and enables
- * dependency injection for testing (pass a mock client instead).
- *
- * Reads and messages use automatic retry with exponential backoff.
- * Reactions make one bounded request so an uncertain failure does not cause retries.
- */
-
 import type { CreatePollMessagePayload } from "./types.ts";
 import type { EmbedMessagePayload } from "../features/stats.ts";
 import { mapDiscordMessage, type RecentDiscordMessage } from "../features/chat_context.ts";
 import type { ReactionContext } from "../features/reactions.ts";
 import { readReactionContext } from "./reaction_context.ts";
 import { fetchWithRetry } from "../net/retry.ts";
-
 import { DISCORD_API_BASE as API_BASE } from "./api.ts";
+
 const REACTION_TIMEOUT_MS = 15_000;
 
-/** Generic message payload (polls, embeds, text, etc.) */
 export type MessagePayload =
   | CreatePollMessagePayload
   | EmbedMessagePayload
   | { content: string; allowed_mentions?: { parse: string[] } };
 
-/** A voter from a poll answer */
 export interface PollVoter {
   odUserId: string;
   odUserName: string;
 }
 
-/** Poll answer with voters */
 export interface PollAnswerVoters {
   answerId: number;
   answerText: string;
   voters: PollVoter[];
 }
 
-/** Discord API client interface for dependency injection */
+/** Discord REST calls used by jobs. Reads and posts retry; reactions are sent once. */
 export interface DiscordClient {
-  /**
-   * Posts a message to a channel (poll, embed, or text)
-   * @param channelId - The Discord channel ID
-   * @param payload - The message payload
-   * @returns The raw fetch Response for error handling
-   */
   postMessage(channelId: string, payload: MessagePayload): Promise<Response>;
 
-  /**
-   * Adds the bot's emoji reaction to an existing message.
-   * Requires Read Message History and, for a new emoji, Add Reactions.
-   * Makes one request; callers handle errors without falling back to a text message.
-   * @returns The raw fetch Response (204 on success)
-   */
   addReaction(channelId: string, messageId: string, emoji: string): Promise<Response>;
 
-  /**
-   * Sends a direct message to a user
-   * @param userId - The Discord user ID
-   * @param payload - The message payload
-   * @returns The raw fetch Response for error handling
-   */
-  sendDM(userId: string, payload: MessagePayload): Promise<Response>;
-
-  /**
-   * Gets recent channel messages for context-aware scheduled jobs
-   * @param channelId - The Discord channel ID
-   * @param limit - Number of messages to fetch, clamped to Discord's 1-100 range
-   * @returns Recent messages in Discord API order (newest first)
-   */
+  /** Newest first; `limit` is clamped to 1-100. */
   getRecentMessages(channelId: string, limit: number): Promise<RecentDiscordMessage[]>;
 
   /** Optional for minimal injected clients; production always implements both live reads. */
   getReactionContext?(channelId: string, botUserId: string): Promise<ReactionContext>;
   getMessage?(channelId: string, messageId: string): Promise<RecentDiscordMessage | null>;
 
-  /**
-   * Gets every voter for every answer in a finalized poll
-   * @param channelId - The channel containing the poll
-   * @param messageId - The message ID of the poll
-   * @returns Complete answers with their voters, including zero-vote answers
-   * @throws If the poll is unfinished, malformed, inaccessible, or incompletely retrieved
-   */
+  /** Every voter of a finalized poll; throws if the poll is unfinished or incompletely read. */
   getPollVoters(channelId: string, messageId: string): Promise<PollAnswerVoters[]>;
 }
 
-/**
- * Creates a Discord API client with the given bot token.
- * @param token - The Discord bot token
- * @returns A DiscordClient implementation
- */
 export function createDiscordClient(token: string): DiscordClient {
   const headers = {
     Authorization: `Bot ${token}`,
@@ -99,12 +49,11 @@ export function createDiscordClient(token: string): DiscordClient {
 
   return {
     async postMessage(channelId, payload) {
-      const response = await fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
+      return await fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
       });
-      return response;
     },
 
     async addReaction(channelId, messageId, emoji) {
@@ -125,29 +74,6 @@ export function createDiscordClient(token: string): DiscordClient {
       } finally {
         clearTimeout(timer);
       }
-    },
-
-    async sendDM(userId, payload) {
-      // First, create a DM channel with the user
-      const dmChannelResponse = await fetchWithRetry(`${API_BASE}/users/@me/channels`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ recipient_id: userId }),
-      });
-
-      if (!dmChannelResponse.ok) {
-        return dmChannelResponse;
-      }
-
-      const dmChannel = (await dmChannelResponse.json()) as { id: string };
-      const channelId = dmChannel.id;
-
-      // Then send the message to that channel
-      return await fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
     },
 
     async getRecentMessages(channelId, limit) {

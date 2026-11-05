@@ -1,9 +1,4 @@
-/**
- * Storage Service
- *
- * Persists votes, polls, context resets and autonomous participation in SQLite.
- * Uses dependency injection pattern for testability.
- */
+/** Votes, polls, context resets and autonomous participation, stored in SQLite. */
 
 import type { Database } from "bun:sqlite";
 import { createChatStateQueries } from "../db/chat_state.ts";
@@ -15,7 +10,6 @@ import {
   type StorageService,
 } from "../types/storage.ts";
 
-// Re-exported for existing importers; the definitions live in src/types/storage.ts.
 export { isNewerHumanMessage };
 export type { ContextStorageService, StorageService } from "../types/storage.ts";
 
@@ -25,9 +19,6 @@ function previousDate(date: string): string {
   return value.toISOString().slice(0, 10);
 }
 
-/**
- * Creates a storage service backed by the shared SQLite database.
- */
 export function createStorageService(db: Database, now: () => number = Date.now): StorageService {
   const votes = createVoteQueries(db);
   const chat = createChatStateQueries(db);

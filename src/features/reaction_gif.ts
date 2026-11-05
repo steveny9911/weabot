@@ -1,6 +1,4 @@
-/**
- * Greeting reaction GIFs for Haru replies.
- */
+/** Greeting reaction GIFs for Haru replies. */
 
 export const haruGreetingGifPool: readonly string[] = [
   "https://tenor.com/view/uma-musume-anime-haru-urara-hi-hello-gif-13117639751450924729",

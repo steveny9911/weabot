@@ -1,100 +1,35 @@
-/**
- * Retry Utility
- *
- * Implements exponential backoff for network requests.
- * Critical for reliability with external APIs.
- */
-
-export interface RetryOptions {
-  /** Maximum number of retry attempts (default: 3) */
-  maxRetries?: number;
-  /** Initial delay in milliseconds (default: 1000) */
-  initialDelayMs?: number;
-  /** Maximum delay in milliseconds (default: 30000) */
-  maxDelayMs?: number;
-  /** Multiplier for exponential backoff (default: 2) */
-  backoffMultiplier?: number;
-  /** HTTP status codes that should trigger a retry (default: [429, 500, 502, 503, 504]) */
-  retryableStatuses?: number[];
-}
-
-const DEFAULT_OPTIONS: Required<RetryOptions> = {
-  maxRetries: 3,
-  initialDelayMs: 1000,
-  maxDelayMs: 30000,
-  backoffMultiplier: 2,
-  retryableStatuses: [429, 500, 502, 503, 504],
-};
+const RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
+const MAX_DELAY_MS = 30_000;
 
 /**
- * Executes a fetch request with exponential backoff retry.
- *
- * @param url - The URL to fetch
- * @param init - Fetch init options
- * @param options - Retry configuration
- * @returns The successful Response
- * @throws Error after all retries are exhausted
+ * Fetches with exponential backoff on network errors and retryable statuses (429 honours
+ * Retry-After). After the last attempt the failed response is returned or the error thrown.
  */
 export async function fetchWithRetry(
   url: string,
   init?: RequestInit,
-  options?: RetryOptions,
+  { maxRetries = 3, initialDelayMs = 1000 } = {},
 ): Promise<Response> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  let lastError: Error | null = null;
-  let delay = opts.initialDelayMs;
-
-  for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
+  let delay = initialDelayMs;
+  for (let attempt = 0; ; attempt++) {
+    const last = attempt >= maxRetries;
+    const tries = `attempt ${attempt + 1}/${maxRetries + 1}`;
     try {
       const response = await fetch(url, init);
-
-      // If response is OK or not retryable, return it
-      if (response.ok || !opts.retryableStatuses.includes(response.status)) {
-        return response;
+      if (response.ok || !RETRYABLE_STATUSES.includes(response.status) || last) return response;
+      const retryAfter = parseInt(response.headers.get("Retry-After") ?? "", 10);
+      if (response.status === 429 && !isNaN(retryAfter)) {
+        delay = Math.min(retryAfter * 1000, MAX_DELAY_MS);
       }
-
-      // Handle rate limiting with Retry-After header
-      if (response.status === 429) {
-        const retryAfter = response.headers.get("Retry-After");
-        if (retryAfter) {
-          const retryDelaySec = parseInt(retryAfter, 10);
-          if (!isNaN(retryDelaySec)) {
-            delay = Math.min(retryDelaySec * 1000, opts.maxDelayMs);
-          }
-        }
-      }
-
-      // Log retry attempt
-      if (attempt < opts.maxRetries) {
-        console.warn(
-          `[RETRY] Request failed with ${response.status}, attempt ${attempt + 1}/${
-            opts.maxRetries + 1
-          }, retrying in ${delay}ms`,
-        );
-      } else {
-        // Last attempt, return the response even if it failed
-        return response;
-      }
+      console.warn(
+        `[RETRY] Request failed with ${response.status}, ${tries}, retrying in ${delay}ms`,
+      );
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      if (attempt < opts.maxRetries) {
-        console.warn(
-          `[RETRY] Request error: ${lastError.message}, attempt ${attempt + 1}/${
-            opts.maxRetries + 1
-          }, retrying in ${delay}ms`,
-        );
-      } else {
-        throw lastError;
-      }
+      const failure = error instanceof Error ? error : new Error(String(error));
+      if (last) throw failure;
+      console.warn(`[RETRY] Request error: ${failure.message}, ${tries}, retrying in ${delay}ms`);
     }
-
-    // Wait before retry
-    await new Promise((resolve) => setTimeout(resolve, delay));
-
-    // Exponential backoff
-    delay = Math.min(delay * opts.backoffMultiplier, opts.maxDelayMs);
+    await Bun.sleep(delay);
+    delay = Math.min(delay * 2, MAX_DELAY_MS);
   }
-
-  throw lastError ?? new Error("Retry failed with no error captured");
 }
