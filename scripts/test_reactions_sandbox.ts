@@ -1,4 +1,5 @@
 /** One explicit reaction consideration; never starts production jobs or fabricates human messages. */
+import { openDatabase } from "../src/db/database.ts";
 import { createAiService } from "../ai_service.ts";
 import { loadConfig } from "../src/config.ts";
 import { participateInChannel } from "../src/features/autonomous_chat/participate.ts";
@@ -50,13 +51,13 @@ export function sandboxDiscord(client: DiscordClient, after: string): DiscordCli
   };
 }
 async function main() {
-  if (Deno.args.includes("--help")) {
+  if (process.argv.slice(2).includes("--help")) {
     console.log(
       "One Bot Sandbox #bitconnect-memes consideration: [--send | --dry-run] --after=<boundary message ID>. Default is dry-run. Post real human test messages after the boundary; no @Haru mention. No production gateway, scheduler, config or state.",
     );
     return;
   }
-  const options = sandboxOptions(Deno.args);
+  const options = sandboxOptions(process.argv.slice(2));
   const config = {
     ...loadConfig(),
     aiEnabled: true,
@@ -73,7 +74,7 @@ async function main() {
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error("Could not verify bot identity.");
-  const bot = await r.json();
+  const bot = (await r.json()) as { id?: unknown };
   if (typeof bot.id !== "string") throw new Error("Invalid bot identity.");
   const context = await real.getReactionContext!(REACTION_SANDBOX_CHANNEL, bot.id);
   const events = createDiscordEventsClient(config.discordToken);
@@ -86,7 +87,8 @@ async function main() {
   )
     throw new Error("Sandbox identity mismatch.");
   // Live runs persist duplicate protection across invocations; previews use disposable memory.
-  const kv = await Deno.openKv(options.send ? "/tmp/haru-reaction-sandbox.sqlite3" : ":memory:");
+  // A new file name: the old Deno KV file at /tmp/haru-reaction-sandbox.sqlite3 has another schema.
+  const db = openDatabase(options.send ? "/tmp/haru-reaction-sandbox.bun.sqlite3" : ":memory:");
   try {
     console.log(
       "[SANDBOX]",
@@ -102,15 +104,15 @@ async function main() {
     const outcome = await participateInChannel(REACTION_SANDBOX_CHANNEL, {
       config,
       discord: sandboxDiscord(real, options.after),
-      storage: createStorageService(kv),
+      storage: createStorageService(db),
       ai: createAiService(config),
-      rateLimit: createRateLimitService(kv, config),
+      rateLimit: createRateLimitService(db, config),
       botId: bot.id,
       deliver: options.send,
     });
     console.log(JSON.stringify({ dryRun: !options.send, outcome }));
   } finally {
-    kv.close();
+    db.close();
   }
 }
 if (import.meta.main) {
@@ -118,6 +120,6 @@ if (import.meta.main) {
     await main();
   } catch {
     console.error("Sandbox reaction test failed; no additional actions attempted.");
-    Deno.exitCode = 1;
+    process.exitCode = 1;
   }
 }

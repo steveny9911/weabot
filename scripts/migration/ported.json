@@ -37,7 +37,9 @@
     "src/scheduler.test.ts": 4,
     "src/db/database.test.ts": 7,
     "src/features/discord_actions/state.test.ts": 3,
-    "src/db/discord_actions.test.ts": 7
+    "src/db/discord_actions.test.ts": 7,
+    "scripts/run_discord_sandbox.test.ts": null,
+    "scripts/test_reactions_sandbox.test.ts": null
   },
   "transport": {
     "tests/public_fetch.integration.ts": 22,

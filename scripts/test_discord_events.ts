@@ -1,14 +1,14 @@
 /**
  * Local semantic smoke test; never starts Haru's gateway, cron jobs, or server.
  *
- * deno run --unstable-kv --env-file=.env --allow-env \
- *   --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts --dry-run
+ * bun run sandbox:events --dry-run
  *
  * Omit --dry-run to create and clean up one sandbox event/invite. --keep leaves
  * the event visible; the invitation still expires after 60 seconds / one use.
  * Both modes call the real AI API and read Bot Sandbox metadata. The requester
  * is explicitly simulated as the sandbox owner, not an actual Discord message.
  */
+import { openDatabase } from "../src/db/database.ts";
 import { createAiService } from "../ai_service.ts";
 import { loadConfig } from "../src/config.ts";
 import {
@@ -67,7 +67,7 @@ function tomorrowEvening(): { date: string; start: string; end: string } {
 }
 
 async function main(): Promise<void> {
-  const args = new Set(Deno.args);
+  const args = new Set(process.argv.slice(2));
   ensure(
     [...args].every((arg) => ["--dry-run", "--keep", "--help"].includes(arg)),
     "Supported options: --dry-run, --keep, --help.",
@@ -285,8 +285,8 @@ async function main(): Promise<void> {
       return invite;
     },
   };
-  const kv = await Deno.openKv(":memory:");
-  const service = createDiscordActionService(client, kv, TIME_ZONE);
+  const db = openDatabase(":memory:");
+  const service = createDiscordActionService(client, db, TIME_ZONE);
   const ai = createAiService(config);
   let failure: string | undefined;
   try {
@@ -387,7 +387,7 @@ async function main(): Promise<void> {
   } catch (error) {
     failure = error instanceof Error ? error.message : "Sandbox test failed.";
   } finally {
-    kv.close();
+    db.close();
     if (!dryRun && !keep) {
       for (const invite of invites) {
         try {
@@ -445,7 +445,7 @@ async function main(): Promise<void> {
       ),
     );
   }
-  if (failure) Deno.exitCode = 1;
+  if (failure) process.exitCode = 1;
 }
 
 if (import.meta.main) {
@@ -459,6 +459,6 @@ if (import.meta.main) {
         error: error instanceof Error ? error.message : "Sandbox preflight failed.",
       }),
     );
-    Deno.exitCode = 1;
+    process.exitCode = 1;
   }
 }

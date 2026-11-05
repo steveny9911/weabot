@@ -52,7 +52,7 @@ function hasActual(text: string): boolean {
 }
 
 function hasEnvironment(text: string): boolean {
-  return /(deno|node|mac|linux|windows|discord|version|browser|os|channel)/i.test(text);
+  return /(bun|deno|node|mac|linux|windows|discord|version|browser|os|channel)/i.test(text);
 }
 
 function hasEvidence(text: string): boolean {
@@ -186,7 +186,7 @@ function toStateLabel(
   return "agent:rejected";
 }
 
-export async function runTriage(cwd = Deno.cwd()): Promise<void> {
+export async function runTriage(cwd = process.cwd()): Promise<void> {
   await ensureAgentLabels(cwd);
   const actor = await getCurrentGhLogin(cwd);
   const issues = await listOpenIssues(cwd);

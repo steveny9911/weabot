@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import { localSandboxMessage, SANDBOX_ID, TEXT_CHANNEL_ID } from "./run_discord_sandbox.ts";
 
 const botId = "1448562887038599168";
@@ -11,15 +11,15 @@ const message = {
   mentions: [],
 };
 
-Deno.test("local runner preserves actual request and adds only a process-local mention", () => {
-  assertEquals(localSandboxMessage(message, botId), {
+test("local runner preserves actual request and adds only a process-local mention", () => {
+  expect(localSandboxMessage(message, botId)).toStrictEqual({
     ...message,
     mentions: [{ id: botId }],
   });
-  assertEquals(message.mentions, []);
+  expect(message.mentions).toStrictEqual([]);
 });
 
-Deno.test("local runner ignores other guilds, channels, DMs, bots, and webhooks", () => {
+test("local runner ignores other guilds, channels, DMs, bots, and webhooks", () => {
   for (const change of [
     { guild_id: "another-guild" },
     { guild_id: undefined },
@@ -29,11 +29,11 @@ Deno.test("local runner ignores other guilds, channels, DMs, bots, and webhooks"
     { author: undefined },
     { id: undefined },
   ]) {
-    assertEquals(localSandboxMessage({ ...message, ...change }, botId), null);
+    expect(localSandboxMessage({ ...message, ...change }, botId)).toStrictEqual(null);
   }
 });
 
-Deno.test("local runner ignores ordinary messages and real mentions handled by AWS", () => {
+test("local runner ignores ordinary messages and real mentions handled by AWS", () => {
   for (const change of [
     { content: "create a game night event tomorrow" },
     { content: "Haru local," },
@@ -42,6 +42,6 @@ Deno.test("local runner ignores ordinary messages and real mentions handled by A
     { content: `Haru local, <@!${botId}> create an event` },
     { mentions: [{ id: botId }] },
   ]) {
-    assertEquals(localSandboxMessage({ ...message, ...change }, botId), null);
+    expect(localSandboxMessage({ ...message, ...change }, botId)).toStrictEqual(null);
   }
 });

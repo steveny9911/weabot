@@ -1,4 +1,5 @@
 /** Interactive local Haru, restricted to Bot Sandbox #general and a local-only trigger. */
+import { openDatabase } from "../src/db/database.ts";
 import { type AiService, createAiService } from "../ai_service.ts";
 import { bMessageMentionsBot, getBotUserId, handleMessage } from "../bot_actions.ts";
 import { startGateway } from "../discord_gateway.ts";
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
   if (!channels.some((c) => c.id === TEXT_CHANNEL_ID && c.type === 0 && c.name === "general")) {
     throw new Error("Expected Bot Sandbox #general.");
   }
-  const kv = await Deno.openKv(":memory:");
+  const db = openDatabase(":memory:");
   const realAi = createAiService(config);
   const localAi: AiService = {
     ...realAi,
@@ -107,10 +108,10 @@ async function main(): Promise<void> {
   const deps = {
     config,
     aiService: localAi,
-    rateLimitService: createRateLimitService(kv, config),
+    rateLimitService: createRateLimitService(db, config),
     linkOpenService: createLinkOpenService(config),
-    storageService: createStorageService(kv),
-    discordActionService: createDiscordActionService(events, kv, config.timeZone),
+    storageService: createStorageService(db),
+    discordActionService: createDiscordActionService(events, db, config.timeZone),
   };
 
   console.log(`[LOCAL] Bot Sandbox #general only. Bot identity: ${botId}`);

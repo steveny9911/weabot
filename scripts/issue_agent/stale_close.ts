@@ -24,7 +24,7 @@ function formatCloseComment(): string {
   ].join("\n");
 }
 
-export async function runStaleClose(cwd = Deno.cwd()): Promise<void> {
+export async function runStaleClose(cwd = process.cwd()): Promise<void> {
   await ensureAgentLabels(cwd);
   const actor = await getCurrentGhLogin(cwd);
   const issues = await listOpenIssues(cwd);

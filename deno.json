@@ -39,7 +39,9 @@
     "src/scheduler.test.ts",
     "src/db/database.test.ts",
     "src/features/discord_actions/state.test.ts",
-    "src/db/discord_actions.test.ts"
+    "src/db/discord_actions.test.ts",
+    "scripts/run_discord_sandbox.test.ts",
+    "scripts/test_reactions_sandbox.test.ts"
   ],
   "imports": {
     "@aws-sdk/client-cost-explorer": "npm:@aws-sdk/client-cost-explorer@3.1146.0",

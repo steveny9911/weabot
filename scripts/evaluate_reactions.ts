@@ -56,7 +56,8 @@ const fixtures = [
   },
 ];
 async function main() {
-  if (Deno.args.some((arg) => arg !== "--dry-run")) throw new Error("Only --dry-run is supported.");
+  if (process.argv.slice(2).some((arg) => arg !== "--dry-run"))
+    throw new Error("Only --dry-run is supported.");
   const config = { ...loadConfig(), aiEnabled: true, aiMaxInputChars: 0 };
   if (!config.openaiApiKey) throw new Error("OPENAI_API_KEY is required.");
   const ai = createAiService(config);
@@ -112,6 +113,6 @@ async function main() {
       2,
     ),
   );
-  if (outcomes.some((c) => !c.passed)) Deno.exitCode = 1;
+  if (outcomes.some((c) => !c.passed)) process.exitCode = 1;
 }
 if (import.meta.main) await main();

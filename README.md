@@ -174,8 +174,7 @@ For model-quality cases covering the split joke, celebration, kindness, cruelty,
 no Discord access:
 
 ```bash
-deno run --env-file=.env --allow-env --allow-net=api.openai.com \
-  scripts/evaluate_reactions.ts --dry-run
+bun run eval:reactions --dry-run
 ```
 
 For an explicit live sandbox test, post human-authored messages without an @Haru mention in Bot
@@ -184,15 +183,12 @@ only reads messages newer than that boundary, uses the production participation 
 gateway, scheduler, or server. Test admission is explicitly 100% with a one-human-message threshold;
 production admission settings are unchanged. A preview makes no Discord writes. `--send` opts into
 one reply/reaction/silence decision and persists sandbox duplicate protection in a separate
-temporary KV.
+temporary SQLite file (`/tmp/haru-reaction-sandbox.bun.sqlite3`).
 
 ```bash
-deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
-  scripts/test_reactions_sandbox.ts --dry-run --after=BOUNDARY_MESSAGE_ID
+bun run sandbox:reactions --dry-run --after=BOUNDARY_MESSAGE_ID
 
-deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
-  --allow-read=/tmp --allow-write=/tmp \
-  scripts/test_reactions_sandbox.ts --send --after=BOUNDARY_MESSAGE_ID
+bun run sandbox:reactions --send --after=BOUNDARY_MESSAGE_ID
 ```
 
 The sandbox tool refuses other write destinations, DMs, and older targets. Verify Discord's actual
@@ -201,8 +197,7 @@ reaction and bot-owned emoji ID after a live test; a valid silent choice does no
 For a real AI smoke test using synthetic conversations and no Discord writes:
 
 ```bash
-deno run --env-file=.env --allow-env --allow-net=api.openai.com \
-  scripts/test_autonomous_participation.ts
+bun run sandbox:autonomous
 ```
 
 ### AI usage limits
@@ -286,8 +281,7 @@ seconds per wait). If Haru cannot confirm a write, inspect Discord before issuin
 For an interactive local instance in Bot Sandbox's `#general`:
 
 ```bash
-deno run --unstable-kv --env-file=.env --allow-env \
-  --allow-net=discord.com,gateway.discord.gg,api.openai.com scripts/run_discord_sandbox.ts
+bun run sandbox:discord
 ```
 
 Send `Haru local, create a game night event tomorrow at 8 PM in General voice, ending at 10 PM.`
@@ -306,12 +300,10 @@ identity is also used in production.
 
 ```bash
 # Real AI interpretation and sandbox metadata; event/invite writes are simulated.
-deno run --unstable-kv --env-file=.env --allow-env \
-  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts --dry-run
+bun run sandbox:events --dry-run
 
 # Create and verify one real sandbox event and a 60-second, one-use invite, then clean up.
-deno run --unstable-kv --env-file=.env --allow-env \
-  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts
+bun run sandbox:events
 ```
 
 The runner prints the verified times, links, and cleanup results. Add `--keep` to the live command
@@ -524,40 +516,40 @@ These labels are auto-created/updated by the scripts below.
 Run triage:
 
 ```bash
-deno task agent:triage
+bun run agent:triage
 ```
 
 Run stale close (close rejected/needs-info issues after 3 days inactive):
 
 ```bash
-deno task agent:stale-close
+bun run agent:stale-close
 ```
 
 Run the full triage + stale-close + claim-next cycle:
 
 ```bash
-deno task agent:run-once
+bun run agent:run-once
 ```
 
 Claim next accepted issue for implementation (prints JSON):
 
 ```bash
-deno task agent:next-issue -- --claim
+bun run agent:next-issue --claim
 ```
 
 Mark an issue as PR-open after a PR is created:
 
 ```bash
-deno task agent:mark-pr-open -- 123 https://github.com/OWNER/REPO/pull/456
+bun run agent:mark-pr-open 123 https://github.com/OWNER/REPO/pull/456
 ```
 
 Suggested recurring loop:
 
-1. `deno task agent:triage`
-2. `deno task agent:stale-close`
-3. `deno task agent:next-issue -- --claim`
+1. `bun run agent:triage`
+2. `bun run agent:stale-close`
+3. `bun run agent:next-issue --claim`
 4. If issue found: implement + test + open PR
-5. `deno task agent:mark-pr-open -- <issue_number> <pr_url>`
+5. `bun run agent:mark-pr-open <issue_number> <pr_url>`
 
 ---
 

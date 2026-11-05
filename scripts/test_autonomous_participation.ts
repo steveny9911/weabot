@@ -2,8 +2,7 @@
  * Real-AI semantic smoke test with synthetic Discord context only.
  * No Discord client, gateway, cron jobs, server, or persistent state is started.
  *
- * deno run --env-file=.env --allow-env --allow-net=api.openai.com \
- *   scripts/test_autonomous_participation.ts --dry-run
+ * bun run sandbox:autonomous --dry-run
  *
  * Every mode is a dry run. Choices are reported for human review; a different
  * valid choice does not fail this stochastic smoke test.
@@ -81,13 +80,13 @@ function validateChoice(
 }
 
 async function main(): Promise<void> {
-  if (Deno.args.includes("--help")) {
+  if (process.argv.slice(2).includes("--help")) {
     console.log(
       "Always dry-run: three synthetic conversations, real OpenAI calls, no Discord access.",
     );
     return;
   }
-  if (Deno.args.some((arg) => arg !== "--dry-run")) {
+  if (process.argv.slice(2).some((arg) => arg !== "--dry-run")) {
     throw new Error("Supported options: --dry-run, --help.");
   }
   const config = { ...loadConfig(), aiEnabled: true, aiMaxInputChars: 0 };
@@ -139,7 +138,7 @@ async function main(): Promise<void> {
       2,
     ),
   );
-  if (!ok) Deno.exitCode = 1;
+  if (!ok) process.exitCode = 1;
 }
 
 if (import.meta.main) {
@@ -153,6 +152,6 @@ if (import.meta.main) {
         error: error instanceof Error ? error.message : "Semantic test failed.",
       }),
     );
-    Deno.exitCode = 1;
+    process.exitCode = 1;
   }
 }

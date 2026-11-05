@@ -1,5 +1,5 @@
 /**
- * Migration gate: type-checks and tests the files ported to Bun so far, and
+ * Migration gate: type-checks the project, tests the files ported to Bun, and
  * compares per-file test counts with the Deno baseline. Bun silently ignores
  * a missing test file argument, so missing files and count mismatches fail
  * here. Used during the Deno-to-Bun migration only (removed in slice 5).
@@ -113,8 +113,8 @@ if (import.meta.main) {
     );
   }
 
-  // main.ts is checked too: no test imports it.
-  if (run(["bun", "check", "--no-script", "--no-pretty", "main.ts", ...all]) !== 0) {
+  // The whole project: main.ts and the scripts are not imported by any test.
+  if (run(["bun", "check", "--no-script", "--no-pretty"]) !== 0) {
     problems.push("bun check reported type errors");
   }
   const dir = mkdtempSync(join(tmpdir(), "migration-gate-"));

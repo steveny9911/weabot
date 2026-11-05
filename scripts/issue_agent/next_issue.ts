@@ -36,7 +36,10 @@ export interface NextIssueResult {
   };
 }
 
-export async function runNextIssue(cwd = Deno.cwd(), args = Deno.args): Promise<NextIssueResult> {
+export async function runNextIssue(
+  cwd = process.cwd(),
+  args = process.argv.slice(2),
+): Promise<NextIssueResult> {
   await ensureAgentLabels(cwd);
   const { claim } = parseArgs(args);
   const issues = await listOpenIssues(cwd);

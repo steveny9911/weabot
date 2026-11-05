@@ -64,6 +64,8 @@ Accepted on purpose:
    ignored the padding; `DecompressionStream` rejects it. Rare.
 7. **An admin HTTP request that sends nothing for 120 s is cut off** (`idleTimeout: 120`). Deno had
    no such limit. Admin routes finish well within it. Bun allows at most 255 s; `0` disables it.
+8. **Issue triage counts "bun" as an environment detail**, like "deno" and "node", when it decides
+   whether a bug report says where it happened.
 
 Side effects of the new runtime, all safe because every address is validated before connecting:
 
@@ -628,7 +630,8 @@ import a module that still uses Deno; shared types and helpers move first.
 **Verify**
 
 - The slice checklist passes.
-- `bun run agent:next-issue` without `--claim` works (read-only; needs `gh`).
+- `bun run agent:next-issue` without `--claim` works (needs `gh`; it claims nothing, but it re-saves
+  the six `agent:*` labels with their fixed color and description, as before).
 - Each sandbox script's preview mode starts and exits without posting.
 
 ### Slice 5: Remove Deno and finish
@@ -900,7 +903,29 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   identical rewrite in the same millisecond is not reachable in practice).
 - **Known gap until slice 4:** `scripts/run_discord_sandbox.test.ts` and
   `scripts/test_reactions_sandbox.test.ts` (5 tests) still use Deno and run nowhere, since the Deno
-  CI job is gone. Slice 4 ports them.
+  CI job is gone. Slice 4 ports them (done).
+
+### Slice 4 (done)
+
+- **Issue agent:** `gh` runs through `Bun.spawn`; `process.argv.slice(2)` and `process.cwd()`
+  replace `Deno.args` and `Deno.cwd()`. `agent:*` scripts are in `package.json`; arguments follow
+  the script name without `--` (`bun run agent:next-issue --claim`).
+- **Sandbox and evaluation scripts:** `sandbox:discord`, `sandbox:events`, `sandbox:reactions`,
+  `sandbox:autonomous` and `eval:reactions` (each loads `.env`). They use
+  `openDatabase(":memory:")`; a live `sandbox:reactions --send` keeps its duplicate protection in
+  `/tmp/haru-reaction-sandbox.bun.sqlite3` (a new name, since the old Deno KV file at
+  `/tmp/haru-reaction-sandbox.sqlite3` has another schema). Never the production database.
+- **Tests:** the two script test files run on Bun at their baseline counts (3 and 2); the
+  reaction-sandbox checks now also assert each error message. Total: 39 unit files, 674 tests;
+  transport 43.
+- **Gate:** type-checks the whole project (`bun check`), so scripts that no test imports are checked
+  too.
+- **README:** script commands use `bun run`.
+- **Verified here:** `--help` for each sandbox script; dry runs with a fake token stop at the
+  bot-identity check without writing. `agent:next-issue` started, re-saved the labels (unchanged:
+  `agent:closed-inactive` still `6E7781`), then stopped because this environment blocks GitHub
+  GraphQL (`gh issue list`). **Still to do with real credentials:** a sandbox dry run past preflight
+  and a full `agent:next-issue` listing.
 
 ## Future work
 

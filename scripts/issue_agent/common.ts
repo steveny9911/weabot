@@ -90,22 +90,17 @@ export function getStateLabels(issue: GhIssue): string[] {
     .filter((name) => STATE_LABELS.includes(name as (typeof STATE_LABELS)[number]));
 }
 
-function normalizeStdout(raw: Uint8Array): string {
-  return new TextDecoder().decode(raw).trim();
-}
-
 export async function runGh(args: string[], cwd?: string): Promise<string> {
-  const command = new Deno.Command("gh", {
-    args,
-    cwd,
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const result = await command.output();
-  const stdout = normalizeStdout(result.stdout);
-  const stderr = normalizeStdout(result.stderr);
-  if (result.code !== 0) {
-    throw new Error(`gh ${args.join(" ")} failed (${result.code}): ${stderr || stdout}`);
+  const child = Bun.spawn(["gh", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  const stdout = out.trim();
+  const stderr = err.trim();
+  if (code !== 0) {
+    throw new Error(`gh ${args.join(" ")} failed (${code}): ${stderr || stdout}`);
   }
   return stdout;
 }
