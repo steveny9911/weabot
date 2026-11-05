@@ -8,6 +8,14 @@ Status: **ready to implement**. Base: `master` at `59535bf`. This revision appli
 [`bun-migration-review.md`](bun-migration-review.md) and the simplified data model agreed on
 2026-11-05.
 
+## Guiding principle
+
+**Everything the bot does on Bun must behave the same as it did on Deno before the migration.** Deno
+itself is being removed, so Deno runtime concerns (permission flags, Deno-only workarounds, keeping
+Deno able to run the bot) get no effort. The Deno test job keeps running only as the behavior
+reference for code that has not been ported yet. Any Bun-side behavior difference is either fixed or
+listed under [Behavior changes](#behavior-changes) as an explicit decision.
+
 ## Decisions
 
 | Topic                | Decision                                                                                                                                                                                                                                                                             |
@@ -460,6 +468,12 @@ import a module that still uses Deno; shared types and helpers move first.
 
 **Changes**
 
+- **In the same commit that adds the transport files to `deno.json` `exclude`**, replace the Deno
+  `test:transport` task and the CI step "Verify pinned HTTP and TLS transport" with the Bun
+  `test:transport` script. `deno test` exits 1 ("No test modules found") when it is given an
+  excluded file explicitly.
+- Injected fetchers use the `Fetcher` type (`src/types/fetch.ts`); `globalThis.fetch` stubs use
+  `asFetch()` (`test_support/fetch.ts`).
 - `src/runtime_env.ts`: `stripProxyEnvironment()` deletes `HTTP_PROXY`, `HTTPS_PROXY` and
   `ALL_PROXY` in both cases. It is called from `main.ts` in slice 3, and has a test now.
 - `public_fetch.ts`, `resolveAddresses(hostname, signal, lookup = defaultLookup)`:
@@ -517,6 +531,7 @@ import a module that still uses Deno; shared types and helpers move first.
 
 **Changes**
 
+- Injected fetchers use the `Fetcher` type; `globalThis.fetch` stubs use `asFetch()`.
 - `src/db/*` and `src/features/discord_actions/state.ts`, as in [Data model](#data-model).
 - `storage.ts`, `rate_limit.ts` and `discord_actions/mod.ts` moved onto them. Public interfaces
   unchanged.
@@ -711,8 +726,8 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
 
 ### Slice 1 (done)
 
-- **17 test files converted** (the plan's "19" counted the two transport files from slice 2):
-  `retry`, `poll`, `stats/embed`, `reaction_gif`, `reactions`, `chat_context`,
+- **17 test files converted** (an earlier chat summary said 19 by counting the two slice 2 transport
+  files): `retry`, `poll`, `stats/embed`, `reaction_gif`, `reactions`, `chat_context`,
   `autonomous_chat/turns`, `autonomous_chat`, `discord_actions/time`, `discord`, `discord_events`,
   `web_search`, `reaction_context`, `usage`, `config`, `ai_service`, `ai_service.tools`.
 - **Counts:**
@@ -740,6 +755,19 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   now use exit codes, after an output tail hid this failure.
 - **Found:** Bun's types make `Response.json()` return `Promise<unknown>` (Deno's return `any`), so
   `discord.ts` needed two type assertions. Expect more of these in later slices.
+
+#### Slice 1 review follow-up
+
+- **AWS user agent:** removing the Deno `--allow-sys` workaround in `usage.ts` made the real AWS
+  client fail under Deno without `--allow-sys` (the request is refused before it is sent). Decision
+  (option C): `deno.json` `start` and `dev` now pass `--allow-sys=osRelease`; the production unit in
+  `deploy/aws/cloudformation.yml` is unchanged because deployment is out of scope. On Bun the client
+  works, but the user agent sent to AWS changed from `weabot/1` to the SDK default (SDK version, OS
+  and kernel release, runtime); open question, see below.
+- **Docs:** the transport task and CI step change is now part of slice 2; slices 2 and 3 name the
+  `Fetcher`/`asFetch` convention; the "19" wording is corrected.
+- **Guiding principle added:** Bun behavior must match the pre-migration Deno behavior; Deno runtime
+  concerns get no effort.
 
 ## Future work
 

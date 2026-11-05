@@ -28,8 +28,8 @@
     "@std/assert": "jsr:@std/assert@1"
   },
   "tasks": {
-    "start": "deno run --unstable-cron --unstable-kv --env --allow-net --allow-env main.ts",
-    "dev": "deno run --unstable-cron --unstable-kv --env --watch --allow-net --allow-env main.ts",
+    "start": "deno run --unstable-cron --unstable-kv --env --allow-net --allow-env --allow-sys=osRelease main.ts",
+    "dev": "deno run --unstable-cron --unstable-kv --env --watch --allow-net --allow-env --allow-sys=osRelease main.ts",
     "check": "deno check main.ts src/**/*.ts scripts/**/*.ts *.ts",
     "test": "deno test --unstable-kv --allow-env",
     "lint": "deno lint",
