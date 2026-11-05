@@ -2,9 +2,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { createServer } from "node:net";
-import { BlockedDestinationError, requestPinned } from "../src/services/public_fetch.ts";
-import { realFetch } from "../test_support/setup.ts";
-import { rejects } from "../test_support/assert.ts";
+import { BlockedDestinationError, requestPinned } from "../src/net/public_fetch.ts";
+import { realFetch } from "./support/setup.ts";
+import { rejects } from "./support/assert.ts";
 import { ca } from "./fixtures/link_tls.ts";
 import { serveFixture } from "./fixtures/serve.ts";
 

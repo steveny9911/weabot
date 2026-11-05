@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createUsageService } from "./usage.ts";
 import type { AppConfig } from "../config.ts";
-import { formatUsageMessage } from "../features/usage/message.ts";
+import { formatUsageMessage } from "../features/usage.ts";
 
 const date = new Date("2026-10-06T13:45:00Z");
 const config = { openaiAdminKey: "admin-test", usageOpenaiProjectId: "proj-test" } as AppConfig;

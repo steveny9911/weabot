@@ -1,4 +1,4 @@
-import type { RecentDiscordMessage } from "../chat_context/mod.ts";
+import type { RecentDiscordMessage } from "../chat_context.ts";
 
 export interface ConversationTurn {
   id: string;

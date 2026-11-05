@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
-import { asFetch } from "../../test_support/fetch.ts";
-import type { AiService } from "../../ai_service.ts";
+import { asFetch } from "../../tests/support/fetch.ts";
+import type { AiService } from "../ai/service.ts";
 import type { AppConfig } from "../config.ts";
-import { registerCronJobs } from "../scheduler.ts";
-import { createRequestHandler } from "../server.ts";
+import { registerCronJobs } from "../app/scheduler.ts";
+import { createRequestHandler } from "../app/server.ts";
 import type { PollRecord } from "../types/storage.ts";
 import {
   createDiscordClient,
   type DiscordClient,
   type PollAnswerVoters,
-} from "../services/discord.ts";
+} from "../discord/client.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import { createStorageService, type StorageService } from "../services/storage.ts";
 import { openDatabase } from "../db/database.ts";

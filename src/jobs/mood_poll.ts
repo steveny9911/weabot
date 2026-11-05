@@ -1,5 +1,5 @@
 /** Posts the daily mood poll to every configured channel and records it for later collection. */
-import { buildMoodPollPayload } from "../features/poll/mod.ts";
+import { buildMoodPollPayload } from "../features/poll.ts";
 import { DEFAULT_MOOD_CONFIG } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
 import type { ChannelPost, JobDeps, LogTag } from "./channel_posts.ts";

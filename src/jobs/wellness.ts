@@ -1,5 +1,5 @@
 /** Wellness alerts: the daily check for users with consecutive "glue" days, and a manual test alert. */
-import { buildAlertEmbed } from "../features/stats/mod.ts";
+import { buildAlertEmbed } from "../features/stats.ts";
 import type { ChannelPost, JobDeps } from "./channel_posts.ts";
 
 /** Sends a supportive alert for each user at or over the configured "glue" streak. */

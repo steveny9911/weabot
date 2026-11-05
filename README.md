@@ -305,11 +305,11 @@ uses in-memory state and the current test message as context, and does not start
 autonomous chat, or the HTTP server. Events and invitations are real; stop with Ctrl-C and remove
 test artifacts when finished. Normal mentions are ignored locally.
 
-The API smoke-test runner (`scripts/test_discord_events.ts`) uses the configured bot token and
-OpenAI key, but never starts the gateway, scheduled jobs, or HTTP server. It checks the exact Bot
-Sandbox server and General channels, uses an in-memory database, and explicitly simulates a request
-from the sandbox owner. It does not post chat messages. This permits API testing even when the bot
-identity is also used in production.
+The API smoke-test runner (`scripts/sandbox/events.ts`) uses the configured bot token and OpenAI
+key, but never starts the gateway, scheduled jobs, or HTTP server. It checks the exact Bot Sandbox
+server and General channels, uses an in-memory database, and explicitly simulates a request from the
+sandbox owner. It does not post chat messages. This permits API testing even when the bot identity
+is also used in production.
 
 ```bash
 # Real AI interpretation and sandbox metadata; event/invite writes are simulated.

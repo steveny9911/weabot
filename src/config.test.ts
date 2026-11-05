@@ -3,7 +3,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { throws } from "../test_support/assert.ts";
+import { throws } from "../tests/support/assert.ts";
 import { loadConfig } from "./config.ts";
 
 // Helper to run tests with specific env vars

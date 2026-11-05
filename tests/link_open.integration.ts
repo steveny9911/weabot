@@ -2,11 +2,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { createServer, type Socket } from "node:net";
-import { requestPinned } from "../src/services/public_fetch.ts";
-import { createLinkOpenService } from "../src/services/link_open.ts";
+import { requestPinned } from "../src/net/public_fetch.ts";
+import { createLinkOpenService } from "../src/net/link_open.ts";
 import type { AppConfig } from "../src/config.ts";
-import { realFetch } from "../test_support/setup.ts";
-import { assert } from "../test_support/assert.ts";
+import { realFetch } from "./support/setup.ts";
+import { assert } from "./support/assert.ts";
 import { ca } from "./fixtures/link_tls.ts";
 import { serveFixture } from "./fixtures/serve.ts";
 

@@ -1,5 +1,5 @@
 /** Posts a mood stats embed covering the last `days` UTC calendar days to every channel. */
-import { buildStatsEmbed } from "../features/stats/mod.ts";
+import { buildStatsEmbed } from "../features/stats.ts";
 import type { ChannelPost, JobDeps, LogTag } from "./channel_posts.ts";
 
 export interface StatsPostOptions {

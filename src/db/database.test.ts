@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { throws } from "../../test_support/assert.ts";
+import { throws } from "../../tests/support/assert.ts";
 import { openDatabase } from "./database.ts";
 import { MIGRATIONS } from "./migrations.ts";
 

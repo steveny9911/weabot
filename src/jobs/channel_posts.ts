@@ -1,6 +1,6 @@
 /** Shared shape for jobs that post to every configured channel. */
 import type { AppConfig } from "../config.ts";
-import type { DiscordClient } from "../services/discord.ts";
+import type { DiscordClient } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
 
 export interface JobDeps {

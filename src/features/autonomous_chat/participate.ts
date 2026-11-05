@@ -1,16 +1,16 @@
 /** Shared one-channel path for the production scheduler and explicit sandbox runs. */
-import type { AiService, AutonomousParticipation } from "../../../ai_service.ts";
+import type { AiService, AutonomousParticipation } from "../../ai/service.ts";
 import type { AppConfig } from "../../config.ts";
-import type { DiscordClient } from "../../services/discord.ts";
+import type { DiscordClient } from "../../discord/client.ts";
 import type { StorageService } from "../../types/storage.ts";
 import type { RateLimitService } from "../../services/rate_limit.ts";
-import { AUTONOMOUS_CHAT_GUIDANCE, decideAutonomousChatReply } from "./mod.ts";
+import { AUTONOMOUS_CHAT_GUIDANCE, decideAutonomousChatReply } from "./decision.ts";
 import {
   availableReactions,
   isAllowedReaction,
   reactionChoices,
   type ReactionContext,
-} from "../reactions/mod.ts";
+} from "../reactions.ts";
 
 export interface ParticipationDeps {
   config: AppConfig;

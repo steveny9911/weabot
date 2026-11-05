@@ -10,14 +10,14 @@ import {
   DiscordPermissions as P,
   type DiscordScheduledEvent,
   type ScheduledEventPayload,
-} from "../../services/discord_events.ts";
+} from "../../discord/events.ts";
 import {
   createDiscordActionService,
   type DiscordActionContext,
   type DiscordActionService,
   formatActionResults,
   hasExplicitActionRequest,
-} from "./mod.ts";
+} from "./service.ts";
 import { type Database, openDatabase } from "../../db/database.ts";
 
 const GUILD = "100";

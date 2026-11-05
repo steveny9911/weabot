@@ -8,7 +8,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rejects } from "../../test_support/assert.ts";
+import { rejects } from "../../tests/support/assert.ts";
 import { type Database, openDatabase } from "../db/database.ts";
 import { createStorageService, type StorageService } from "./storage.ts";
 import type { AutonomousParticipationRecord, PollRecord } from "../types/storage.ts";

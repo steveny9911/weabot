@@ -4,13 +4,13 @@ import {
   type DiscordActionContext,
   type DiscordActionService,
   hasExplicitActionRequest,
-} from "./mod.ts";
+} from "./service.ts";
 import { openDatabase } from "../../db/database.ts";
 import {
   type DiscordEventsClient,
   DiscordPermissions as P,
   type DiscordScheduledEvent,
-} from "../../services/discord_events.ts";
+} from "../../discord/events.ts";
 
 const GUILD = "100";
 const USER = "200";

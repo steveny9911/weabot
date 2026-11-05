@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { throws } from "../../../test_support/assert.ts";
+import { throws } from "../../../tests/support/assert.ts";
 import { resolveEventTime } from "./time.ts";
 
 test("event time follows the requested zone, including seasonal and fractional offsets", () => {

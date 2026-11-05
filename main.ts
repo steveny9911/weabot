@@ -1,23 +1,23 @@
 import { createUsageService } from "./src/services/usage.ts";
 import { loadConfig } from "./src/config.ts";
-import { createDiscordClient } from "./src/services/discord.ts";
-import { createDiscordEventsClient } from "./src/services/discord_events.ts";
+import { createDiscordClient } from "./src/discord/client.ts";
+import { createDiscordEventsClient } from "./src/discord/events.ts";
 import {
   createDiscordActionService,
   type PendingRequest,
-} from "./src/features/discord_actions/mod.ts";
+} from "./src/features/discord_actions/service.ts";
 import { TurnStore } from "./src/features/discord_actions/state.ts";
 import { DEFAULT_DATABASE_PATH, openDatabase } from "./src/db/database.ts";
 import { createMaintenanceJob } from "./src/jobs/maintenance.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
-import { createWebSearchService } from "./src/services/web_search.ts";
-import { createLinkOpenService } from "./src/services/link_open.ts";
-import { createAiService } from "./ai_service.ts";
-import { createServer } from "./src/server.ts";
-import { bunCron, registerCronJobs } from "./src/scheduler.ts";
-import { startGateway } from "./discord_gateway.ts";
-import type { BotDependencies } from "./bot_actions.ts";
+import { createWebSearchService } from "./src/net/web_search.ts";
+import { createLinkOpenService } from "./src/net/link_open.ts";
+import { createAiService } from "./src/ai/service.ts";
+import { createServer } from "./src/app/server.ts";
+import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
+import { startGateway } from "./src/app/gateway.ts";
+import type { BotDependencies } from "./src/bot/handle_message.ts";
 
 // --- Initialization ---
 // Throws immediately if required env vars are missing (Fail Fast pattern)

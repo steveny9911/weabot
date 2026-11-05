@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { conversationTurns } from "./turns.ts";
-import { decideAutonomousChatReply } from "./mod.ts";
-import type { RecentDiscordMessage } from "../chat_context/mod.ts";
+import { decideAutonomousChatReply } from "./decision.ts";
+import type { RecentDiscordMessage } from "../chat_context.ts";
 const now = Date.parse("2026-10-13T22:06:00Z");
 function message(
   id: string,
