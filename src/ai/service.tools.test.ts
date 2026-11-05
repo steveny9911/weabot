@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
-import { type AiReplyOptions, createAiService } from "./service.ts";
+import { createAiService } from "./service.ts";
+import type { AiReplyOptions } from "./types.ts";
 import type { AppConfig } from "../config.ts";
 
 function mockConfig(): AppConfig {

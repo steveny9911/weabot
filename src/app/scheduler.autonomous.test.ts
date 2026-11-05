@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
-import type { AiResult, AiService } from "../ai/service.ts";
+import type { AiResult, AiService } from "../ai/types.ts";
 import type { AppConfig } from "../config.ts";
 import type { RecentDiscordMessage } from "../features/chat_context.ts";
 import { type CronRegistrar, registerCronJobs } from "./scheduler.ts";

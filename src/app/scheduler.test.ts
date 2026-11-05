@@ -1,5 +1,5 @@
 import { afterEach, expect, setSystemTime, spyOn, test } from "bun:test";
-import type { AiService } from "../ai/service.ts";
+import type { AiService } from "../ai/types.ts";
 import type { AppConfig } from "../config.ts";
 import { bunCron, type CronRegistrar, registerCronJobs } from "./scheduler.ts";
 import type { DiscordClient } from "../discord/client.ts";

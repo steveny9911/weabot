@@ -6,340 +6,37 @@
  */
 
 import type { AppConfig } from "../config.ts";
+import { DECISION_REASONS, type ReactionIntent } from "../features/reactions.ts";
 import {
-  DECISION_REASONS,
-  type DecisionReason,
-  isAllowedReaction,
-  REACTION_INTENTS,
-  type ReactionChoice,
-  type ReactionIntent,
-} from "../features/reactions.ts";
+  aszCollectImageUrls,
+  aszGetImageUrlsFromContextMessage,
+  MAX_CONTEXT_IMAGES,
+  oGetReplyReference,
+} from "./context_images.ts";
+import {
+  AUTONOMOUS_PARTICIPATION_FORMAT,
+  AUTONOMOUS_REACTION_EMOJIS,
+  MAX_AUTONOMOUS_REPLY_CHARS,
+  oParseParticipation,
+} from "./participation.ts";
+import { nReportedTokens, szExtractResponseText, withResponseDeadline } from "./responses.ts";
+import { szSanitizeReply, szUwuify, vTruncateText } from "./text.ts";
+import type {
+  AiErrorResult,
+  AiParticipationOptions,
+  AiReplyOptions,
+  AiResult,
+  AiService,
+} from "./types.ts";
 
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 const OPENAI_CHAT_BUILDER_PROMPT = {
   id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
 } as const;
-const MAX_CONTEXT_IMAGES = 6;
 const MAX_TOOL_RESPONSES = 6;
 const MAX_TOOL_CALLS = 8;
 const RESPONSE_TIMEOUT_MS = 60_000;
 const TOOL_LOOP_TIMEOUT_MS = 120_000;
-const MAX_AUTONOMOUS_REPLY_CHARS = 280;
-
-/** Deliberately small Unicode palette; custom/server emojis are not requested. */
-export const AUTONOMOUS_REACTION_EMOJIS = ["😄", "😂", "🤣", "❤️", "👍", "🎉", "🐴"] as const;
-
-export type AutonomousParticipation =
-  | { action: "reply"; text: string; reason?: DecisionReason }
-  | {
-      action: "react";
-      messageId: string;
-      emoji: string;
-      intent?: ReactionIntent;
-      reason?: DecisionReason;
-    }
-  | { action: "silent"; reason?: DecisionReason };
-
-const AUTONOMOUS_PARTICIPATION_FORMAT = {
-  type: "json_schema",
-  name: "autonomous_participation",
-  strict: true,
-  schema: {
-    type: "object",
-    properties: {
-      action: { type: "string", enum: ["reply", "react", "silent"] },
-      text: { type: "string" },
-      messageId: { type: "string" },
-      emoji: { type: "string" },
-      intent: { type: "string", enum: ["", ...REACTION_INTENTS] },
-      reason: { type: "string", enum: DECISION_REASONS },
-    },
-    required: ["action", "text", "messageId", "emoji", "intent", "reason"],
-    additionalProperties: false,
-  },
-} as const;
-
-/** Bound both receiving headers and consuming the response body. */
-async function withResponseDeadline<T>(
-  timeoutMs: number,
-  timeoutMessage: string,
-  request: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      reject(new Error(timeoutMessage));
-      controller.abort();
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([request(controller.signal), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** Successful AI response with token usage */
-export interface AiSuccessResult {
-  ok: true;
-  text: string;
-  tokensUsed: number;
-  /** Present only for autonomous participation; reactions and silence have empty text. */
-  participation?: AutonomousParticipation;
-}
-
-/** Failed AI response */
-export interface AiErrorResult {
-  ok: false;
-  error: string;
-  /** Tokens reported before an action or autonomous request failed. */
-  tokensUsed?: number;
-}
-
-export type AiResult = AiSuccessResult | AiErrorResult;
-
-/** Action capabilities scoped to one explicitly requested reply. */
-export interface AiReplyOptions {
-  instructions: string;
-  /** Latest human request, separate from untrusted conversation/reference context. */
-  currentUserMessage?: string;
-  tools: Array<Record<string, unknown>>;
-  executeTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
-}
-
-/** Autonomous participation has no action tools or implicit human request. */
-export interface AiParticipationOptions {
-  mode: "autonomous";
-  instructions: string;
-  /** Recent human message IDs that may receive one reaction. */
-  allowedMessageIds: string[];
-  reactionChoices?: ReactionChoice[];
-}
-
-/** AI service interface for dependency injection */
-export interface AiService {
-  /** Generate a reply from conversation messages */
-  generateReply(
-    messages: Array<Record<string, unknown>>,
-    options?: AiReplyOptions | AiParticipationOptions,
-  ): Promise<AiResult>;
-}
-
-/**
- * Extracts assistant text from OpenAI Responses API payloads.
- * Handles both `output_text` and structured `output[].content[]` shapes.
- */
-function szExtractResponseText(data: Record<string, unknown>): string | null {
-  const top_level_output_text = data.output_text;
-  if (typeof top_level_output_text === "string" && top_level_output_text.trim().length > 0) {
-    return top_level_output_text;
-  }
-
-  const output = data.output;
-  if (!Array.isArray(output)) return null;
-
-  const chunks: string[] = [];
-  for (const item of output) {
-    if (!item || typeof item !== "object") continue;
-    const content = (item as Record<string, unknown>).content;
-    if (!Array.isArray(content)) continue;
-
-    for (const part of content) {
-      if (!part || typeof part !== "object") continue;
-      const part_obj = part as Record<string, unknown>;
-
-      // Common shape: { type: "output_text", text: "..." }
-      if (typeof part_obj.text === "string" && part_obj.text.trim().length > 0) {
-        chunks.push(part_obj.text);
-        continue;
-      }
-
-      // Alternate shape: { type: "output_text", text: { value: "..." } }
-      if (
-        part_obj.text &&
-        typeof part_obj.text === "object" &&
-        typeof (part_obj.text as Record<string, unknown>).value === "string"
-      ) {
-        const value = (part_obj.text as Record<string, unknown>).value as string;
-        if (value.trim().length > 0) chunks.push(value);
-      }
-    }
-  }
-
-  if (chunks.length === 0) return null;
-  return chunks.join("\n").trim();
-}
-
-/** Structured participation fails closed without generating substitute chatter. */
-function oParseParticipation(
-  data: Record<string, unknown>,
-  allowedMessageIds: Set<string>,
-  choices: ReactionChoice[],
-): AutonomousParticipation {
-  const silent: AutonomousParticipation = { action: "silent" };
-  if (data.status !== undefined && data.status !== "completed") return silent;
-  if (data.output !== undefined) {
-    if (!Array.isArray(data.output)) return silent;
-    for (const item of data.output) {
-      if (!item || typeof item !== "object") return silent;
-      if (item.type === "reasoning") continue;
-      if (
-        item.type !== "message" ||
-        item.role !== "assistant" ||
-        (item.status !== undefined && item.status !== "completed") ||
-        !Array.isArray(item.content)
-      )
-        return silent;
-      if (
-        item.content.some(
-          (part: unknown) =>
-            !part ||
-            typeof part !== "object" ||
-            (part as Record<string, unknown>).type !== "output_text",
-        )
-      )
-        return silent;
-    }
-  }
-  const text = szExtractResponseText(data);
-  if (!text) return silent;
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return silent;
-    const choice = parsed as Record<string, unknown>;
-    const keys = Object.keys(choice);
-    if (
-      keys.length !== 6 ||
-      keys.some(
-        (key) => !["action", "text", "messageId", "emoji", "intent", "reason"].includes(key),
-      ) ||
-      [
-        choice.action,
-        choice.text,
-        choice.messageId,
-        choice.emoji,
-        choice.intent,
-        choice.reason,
-      ].some((value) => typeof value !== "string")
-    )
-      return silent;
-    if (!DECISION_REASONS.some((reason) => reason === choice.reason)) return silent;
-    if (
-      choice.action === "reply" &&
-      choice.messageId === "" &&
-      choice.emoji === "" &&
-      choice.intent === ""
-    ) {
-      const reply = (choice.text as string).trim();
-      return reply && reply.length <= MAX_AUTONOMOUS_REPLY_CHARS
-        ? { action: "reply", text: reply, reason: choice.reason as DecisionReason }
-        : silent;
-    }
-    if (
-      choice.action === "react" &&
-      choice.text === "" &&
-      allowedMessageIds.has(choice.messageId as string) &&
-      isAllowedReaction(choice.emoji as string, choice.intent, choices)
-    ) {
-      if (
-        (choice.reason === "unkindness" &&
-          choice.intent !== "disapproval" &&
-          choice.intent !== "concern") ||
-        (choice.reason === "concern" && choice.intent !== "concern")
-      )
-        return silent;
-      return {
-        action: "react",
-        messageId: choice.messageId as string,
-        emoji: choice.emoji as string,
-        intent: choice.intent as ReactionIntent,
-        reason: choice.reason as DecisionReason,
-      };
-    }
-    if (
-      choice.action === "silent" &&
-      choice.text === "" &&
-      choice.messageId === "" &&
-      choice.emoji === "" &&
-      choice.intent === ""
-    ) {
-      return { action: "silent", reason: choice.reason as DecisionReason };
-    }
-    return silent;
-  } catch {
-    return silent;
-  }
-}
-
-function nReportedTokens(data: Record<string, unknown>): number {
-  const usage = data.usage;
-  if (!usage || typeof usage !== "object") return 0;
-  const total = (usage as Record<string, unknown>).total_tokens;
-  return typeof total === "number" && Number.isFinite(total) && total >= 0 ? total : 0;
-}
-
-function bIsHttpUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function aszGetImageUrlsFromContextMessage(message: Record<string, unknown>): string[] {
-  const raw_urls = message["imageUrls"] ?? message["images"];
-  if (!Array.isArray(raw_urls)) return [];
-
-  const urls: string[] = [];
-  for (const raw_url of raw_urls) {
-    if (typeof raw_url !== "string") continue;
-    const trimmed = raw_url.trim();
-    if (!trimmed || !bIsHttpUrl(trimmed)) continue;
-    urls.push(trimmed);
-  }
-  return urls;
-}
-
-function oGetReplyReference(message: Record<string, unknown>): Record<string, unknown> | null {
-  const reference = message["repliedTo"];
-  return reference && typeof reference === "object" ? (reference as Record<string, unknown>) : null;
-}
-
-function aszCollectImageUrls(
-  messages: Array<Record<string, unknown>>,
-  max_images: number,
-): string[] {
-  const seen = new Set<string>();
-  const urls: string[] = [];
-
-  for (const message of messages) {
-    const reference = oGetReplyReference(message);
-    const candidates = [
-      ...aszGetImageUrlsFromContextMessage(message),
-      ...(reference ? aszGetImageUrlsFromContextMessage(reference) : []),
-    ];
-    for (const url of candidates) {
-      if (seen.has(url)) continue;
-      seen.add(url);
-      urls.push(url);
-      if (urls.length >= max_images) {
-        return urls;
-      }
-    }
-  }
-
-  return urls;
-}
-
-/**
- * Truncates a string to the specified max length, adding ellipsis if needed.
- */
-function vTruncateText(text: string, max_chars: number): string {
-  if (text.length <= max_chars) return text;
-  return text.slice(0, max_chars - 3) + "...";
-}
 
 /**
  * Creates an AI service with the given configuration.
@@ -355,43 +52,6 @@ export function createAiService(
   const requestTimeoutMs = runtime.requestTimeoutMs ?? RESPONSE_TIMEOUT_MS;
   const toolLoopTimeoutMs = runtime.toolLoopTimeoutMs ?? TOOL_LOOP_TIMEOUT_MS;
   const now = runtime.now ?? (() => performance.now());
-  /**
-   * Applies light UwU-style text transformation if enabled.
-   */
-  function szUwuify(text: string): string {
-    if (!config.aiEnableUwu) return text;
-
-    let out = text;
-    // Soften punctuation with tildes
-    out = out.replace(/!+/g, "!~");
-    out = out.replace(/\?+/g, "?~");
-
-    // For short replies without emoji/uwu, append a mild " uwu"
-    const has_emoji_or_uwu = /\p{Emoji}/u.test(out) || /uwu|owo|UwU/i.test(out);
-    if (out.length <= 80 && !has_emoji_or_uwu) {
-      out = out + " uwu";
-    }
-
-    return out;
-  }
-
-  /**
-   * Sanitizes the AI response text.
-   */
-  function szSanitizeReply(raw: string): string {
-    // Remove apologetic/failure phrases
-    let sanitized = raw
-      .replace(/\b(I(')?m sorry|I cannot|I can't|I couldn't|unable to)\b/gi, "")
-      .trim();
-
-    // Remove generic leading greetings
-    sanitized = sanitized
-      .replace(/^(?:hey(?: there)?|hello(?: there)?|hi(?: there)?|yo|greetings)[,!.\s-]*/i, "")
-      .trim();
-
-    return sanitized;
-  }
-
   return {
     async generateReply(
       messages: Array<Record<string, unknown>>,
@@ -674,7 +334,7 @@ export function createAiService(
 
           const raw = String(text).trim();
           // Action outcomes and links must retain their exact meaning and punctuation.
-          const final_text = options ? raw : szUwuify(szSanitizeReply(raw));
+          const final_text = options ? raw : szUwuify(szSanitizeReply(raw), config.aiEnableUwu);
           console.log("[AI] tokens used:", tokens_used);
           console.log("[AI] raw reply:", raw);
           console.log("[AI] final reply:", final_text);

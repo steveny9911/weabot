@@ -13,7 +13,7 @@
  */
 
 import type { AppConfig } from "../config.ts";
-import type { AiService } from "../ai/service.ts";
+import type { AiService } from "../ai/types.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { StorageService } from "../services/storage.ts";

@@ -1,5 +1,5 @@
 /** Joins active conversations only when explicitly enabled and every guardrail passes. */
-import type { AiService } from "../ai/service.ts";
+import type { AiService } from "../ai/types.ts";
 import { getBotUserId } from "../discord/messages.ts";
 import { participateInChannel } from "../features/autonomous_chat/participate.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";

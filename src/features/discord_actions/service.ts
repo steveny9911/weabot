@@ -1,4 +1,4 @@
-import type { AiReplyOptions } from "../../ai/service.ts";
+import type { AiReplyOptions } from "../../ai/types.ts";
 import {
   DiscordApiError,
   type DiscordChannel,

@@ -7,11 +7,9 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
-import {
-  type AiParticipationOptions,
-  AUTONOMOUS_REACTION_EMOJIS,
-  createAiService,
-} from "./service.ts";
+import { AUTONOMOUS_REACTION_EMOJIS } from "./participation.ts";
+import { createAiService } from "./service.ts";
+import type { AiParticipationOptions } from "./types.ts";
 import type { AppConfig } from "../config.ts";
 import {
   oMapDiscordMessage,

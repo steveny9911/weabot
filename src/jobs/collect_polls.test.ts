@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
-import type { AiService } from "../ai/service.ts";
+import type { AiService } from "../ai/types.ts";
 import type { AppConfig } from "../config.ts";
 import { registerCronJobs } from "../app/scheduler.ts";
 import { createRequestHandler } from "../app/server.ts";

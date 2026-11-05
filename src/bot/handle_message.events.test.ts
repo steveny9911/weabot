@@ -3,7 +3,7 @@ import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
 import { type BotDependencies, handleMessage } from "./handle_message.ts";
 import type { AppConfig } from "../config.ts";
-import type { AiReplyOptions } from "../ai/service.ts";
+import type { AiReplyOptions } from "../ai/types.ts";
 import type {
   DiscordActionContext,
   DiscordActionSession,

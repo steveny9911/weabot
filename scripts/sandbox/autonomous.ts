@@ -7,11 +7,9 @@
  * Every mode is a dry run. Choices are reported for human review; a different
  * valid choice does not fail this stochastic smoke test.
  */
-import {
-  AUTONOMOUS_REACTION_EMOJIS,
-  type AutonomousParticipation,
-  createAiService,
-} from "../../src/ai/service.ts";
+import { AUTONOMOUS_REACTION_EMOJIS } from "../../src/ai/participation.ts";
+import { createAiService } from "../../src/ai/service.ts";
+import type { AutonomousParticipation } from "../../src/ai/types.ts";
 import { loadConfig } from "../../src/config.ts";
 import { AUTONOMOUS_CHAT_GUIDANCE } from "../../src/features/autonomous_chat/decision.ts";
 

@@ -1,20 +1,18 @@
 /**
- * Bot Actions
- *
- * Handles incoming Discord messages and AI-powered responses.
+ * Handles incoming Discord messages: the \\usage, \\reset and \\open commands and AI replies.
  * Uses dependency injection for testability and rate limiting.
  */
 
 import type { UsageService } from "../services/usage.ts";
 import { formatUsageMessage } from "../features/usage.ts";
 import type { AppConfig } from "../config.ts";
-import type { AiService } from "../ai/service.ts";
+import type { AiService } from "../ai/types.ts";
 import {
   type DiscordActionService,
   formatActionResults,
 } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
-import type { LinkOpenError, LinkOpenService } from "../net/link_open.ts";
+import type { LinkOpenService } from "../net/link_open.ts";
 import {
   formatSearchResultsForContext,
   szExtractAutoSearchQuery,
@@ -22,17 +20,17 @@ import {
 } from "../net/web_search.ts";
 import { szSelectGreetingGifForReply } from "../features/reaction_gif.ts";
 import type { ContextStorageService } from "../services/storage.ts";
-import { fetchChannelMessages, getBotUserId, sendMessage } from "../discord/messages.ts";
+import { getBotUserId, sendMessage } from "../discord/messages.ts";
 import {
-  oMapDiscordMessage,
-  oToAiContextMessage,
-  selectActiveConversation,
-} from "../features/chat_context.ts";
-
-const URL_RE = /https?:\/\/[^\s<>()]+/gi;
-
-// In-memory cache of recent messages per channel
-const messages_cache = new Map<string, Array<Record<string, unknown>>>();
+  bIsOpenCommand,
+  bIsResetCommand,
+  bMessageMentionsBot,
+  szFormatTime,
+  szOpenFailureMessage,
+  szParseOpenCommand,
+  szStripUrls,
+} from "./commands.ts";
+import { clearContext, getContext, saveContext } from "./context.ts";
 
 /**
  * Dependencies required by bot action handlers.
@@ -46,108 +44,6 @@ export interface BotDependencies {
   storageService: ContextStorageService;
   webSearchService?: WebSearchService;
   discordActionService?: DiscordActionService;
-}
-
-/**
- * Returns true if the message mentions the bot.
- */
-export function bMessageMentionsBot(message: Record<string, unknown>, bot_id: string): boolean {
-  if (!message) return false;
-
-  const mentions = message.mentions as unknown;
-  if (Array.isArray(mentions)) {
-    for (const m of mentions) {
-      if (m && typeof m === "object") {
-        const mm = m as Record<string, unknown>;
-        if (typeof mm.id === "string" && mm.id === bot_id) return true;
-        if (typeof mm.username === "string" && mm.username === bot_id) return true;
-      }
-    }
-  }
-
-  // Fallback: check content for <@ID> or <@!ID>
-  const content = message.content as unknown;
-  if (typeof content === "string") {
-    if (content.includes(`<@${bot_id}>`) || content.includes(`<@!${bot_id}>`)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Returns true if the message includes the reset context command.
- * Expected format: "@Haru \\reset"
- */
-function bIsResetCommand(content: string | undefined): boolean {
-  if (!content) return false;
-  return /(^|\s)\\reset(\s|$)/i.test(content);
-}
-
-/**
- * Returns true if the message includes the open-link command.
- * Expected format: "@Haru \\open <url> [optional question]"
- */
-function bIsOpenCommand(content: string | undefined): boolean {
-  if (!content) return false;
-  const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
-  return /^\\open\b/i.test(cleaned);
-}
-
-interface OpenCommand {
-  url: string;
-  userRequest?: string;
-}
-
-/**
- * Parses an open-link command.
- * Uses the first URL only and treats remaining text as optional user request.
- */
-function szParseOpenCommand(content: string | undefined): OpenCommand | null {
-  if (!content) return null;
-  const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
-  const match = cleaned.match(/^\\open\b\s+(.+)$/i);
-  if (!match) return null;
-
-  const tail = match[1].trim();
-  if (!tail) return null;
-
-  const first_url = tail.match(/https?:\/\/[^\s<>()]+/i);
-  if (!first_url || first_url.index === undefined) return null;
-
-  const url = first_url[0];
-  const rest = tail.slice(first_url.index + url.length).trim();
-  const user_request = rest.replace(URL_RE, "").replace(/\s+/g, " ").trim();
-
-  return user_request ? { url, userRequest: user_request } : { url };
-}
-
-/**
- * Remove explicit URL tokens from model output.
- */
-function szStripUrls(text: string): string {
-  return text
-    .replace(URL_RE, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;!?])/g, "$1")
-    .trim();
-}
-
-function szOpenFailureMessage(_error: LinkOpenError): string {
-  return "Eep... I couldn't safely open that link. Can you try another one?~";
-}
-
-/**
- * Formats milliseconds into a human-readable string (seconds or minutes).
- */
-function szFormatTime(ms: number): string {
-  const seconds = Math.ceil(ms / 1000);
-  if (seconds < 60) {
-    return seconds === 1 ? "1 second" : `${seconds} seconds`;
-  }
-  const minutes = Math.ceil(ms / 60000);
-  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
 }
 
 /**
@@ -229,7 +125,7 @@ export async function handleMessage(
       messageId: typeof message["id"] === "string" ? message["id"] : "",
       resetAt: reset_at,
     });
-    messages_cache.delete(channel_id);
+    clearContext(channel_id);
     await sendMessage(config, channel_id, "Okay!~ I cleared our chat context.");
     console.log(`Context reset by user ${user_id} in channel ${channel_id}`);
     return;
@@ -385,52 +281,4 @@ export async function handleMessage(
       console.error("Failed to send greeting GIF:", gif_send_result.error);
     }
   }
-}
-
-/**
- * Fetch the most recent N messages from a channel and cache them.
- */
-export async function saveContext(
-  config: AppConfig,
-  channel_id: string,
-  limit = 5,
-  trigger_message?: Record<string, unknown>,
-  options: { inactivityGapMs?: number; resetAfterMs?: number | null } = {},
-): Promise<void> {
-  if (!channel_id) return;
-
-  try {
-    const safe_limit = Math.min(100, Math.max(1, Math.trunc(limit)));
-    const fetched = await fetchChannelMessages(config, channel_id, safe_limit);
-    if (!fetched) return;
-    let msgs = fetched;
-
-    // Ensure the triggering message is included
-    if (trigger_message) {
-      const trig_id = trigger_message["id"] as string | undefined;
-      if (trig_id) {
-        msgs = msgs.filter((m) => (m.id as string | undefined) !== trig_id);
-      }
-      msgs.push(trigger_message);
-    }
-
-    const active_conversation = selectActiveConversation(msgs.map(oMapDiscordMessage), {
-      maxMessages: safe_limit,
-      inactivityGapMs: options.inactivityGapMs ?? config.aiContextInactivityMinutes * 60_000,
-      resetAfterMs: options.resetAfterMs,
-    });
-    const simplified = active_conversation.map(oToAiContextMessage);
-
-    messages_cache.set(channel_id, simplified as Array<Record<string, unknown>>);
-    console.log(`Saved ${simplified.length} messages to context for channel ${channel_id}`);
-  } catch (err) {
-    console.error("Error saving context:", err);
-  }
-}
-
-/**
- * Retrieve cached context for a channel.
- */
-export function getContext(channel_id: string): Array<Record<string, unknown>> | undefined {
-  return messages_cache.get(channel_id);
 }

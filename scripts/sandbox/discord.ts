@@ -1,7 +1,9 @@
 /** Interactive local Haru, restricted to Bot Sandbox #general and a local-only trigger. */
 import { openDatabase } from "../../src/db/database.ts";
-import { type AiService, createAiService } from "../../src/ai/service.ts";
-import { bMessageMentionsBot, handleMessage } from "../../src/bot/handle_message.ts";
+import { createAiService } from "../../src/ai/service.ts";
+import type { AiService } from "../../src/ai/types.ts";
+import { handleMessage } from "../../src/bot/handle_message.ts";
+import { bMessageMentionsBot } from "../../src/bot/commands.ts";
 import { getBotUserId } from "../../src/discord/messages.ts";
 import { startGateway } from "../../src/app/gateway.ts";
 import { loadConfig } from "../../src/config.ts";
