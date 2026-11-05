@@ -26,10 +26,6 @@
     "sandbox:autonomous": "bun --env-file=.env scripts/test_autonomous_participation.ts",
     "eval:reactions": "bun --env-file=.env scripts/evaluate_reactions.ts"
   },
-  "dependencies": {
-    "@aws-sdk/client-cost-explorer": "^3.1146.0",
-    "@smithy/credential-provider-imds": "^4.5.2"
-  },
   "devDependencies": {
     "@types/bun": "~1.4.4"
   }

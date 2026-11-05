@@ -299,9 +299,9 @@ bun run sandbox:discord
 
 Send `Haru local, create a game night event tomorrow at 8 PM in General voice, ending at 10 PM.`
 Then try `Haru local, cancel the game night event.` Use the same `Haru local,` prefix for
-clarification replies. Do not mention `@Haru`: the prefix isolates local testing when AWS uses the
-same bot identity. The runner accepts human messages only in that exact sandbox channel, uses
-in-memory state and the current test message as context, and does not start scheduled jobs,
+clarification replies. Do not mention `@Haru`: the prefix isolates local testing when production
+uses the same bot identity. The runner accepts human messages only in that exact sandbox channel,
+uses in-memory state and the current test message as context, and does not start scheduled jobs,
 autonomous chat, or the HTTP server. Events and invitations are real; stop with Ctrl-C and remove
 test artifacts when finished. Normal mentions are ignored locally.
 
@@ -327,37 +327,31 @@ scheduled jobs and can respond in any server the bot can access.
 
 ### Month-to-date usage
 
-`@Haru \usage` in a configured bot channel reports UTC month-to-date AWS cost, OpenAI API cost, and
+`@Haru \usage` in a configured bot channel reports UTC month-to-date OpenAI API cost and
 input/cache/output tokens. The reply shows its date range and scope, for example:
 
 ```text
 📊 Usage — October 2026 (month to date)
 2026-10-01 → 2026-10-06 13:45 UTC
-AWS cost: $12.35
 OpenAI API cost: $3.50
 Input tokens: 1,234,567
 Cache tokens: 123,000
 Output tokens: 8,000
 ```
 
-Values above are illustrative. AWS uses account-wide UnblendedCost; OpenAI costs cover all API
-products, while tokens cover model completions (including Responses). Totals include usage outside
-Haru. Cache tokens are included in input tokens, and provider data may lag. Missing credentials or
-failed queries show **Unavailable**; valid empty results show zero. Reports are cached for five
-minutes, share concurrent queries, refresh on month rollover, and use a fifteen-second deadline. The
-command works with AI disabled or its budget exhausted, without spending model tokens.
+Values above are illustrative. OpenAI costs cover all API products, while tokens cover model
+completions (including Responses). Totals include usage outside Haru. Cache tokens are included in
+input tokens, and provider data may lag. Missing credentials or failed queries show **Unavailable**;
+valid empty results show zero. Reports are cached for five minutes, share concurrent queries,
+refresh on month rollover, and use a fifteen-second deadline. The command works with AI disabled or
+its budget exhausted, without spending model tokens.
 
 Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `OPENAI_API_KEY`. Optionally
-set `USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. Enable AWS
-Cost Explorer and grant `ce:GetCostAndUsage` (included in the CloudFormation template). AWS uses
-environment credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`)
-or the EC2 role via IMDSv2; local AWS profiles are not used for credentials. For existing
-deployments, preserve the instance AMI as described below. Cost Explorer queries may incur charges.
-The report is visible to channel members.
+set `USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. The report
+is visible to channel members.
 
-Sources:
-[OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage),
-[AWS GetCostAndUsage](https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html).
+Source:
+[OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage).
 
 ---
 
@@ -542,7 +536,7 @@ Haru now runs on Bun and started with a new, empty database. These differences a
    restart; repeat the request.
 2. A restart resets the per-minute AI request counts. The daily budget is unaffected.
 3. Link requests send `User-Agent: HaruBot/1.0`.
-4. The AWS cost request sends the AWS SDK's default user agent.
+4. `\usage` no longer reports AWS cost; it shows OpenAI cost and tokens only.
 5. A link path starting with `//` is requested with a single `/`.
 6. A gzip body followed by trailing zero bytes fails to decode.
 7. An admin HTTP request that sends nothing for 120 seconds is cut off.
@@ -611,69 +605,6 @@ Suggested recurring loop:
 5. `bun run agent:mark-pr-open <issue_number> <pr_url>`
 
 ---
-
-## AWS Deployment
-
-> **Pending.** The deployment template and `scripts/deploy_aws.sh` still install and run the pre-Bun
-> version of Haru. They move to Bun in a separate follow-up (see "Deployment notes" in
-> [`docs/bun-migration-plan.md`](docs/bun-migration-plan.md)). This section describes the current
-> deployment.
-
-The production deployment uses a small ARM EC2 instance in the account's default VPC. It has no
-inbound ports, is administered through AWS Systems Manager, restarts Haru after process or health
-check failures, and backs up its database to a private versioned S3 bucket each day. The instance
-uses Standard CPU credits to avoid surplus CPU credit charges. Bursts spend earned credits;
-sustained CPU work slows toward the instance's baseline as credits run low, which can increase
-response and deployment times. See
-[AWS Standard mode](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-standard-mode.html).
-
-Prerequisites:
-
-- AWS CLI v2 with an authenticated profile
-- `jq` and `sqlite3`
-- A pushed Git commit that the EC2 instance can fetch
-
-Deploy from the repository root, migrating the current local KV database if desired:
-
-```bash
-AWS_PROFILE=mochi-admin ./scripts/deploy_aws.sh \
-  --migrate-kv /path/to/kv.sqlite3
-```
-
-For infrastructure updates that should preserve the running instance, set the CloudFormation
-`ExistingAmiId` parameter to that instance's current EC2 `ImageId`. The default empty value
-continues to use the latest Amazon Linux ARM AMI through `LatestAmiId` for new stacks. Because the
-public SSM parameter can resolve to a newer AMI during an update, leaving the override empty can
-cause an unrelated infrastructure change to replace the instance.
-
-The deployment helper does not discover or set `ExistingAmiId`. Before using it to update an
-existing unpinned stack, create an infrastructure change set with the current AMI override and
-preserve the other stack parameters. Inspect the change set to confirm the instance will not be
-replaced, then apply it. Keep the AMI override on later updates; change or clear it only for an
-intentional AMI upgrade.
-
-Useful operations:
-
-```bash
-# Show the instance ID and backup bucket
-aws cloudformation describe-stacks --profile mochi-admin --region us-west-2 \
-  --stack-name haru-bot --query 'Stacks[0].Outputs'
-
-# Read the AMI to use as ExistingAmiId when preserving this instance
-aws ec2 describe-instances --profile mochi-admin --region us-west-2 \
-  --instance-ids INSTANCE_ID --query 'Reservations[0].Instances[0].ImageId' --output text
-
-# Open a shell without SSH or an inbound firewall rule
-aws ssm start-session --profile mochi-admin --region us-west-2 --target INSTANCE_ID
-
-# Inside the instance
-sudo systemctl status haru
-sudo journalctl -u haru -n 100 --no-pager
-```
-
-Secrets from `.env` are copied to an encrypted SSM `SecureString`; they are never embedded in the
-CloudFormation template. The `/health` and manual trigger endpoints remain accessible only from the
-instance itself.
 
 ## Acknowledgments
 

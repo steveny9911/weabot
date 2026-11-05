@@ -1,12 +1,4 @@
 /** Provider-reported month-to-date billing and model token usage. */
-import {
-  CostExplorerClient,
-  type CostExplorerClientConfig,
-  GetCostAndUsageCommand,
-  type GetCostAndUsageCommandInput,
-  type GetCostAndUsageCommandOutput,
-} from "@aws-sdk/client-cost-explorer";
-import { fromInstanceMetadata } from "@smithy/credential-provider-imds";
 import type { AppConfig } from "../config.ts";
 import type { Fetcher } from "../types/fetch.ts";
 
@@ -24,7 +16,6 @@ export interface MonthlyUsage {
   start: string;
   asOf: string;
   openaiScope: "organization" | "project";
-  awsCost: UsageValue<Money>;
   openaiCost: UsageValue<Money>;
   tokens: UsageValue<TokenTotals>;
 }
@@ -36,11 +27,6 @@ interface UsageDependencies {
   fetch?: Fetcher;
   /** Shared deadline for all provider requests (default 15 s); tests use a short one. */
   timeoutMs?: number;
-  awsRequestHandler?: CostExplorerClientConfig["requestHandler"];
-  awsSend?: (
-    input: GetCostAndUsageCommandInput,
-    signal: AbortSignal,
-  ) => Promise<GetCostAndUsageCommandOutput>;
 }
 
 const CACHE_MS = 5 * 60 * 1000;
@@ -75,33 +61,6 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
   const now = deps.now ?? (() => new Date());
   const fetcher: Fetcher = deps.fetch ?? fetch;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  // Use env credentials locally and IMDSv2 on EC2 rather than the default
-  // credential chain, which can invoke subprocesses or require credential files.
-  const roleCredentials = fromInstanceMetadata({
-    timeout: 1000,
-    maxRetries: 1,
-    ec2MetadataV1Disabled: true,
-  });
-  const client = new CostExplorerClient({
-    region: "us-east-1",
-    maxAttempts: 2,
-    requestHandler: deps.awsRequestHandler,
-    credentials: () => {
-      const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-      const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-      if (accessKeyId && secretAccessKey) {
-        return Promise.resolve({
-          accessKeyId,
-          secretAccessKey,
-          sessionToken: process.env.AWS_SESSION_TOKEN,
-        });
-      }
-      return roleCredentials();
-    },
-  });
-  const awsSend =
-    deps.awsSend ??
-    ((input, signal) => client.send(new GetCostAndUsageCommand(input), { abortSignal: signal }));
   let cache: { month: string; expires: number; report: Promise<MonthlyUsage> } | undefined;
 
   async function openaiResults(
@@ -151,53 +110,13 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
     throw new Error("Too many pages");
   }
 
-  async function awsCost(start: Date, end: Date, signal: AbortSignal): Promise<Money> {
-    const tomorrow = new Date(
-      Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() + 1),
-    );
-    let next: string | undefined;
-    const seen = new Set<string>();
-    let amount = 0;
-    let currency: string | undefined;
-    for (let page = 0; page < 100; page++) {
-      const data = await awsSend(
-        {
-          TimePeriod: {
-            Start: start.toISOString().slice(0, 10),
-            End: tomorrow.toISOString().slice(0, 10),
-          },
-          Granularity: "MONTHLY",
-          Metrics: ["UnblendedCost"],
-          ...(next ? { NextPageToken: next } : {}),
-        },
-        signal,
-      );
-      if (!Array.isArray(data.ResultsByTime)) throw new Error("Missing AWS results");
-      for (const bucket of data.ResultsByTime) {
-        const metric = bucket.Total?.UnblendedCost;
-        if (!metric || typeof metric.Amount !== "string" || !metric.Amount.trim() || !metric.Unit) {
-          throw new Error("Missing AWS cost");
-        }
-        if (currency && currency !== metric.Unit) throw new Error("Mixed currencies");
-        currency = metric.Unit;
-        amount += number(Number(metric.Amount));
-      }
-      next = data.NextPageToken;
-      if (!next) return { amount, currency: currency ?? "USD" };
-      if (seen.has(next)) throw new Error("Invalid pagination");
-      seen.add(next);
-    }
-    throw new Error("Too many pages");
-  }
-
   async function load(start: Date, end: Date): Promise<MonthlyUsage> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const signal = controller.signal;
     const missing = { ok: false as const, reason: "OPENAI_ADMIN_KEY not configured" };
     try {
-      const [aws, cost, tokens] = await Promise.all([
-        available(() => awsCost(start, end, signal)),
+      const [cost, tokens] = await Promise.all([
         config.openaiAdminKey
           ? available(async () => {
               const results = await openaiResults("costs", start, end, signal);
@@ -228,7 +147,6 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
         start: start.toISOString(),
         asOf: end.toISOString(),
         openaiScope: config.usageOpenaiProjectId ? "project" : "organization",
-        awsCost: aws,
         openaiCost: cost,
         tokens,
       };

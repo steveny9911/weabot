@@ -33,7 +33,7 @@ test("local runner ignores other guilds, channels, DMs, bots, and webhooks", () 
   }
 });
 
-test("local runner ignores ordinary messages and real mentions handled by AWS", () => {
+test("local runner ignores ordinary messages and real mentions handled by the production bot", () => {
   for (const change of [
     { content: "create a game night event tomorrow" },
     { content: "Haru local," },

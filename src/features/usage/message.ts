@@ -21,14 +21,13 @@ export function formatUsageMessage(report: MonthlyUsage): string {
     `📊 **Usage — ${month} (month to date)**`,
     `${report.start.slice(0, 10)} → ${report.asOf.slice(0, 16).replace("T", " ")} UTC`,
     "",
-    `**AWS cost:** ${money(report.awsCost)}`,
     `**OpenAI API cost:** ${money(report.openaiCost)}`,
     "",
     `**Input tokens:** ${report.tokens.ok ? count(report.tokens.value.input) : unavailable}`,
     `**Cache tokens:** ${report.tokens.ok ? count(report.tokens.value.cached) : unavailable}`,
     `**Output tokens:** ${report.tokens.ok ? count(report.tokens.value.output) : unavailable}`,
     "",
-    `AWS account • OpenAI ${report.openaiScope}`,
-    "Cache tokens are included in input tokens. Provider totals may lag; AWS costs are estimated.",
+    `OpenAI ${report.openaiScope}`,
+    "Cache tokens are included in input tokens. Provider totals may lag.",
   ].join("\n");
 }

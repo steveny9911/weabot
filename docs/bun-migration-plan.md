@@ -21,7 +21,7 @@ listed under [Behavior changes](#behavior-changes) as an explicit decision.
 | Topic                | Decision                                                                                                                                                                                                                                                                                  |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime              | Bun 1.4.4. `packageManager: "bun@1.4.4"` is the single version source for CI (`oven-sh/setup-bun` reads it). `engines.bun: "~1.4.4"` documents the 1.4.x range; Bun itself does not enforce either field.                                                                                 |
-| Dependencies         | Built-in Bun and `node:` APIs first. Runtime dependencies: only the official AWS SDK (`@aws-sdk/client-cost-explorer@^3`, `@smithy/credential-provider-imds@^4`). Dev dependency: `@types/bun@^1`. Runtime auto-install is disabled.                                                      |
+| Dependencies         | Built-in Bun and `node:` APIs first. No runtime dependencies (the AWS SDK left with the AWS cost report). Dev dependency: `@types/bun@^1`. Runtime auto-install is disabled.                                                                                                              |
 | Discord gateway      | Global `WebSocket`, unchanged. The IDENTIFY properties change from `"deno"` to `"bun"`.                                                                                                                                                                                                   |
 | Database             | `bun:sqlite`, seven tables for data that must survive a restart (see [Data model](#data-model)).                                                                                                                                                                                          |
 | In-memory state      | Per-user per-minute AI request counts, Discord action turn tokens and pending clarifications. All are short-lived and only coordinate work inside the running process.                                                                                                                    |
@@ -38,7 +38,7 @@ listed under [Behavior changes](#behavior-changes) as an explicit decision.
 | Lint                 | `bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0`, because `bun lint` is canary-only in 1.4.4. CI caches the Bun install cache. Switch to stable `bun lint` when it ships. Never add the canary as a dependency: its binary would shadow `bun` inside every `bun run` script.      |
 | Layout               | Unchanged (root-level `main.ts`, `ai_service.ts`, `bot_actions.ts`, `discord_gateway.ts` stay).                                                                                                                                                                                           |
 | Scripts              | All ported.                                                                                                                                                                                                                                                                               |
-| Deployment           | Out of scope. See [Deployment notes](#deployment-notes-for-later).                                                                                                                                                                                                                        |
+| Deployment           | Out of scope. AWS hosting is removed; production will run on a self-hosted server (Docker Compose, later).                                                                                                                                                                                |
 | `master` during port | No new code lands on `master` until `feat/bun` merges.                                                                                                                                                                                                                                    |
 
 ### Behavior changes
@@ -55,8 +55,8 @@ Accepted on purpose:
 3. **Link requests send `User-Agent: HaruBot/1.0`.** The old transport sent no `User-Agent`. Bun's
    `fetch` always sends one (`Bun/<version>` by default, an empty value at best), so a fixed name is
    sent instead of one that reveals the runtime and version.
-4. **The AWS cost request sends the AWS SDK's default user agent** (SDK version, OS and kernel
-   release, runtime) instead of `weabot/1`. Only the bot's own AWS account sees it.
+4. **`\usage` no longer reports AWS cost.** Haru no longer runs on AWS, so the Cost Explorer query,
+   its credentials and the AWS SDK are removed. The report shows OpenAI cost and tokens only.
 5. **A link path starting with `//` is requested with a single `/`** (`https://site.com//a//b` asks
    for `/a//b`). Bun's `fetch` rewrites the leading `//` in the request line; the old transport sent
    it unchanged. Most servers treat the two the same.
@@ -654,12 +654,11 @@ import a module that still uses Deno; shared types and helpers move first.
 - This finds nothing:
 
   ```bash
-  git grep -n -i deno -- ':!docs/' ':!scripts/issue_agent/triage.ts' ':!bot_actions*.test.ts' ':!src/services/web_search.test.ts' ':!deploy/' ':!scripts/deploy_aws.sh'
+  git grep -n -i deno -- ':!docs/' ':!scripts/issue_agent/triage.ts' ':!bot_actions*.test.ts' ':!src/services/web_search.test.ts'
   ```
 
   The exceptions are deliberate: triage still recognizes "deno" in bug reports (behavior change 8),
-  the test messages ask about Deno as sample user text, and the deployment files still deploy the
-  Deno version until the deployment follow-up.
+  and the test messages ask about Deno as sample user text.
 
 - Full suite at the exact expected counts.
 - The slice 3 smoke run is repeated on the final commit.
@@ -668,35 +667,7 @@ import a module that still uses Deno; shared types and helpers move first.
 ### Slice 6: Pull request
 
 - Tag `59535bf` as `deno-final` and push the tag.
-- Open a PR from `feat/bun` to `master`. Merging does not deploy anything. Production keeps running
-  `deno-final` until the deployment follow-up; Deno hotfixes branch from that tag.
-
-## Deployment notes (for later)
-
-Not part of this plan.
-
-- **Move the systemd unit and helper scripts into the repo.** They are written by the CloudFormation
-  startup script today, so changing them means a CloudFormation update. That stops and restarts the
-  instance, and risks replacing it if `ExistingAmiId` is not pinned. Move `haru.service` and the
-  `haru-*` helpers into `deploy/aws/`, and install them from the checkout during deploy.
-- **Install Bun.** A pinned `1.4.4` linux-aarch64 build with a checksum check.
-- **Install dependencies:** `bun install --frozen-lockfile --production` as the `haru` user,
-  replacing `deno cache`. Runtime auto-install is disabled, so a missing install fails loudly.
-- **Unit settings:**
-  - `ExecStart=/usr/local/bin/bun run main.ts` (not `bun run start`, which adds a wrapper process);
-  - `Environment=NODE_ENV=production`, `TZ=UTC` and `HARU_DB_PATH=/var/lib/haru/haru.sqlite3`;
-  - keep `ProtectSystem=strict` and `ReadWritePaths=/var/lib/haru`;
-  - remove `DENO_DIR` and `DENO_KV_PATH`;
-  - do not set proxy variables (the link transport ignores them; other requests would use them).
-- **Fresh database.** Use a new file name. Keep the Deno KV file and its S3 backups untouched, and
-  name the new backup differently (for example `kv/haru-bun.sqlite3`). Polls posted in the 24 hours
-  before cutover will not be collected.
-- **Backups.** Check that the instance's `sqlite3` CLI is 3.37 or newer, which `STRICT` tables need
-  for `.backup`.
-- **Memory.** Check memory use on the `t4g.nano` (512 MB) after cutover.
-- **`deploy_aws.sh`.** It still runs `cloudformation deploy` without `ExistingAmiId`. Fix that, or
-  use only the app-only deploy path.
-- **Rollback.** Redeploy `deno-final` with the old unit. The Deno KV file is still on the instance.
+- Open a PR from `feat/bun` to `master`. Merging deploys nothing; nothing is deployed yet.
 
 ## Slice log
 
@@ -972,6 +943,21 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   a scratch directory: `/health` returns `OK`, `POST /vote` and `/stats` work, the database is at
   `user_version = 1` with the vote stored, and the six jobs register. **Still to do with a test
   bot:** the full slice 3 smoke list.
+
+### AWS removal (done)
+
+Haru will not run on AWS. Production will run on a self-hosted server with Docker Compose (later).
+
+- **Deleted:** `deploy/aws/cloudformation.yml` and `scripts/deploy_aws.sh`.
+- **CI:** the CloudFormation lint job and the `feat/aws-hosting` push trigger are removed.
+- **`\usage`:** the AWS cost line, the Cost Explorer client and the `AWS_*` credentials are removed;
+  `@aws-sdk/client-cost-explorer` and `@smithy/credential-provider-imds` are uninstalled, so there
+  are no runtime dependencies. Behavior change 4 now records this. `usage.test.ts` drops the real
+  AWS client test (10 → 9 tests); the other usage tests keep their OpenAI checks. Totals: 712 tests
+  (669 unit, 43 transport).
+- **Docs:** the README AWS deployment section, the AWS parts of the `\usage` section and the
+  `.env.sample` AWS entries are removed; this plan's deployment notes are removed.
+- **Kept:** `instance-data.ec2.internal` in the link fetch block list (security, not deployment).
 
 ## Future work
 

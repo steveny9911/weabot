@@ -1149,7 +1149,6 @@ test("usage command bypasses AI budgets and does not mutate conversation context
         start: "2026-10-01T00:00:00Z",
         asOf: "2026-10-06T00:00:00Z",
         openaiScope: "organization",
-        awsCost: { ok: true, value: { amount: 1, currency: "USD" } },
         openaiCost: { ok: true, value: { amount: 2, currency: "USD" } },
         tokens: { ok: true, value: { input: 100, cached: 20, output: 10 } },
       });
@@ -1163,7 +1162,7 @@ test("usage command bypasses AI budgets and does not mutate conversation context
     expect(state.requestCount).toStrictEqual(0);
     expect(state.recordedTokens).toStrictEqual([]);
     expect(getContext("chan-1")).toStrictEqual(context);
-    expect(mock.postedMessages[0]).toContain("**AWS cost:** $1.00");
+    expect(mock.postedMessages[0]).toContain("**OpenAI API cost:** $2.00");
   } finally {
     mock.restore();
   }
