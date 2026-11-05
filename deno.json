@@ -51,7 +51,8 @@
   },
   "lint": {
     "rules": {
-      "tags": ["recommended"]
+      "tags": ["recommended"],
+      "exclude": ["no-process-global"]
     }
   },
   "compilerOptions": {

@@ -735,6 +735,9 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   - `src/types/fetch.ts`: the `Fetcher` type for injected fetchers.
   - `test_support/fetch.ts`: `asFetch(stub)` for `globalThis.fetch` stubs, because Bun's
     `typeof fetch` requires a `preconnect` method.
+- **CI fix:** Deno 2.6.0's `no-process-global` lint rule (in its recommended set) flags
+  `process.env`. `deno.json` now excludes that rule; the file is removed in slice 5. Local checks
+  now use exit codes, after an output tail hid this failure.
 - **Found:** Bun's types make `Response.json()` return `Promise<unknown>` (Deno's return `any`), so
   `discord.ts` needed two type assertions. Expect more of these in later slices.
 
