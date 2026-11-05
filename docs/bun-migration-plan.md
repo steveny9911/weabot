@@ -1,170 +1,140 @@
 # Bun Migration Plan
 
-Port Haru from Deno to Bun on branch `feat/bun`. Behavior seen in Discord stays the same. The
-storage layer is redesigned for SQLite, and the bot starts with an empty database. Each slice ends
-in a state that can be run and checked before the next one starts.
+Port Haru from Deno to Bun on branch `feat/bun`. Behavior seen in Discord stays the same, with two
+accepted exceptions listed under [Behavior changes](#behavior-changes). Storage moves from Deno KV
+to a new SQLite data model, and the bot starts with an empty database.
 
-Status: **draft**. Base: `master` at `59535bf`.
+Status: **ready to implement**. Base: `master` at `59535bf`. This revision applies every finding in
+[`bun-migration-review.md`](bun-migration-review.md) and the simplified data model agreed on
+2026-11-05.
 
 ## Decisions
 
-| Topic                | Decision                                                                                                                                                                                         |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runtime              | Bun, pinned to `1.4.x` (`engines` and `packageManager` in `package.json`, and CI).                                                                                                               |
-| Dependencies         | Built-in Bun and `node:` APIs first. Runtime dependencies: only the official AWS SDK (`@aws-sdk/client-cost-explorer`, `@smithy/credential-provider-imds`). npm packages pinned to major (`^`).  |
-| Discord gateway      | Global `WebSocket`, unchanged.                                                                                                                                                                   |
-| Database             | `bun:sqlite` with a new relational schema (see [Data model](#data-model)). It replaces Deno KV behind the existing service interfaces.                                                           |
-| Data                 | **Start fresh.** No migration from Deno KV. Vote history, glue streaks, pending polls, rate-limit counters and chat state start empty.                                                           |
-| Scheduled jobs       | In-process `Bun.cron(schedule, handler, { tz: "UTC" })`.                                                                                                                                         |
-| HTTP server          | `Bun.serve`.                                                                                                                                                                                     |
-| DNS for link checks  | `Bun.dns.lookup(hostname, { backend: "c-ares" })`, raced against the link deadline. See [DNS choice](#dns-choice).                                                                               |
-| Link transport       | Bun `fetch` to the validated IP literal, with the original `Host` header and `tls.serverName`. Replaces undici.                                                                                  |
-| Tests                | Converted to `bun:test` (`test`, `describe`, `expect`). `@std/assert` is removed.                                                                                                                |
-| Format / type check  | `bun fmt` and `bun check`, both built in and stable in 1.4.4.                                                                                                                                    |
-| Lint                 | `bun lint`. It is canary-only as of Bun 1.4.4 (see [Lint](#lint)), so CI runs it from **one pinned canary build** while the app runs on stable 1.4.4. Switch to stable `bun lint` when it ships. |
-| Layout               | Unchanged for the port (root-level `main.ts`, `ai_service.ts`, `bot_actions.ts`, `discord_gateway.ts` stay). Restructuring is a later change.                                                    |
-| Scripts              | All ported (issue agent, sandbox runners, evaluation scripts).                                                                                                                                   |
-| Deployment           | Out of scope for now. See [Deployment notes](#deployment-notes-for-later).                                                                                                                       |
-| `master` during port | No new code lands on `master` until `feat/bun` merges.                                                                                                                                           |
+| Topic                | Decision                                                                                                                                                                                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Runtime              | Bun 1.4.4. `packageManager: "bun@1.4.4"` is the single version source for CI (`oven-sh/setup-bun` reads it). `engines.bun: "~1.4.4"` documents the 1.4.x range; Bun itself does not enforce either field.                                                                            |
+| Dependencies         | Built-in Bun and `node:` APIs first. Runtime dependencies: only the official AWS SDK (`@aws-sdk/client-cost-explorer@^3`, `@smithy/credential-provider-imds@^4`). Dev dependency: `@types/bun@^1`. Runtime auto-install is disabled.                                                 |
+| Discord gateway      | Global `WebSocket`, unchanged. The IDENTIFY properties change from `"deno"` to `"bun"`.                                                                                                                                                                                              |
+| Database             | `bun:sqlite`, seven tables for data that must survive a restart (see [Data model](#data-model)).                                                                                                                                                                                     |
+| In-memory state      | Per-user per-minute AI request counts, Discord action turn tokens and pending clarifications. All are short-lived and only coordinate work inside the running process.                                                                                                               |
+| Data                 | Start fresh. No migration from Deno KV.                                                                                                                                                                                                                                              |
+| Scheduled jobs       | In-process `Bun.cron(schedule, handler, { tz: "UTC" })` through a registrar that catches and logs handler errors.                                                                                                                                                                    |
+| HTTP server          | `Bun.serve` with `development: false`, `idleTimeout: 120` and an `error()` handler.                                                                                                                                                                                                  |
+| DNS for link checks  | `Bun.dns.lookup(hostname, { backend: "c-ares" })`, injected, raced against the link deadline.                                                                                                                                                                                        |
+| Link transport       | Bun `fetch` to the validated IP literal, with explicit `Host`, `Accept`, `Accept-Encoding` and `User-Agent` headers, and `tls.serverName` only when the original host is a name.                                                                                                     |
+| Proxy variables      | Deleted from `process.env` at startup, because Bun's `fetch` would otherwise route link requests through them and bypass IP pinning.                                                                                                                                                 |
+| Tests                | `bun:test`, run with `--isolate`, a preload that blocks unstubbed network calls and sets a 20 s default timeout, and helpers for `assert`, `rejects` and `throws`.                                                                                                                   |
+| Environment files    | `env = false` in `bunfig.toml`. `start` and `dev` pass `--env-file=.env` explicitly, as Deno's `--env` did. Tests never read `.env`.                                                                                                                                                 |
+| Format               | `bun fmt` (Prettier-compatible), applied to the whole repo in one commit in slice 0.                                                                                                                                                                                                 |
+| Type check           | `bun check`.                                                                                                                                                                                                                                                                         |
+| Lint                 | `bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0`, because `bun lint` is canary-only in 1.4.4. CI caches the Bun install cache. Switch to stable `bun lint` when it ships. Never add the canary as a dependency: its binary would shadow `bun` inside every `bun run` script. |
+| Layout               | Unchanged (root-level `main.ts`, `ai_service.ts`, `bot_actions.ts`, `discord_gateway.ts` stay).                                                                                                                                                                                      |
+| Scripts              | All ported.                                                                                                                                                                                                                                                                          |
+| Deployment           | Out of scope. See [Deployment notes](#deployment-notes-for-later).                                                                                                                                                                                                                   |
+| `master` during port | No new code lands on `master` until `feat/bun` merges.                                                                                                                                                                                                                               |
 
-### DNS choice
+### Behavior changes
 
-`Bun.dns.lookup` and `node:dns` `resolve4`/`resolve6` are **equally safe** here. Haru validates
-every returned address and then connects only to a validated one, so where the answer came from
-cannot widen what Haru connects to. The remaining differences are small:
+Accepted on purpose:
 
-- `Bun.dns.lookup` has no abort signal. The 8-second link deadline still applies, by racing the
-  lookup. On the c-ares backend an abandoned lookup is a cheap asynchronous query that finishes or
-  times out by itself, without tying up a thread.
-- It returns IPv4 and IPv6 together. If one family fails and the other succeeds, Haru gets the
-  successful family's addresses rather than failing the whole request. Every address returned is
-  still validated, so this does not weaken safety.
-- `backend: "c-ares"` is set explicitly. It is Bun's Linux default, reads `/etc/resolv.conf`
-  directly, and keeps behavior identical on macOS dev machines, where the default backend differs.
+1. **A pending clarification is forgotten on restart.** If Haru asked "what time should the event
+   start?" and the bot restarts before the user answers, the user repeats the request. Restarts only
+   happen on deploys.
+2. **A restart resets the per-minute AI request counts.** At most one extra minute of allowance. The
+   daily token budget is persisted and unaffected.
 
-Consequence for tests: PR #30's "cancel the sibling DNS query" tests no longer apply, since there is
-a single lookup. They are replaced by "a hung lookup still ends at the deadline" and "partial family
-results are validated". The lookup function is injected, so no test replaces a global.
+Side effects of the new runtime, all safe because every address is validated before connecting:
 
-### Lint
+- **Partial DNS failure.** A host whose AAAA (IPv6) lookup fails but whose A (IPv4) lookup succeeds
+  now opens over IPv4 instead of failing.
+- **DNS caching.** Bun caches lookups, so a DNS change can take effect slightly later.
+- **`/etc/hosts`.** Lookups read `/etc/hosts`.
 
-Checked on 2026-11-05:
-
-- The npm dist-tags show `latest: 1.4.4` and `canary: 1.4.4-canary.20261104.1`.
-- Bun's lint docs for 1.4.4 (shipped in `bun-types@1.4.4`) say: "`bun lint` is only in canary builds
-  of Bun."
-
-`bun fmt` and `bun check` are in stable 1.4.4. Plan:
-
-- **CI** runs lint from the pinned canary build (`bunx bun@1.4.4-canary.20261104.1 lint`). That pins
-  the exact build, so results are reproducible. Lint is a development tool only; production and
-  tests run on stable 1.4.4.
-- **Locally**, `bun run lint` runs the same pinned canary through `bunx`, so lint results match CI.
-- **Config** goes in `bunfig.toml` under `[lint.rules]`, starting from the defaults (ESLint and
-  typescript-eslint recommended, plus the `bun:test` rules).
-- When a stable Bun release includes `bun lint`, bump the pinned Bun version and replace the `bunx`
-  call with `bun lint`.
-- If the canary build misbehaves, slice 0 records it and lint falls back to stricter `tsconfig`
-  flags until stable.
+Fixed bug: weekly stats no longer drop or duplicate a day across a DST change when the process runs
+in a non-UTC time zone.
 
 ## What changes, by file
 
-Non-test files that use Deno APIs or `npm:` imports on `master`:
-
-| File                                                                                                                                                 | Deno usage                                              | Bun replacement                                                            | Slice |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------- | ----- |
-| `src/config.ts`                                                                                                                                      | `Deno.env.get` (29)                                     | `process.env`                                                              | 1     |
-| `ai_service.ts`                                                                                                                                      | `Deno.env.get` (11)                                     | `process.env`                                                              | 1     |
-| `src/services/usage.ts`                                                                                                                              | `Deno.env.get`; `--allow-sys` user-agent workaround     | `process.env`; workaround removed                                          | 1     |
-| `src/services/storage.ts`                                                                                                                            | `Deno.Kv`                                               | SQLite repositories (`src/db/`)                                            | 2     |
-| `src/services/rate_limit.ts`                                                                                                                         | `Deno.Kv`                                               | SQLite repositories                                                        | 2     |
-| `src/features/discord_actions/mod.ts`                                                                                                                | `Deno.Kv`, `Deno.KvKey`, `Deno.KvEntryMaybe`            | SQLite repositories                                                        | 2     |
-| `src/services/public_fetch.ts`                                                                                                                       | `Deno.resolveDns`, `Deno.errors.NotFound`, `npm:undici` | `Bun.dns.lookup`; Bun `fetch` pinning                                      | 3     |
-| `src/scheduler.ts`                                                                                                                                   | `Deno.cron` (5 jobs)                                    | `Bun.cron` behind an injected registrar, plus a maintenance job            | 4     |
-| `src/server.ts`                                                                                                                                      | `Deno.serve`                                            | `Bun.serve`                                                                | 4     |
-| `main.ts`                                                                                                                                            | `Deno.openKv`, `Deno.env.get`                           | Open the database at `HARU_DB_PATH`                                        | 4     |
-| `scripts/issue_agent/*.ts`                                                                                                                           | `Deno.Command`, `Deno.args`, `Deno.cwd`                 | `Bun.spawn`, `process.argv`, `process.cwd()`                               | 5     |
-| `scripts/run_discord_sandbox.ts`, `test_discord_events.ts`, `test_reactions_sandbox.ts`, `test_autonomous_participation.ts`, `evaluate_reactions.ts` | `Deno.openKv`, `Deno.args`, `Deno.exitCode`             | Database (in memory or a sandbox file), `process.argv`, `process.exitCode` | 5     |
-
-`discord_gateway.ts`, `bot_actions.ts`, `src/services/discord*.ts`, `src/services/link_open.ts` and
-the `src/features/*` modules not listed above use no Deno APIs and should need no source changes
-beyond import paths.
-
-Tests: 33 `*.test.ts` files plus `tests/*.integration.ts` and `tests/fixtures/link_tls.ts`. They
-contain 492 `Deno.test` calls, 23 `t.step` calls and about 1,600 `@std/assert` assertions. Two test
-files replace Deno globals directly (`Deno.cron` in `src/scheduler.autonomous.test.ts`,
-`Deno.resolveDns` in `src/services/public_fetch.test.ts`). Both become injected dependencies.
+| File                                                     | Change                                                                                                                                                | Slice |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `src/config.ts`, `ai_service.ts`                         | `Deno.env.get` becomes `process.env`                                                                                                                  | 1     |
+| `src/services/usage.ts`                                  | `process.env`; drop the Deno `--allow-sys` user-agent workaround; inject the 15 s timeout; type the injected fetcher without `typeof fetch`           | 1     |
+| `src/services/discord_events.ts`                         | Replace the one constructor parameter property; type the injected fetcher without `typeof fetch`                                                      | 1     |
+| `src/types/storage.ts`                                   | Receives `StorageService`, `ContextStorageService` and `isNewerHumanMessage` from `storage.ts`, so slice 1 files no longer import a Deno-typed module | 1     |
+| `src/services/public_fetch.ts`                           | `Bun.dns.lookup`; Bun `fetch` pinning; undici removed                                                                                                 | 2     |
+| `src/runtime_env.ts` (new)                               | `stripProxyEnvironment()`                                                                                                                             | 2     |
+| `src/db/*` (new)                                         | Database, migrations, queries                                                                                                                         | 3     |
+| `src/services/storage.ts`, `src/services/rate_limit.ts`  | SQLite plus in-memory minute counter                                                                                                                  | 3     |
+| `src/features/discord_actions/mod.ts` and new `state.ts` | In-memory turns, pending clarifications and per-guild lock; SQLite operation records and event guards                                                 | 3     |
+| `src/scheduler.ts`                                       | Injected cron registrar; UTC date arithmetic; maintenance job                                                                                         | 3     |
+| `src/server.ts`                                          | `Bun.serve`                                                                                                                                           | 3     |
+| `main.ts`                                                | Strip proxy variables, open the database, start everything                                                                                            | 3     |
+| `discord_gateway.ts`                                     | IDENTIFY properties `"bun"`                                                                                                                           | 3     |
+| `scripts/**`                                             | `Bun.spawn`, `process.argv`, `process.cwd()`, `process.exitCode`, in-memory or sandbox databases                                                      | 4     |
+| `deno.json`, `deno.lock`, `.vscode/`                     | Removed                                                                                                                                               | 5     |
 
 ## Data model
 
-### Data Haru stores today
+### What is stored where
 
-| Deno KV key                                                                                    | What it holds                                                                        | Written by                      |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------- |
-| `["votes", channel, date, user]` and `["user_votes", channel, user, date]`                     | One mood vote, stored twice as two indexes                                           | `storage.recordVote`            |
-| `["pending_polls", messageId]`                                                                 | A posted poll and whether its results were collected                                 | `storage` poll methods          |
-| `["context_resets", channel]`                                                                  | Message and time of the latest `\reset`                                              | `storage.setContextReset`       |
-| `["autonomous_participation", channel]`                                                        | Latest considered human message, last attempt time, last reaction emoji              | `storage` participation methods |
-| `["ai_usage", "user", user, minute]`                                                           | Per-user AI requests in one minute (2-minute TTL)                                    | `rate_limit`                    |
-| `["ai_usage", "daily_requests", date]`, `["ai_usage", "daily_tokens", date]`                   | Daily AI request and token totals (48-hour TTL)                                      | `rate_limit`                    |
-| `["discord_action_pending", guild, channel, user]`                                             | A Discord action waiting for clarification (20-minute TTL)                           | `discord_actions`               |
-| `["discord_action_generation", guild, channel, user]`                                          | The current turn's token, which invalidates older in-flight sessions (20-minute TTL) | `discord_actions`               |
-| `["discord_actions", guild, messageId, action]`                                                | Idempotency record: an action claimed or done for one message                        | `discord_actions`               |
-| `["discord_event_fingerprint", guild, hash]`, `["discord_event_cancellation", guild, eventId]` | Guards against creating the same event twice or cancelling one twice                 | `discord_actions`               |
+| Data                                                         | Survives restart?                                                                           | Where                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | --------------------------- |
+| Polls, votes                                                 | Yes                                                                                         | `polls`, `votes`            |
+| `\reset` markers                                             | Yes                                                                                         | `context_resets`            |
+| Autonomous chat watermark, cooldown, last reaction           | Yes. Stops Haru reacting to the same message again after a restart.                         | `autonomous_participation`  |
+| Daily AI requests and tokens                                 | Yes. A restart must not reset the budget.                                                   | `ai_daily_usage`            |
+| Discord action records (an action ran for a message)         | Yes. Stops an action from being repeated.                                                   | `discord_action_operations` |
+| Discord event guards (same event created or cancelled twice) | Yes                                                                                         | `discord_event_guards`      |
+| Per-user AI requests per minute                              | No                                                                                          | Memory                      |
+| Discord action turn tokens                                   | No. They coordinate model calls inside this process, which do not survive a restart anyway. | Memory                      |
+| Pending clarifications                                       | No (accepted, see Behavior changes)                                                         | Memory                      |
 
-### Design principles
+### Principles
 
-- **One table per concept**, with real columns and indexes. No generic key-value table, and no
-  duplicate copies of a record for indexing.
-- **Transactions instead of retry loops.** `bun:sqlite` is synchronous, so a read-check-write
-  sequence inside `db.transaction(...)` cannot interleave with other code in the process. That
-  replaces Deno KV's `atomic().check()` and versionstamp retry loops. **Rule: never `await` inside a
-  transaction.** Network calls such as Discord and OpenAI happen between transactions, never inside
-  one.
-- **`STRICT` tables** (Bun bundles SQLite 3.53.4, and `STRICT` type enforcement was tested). JSON
-  columns carry `CHECK (json_valid(...))`.
-- **Discord IDs are `TEXT`.** Snowflakes exceed JavaScript's safe integer range.
-- **Times are `INTEGER` milliseconds since the epoch, UTC.** Calendar dates (the poll day, the usage
-  day) are `TEXT` in `YYYY-MM-DD` form.
-- **Expiry is a column, not a TTL.** Reads ignore expired rows, and an hourly maintenance job
-  deletes them.
-- **The service interfaces stay the same** (`StorageService`, `RateLimitService`, the Discord action
-  service), so callers do not change. Only their implementations move to SQLite.
+- **One table per concept**, real columns, indexes, `STRICT` tables and `CHECK` constraints.
+- **One shared `Database` handle** for the whole process, passed to every service.
+- **Transactions instead of retry loops.** `bun:sqlite` is synchronous, so a read-check-write inside
+  a transaction cannot interleave with other code. Read-check-write transactions run with
+  `.immediate()`, so they also behave correctly if a second connection ever exists.
+- **Never `await` inside a transaction.** Network calls happen between transactions.
+- **Where a sequence must span an `await`** (checking Discord for an existing event before claiming
+  a guard), it runs under an in-memory per-guild lock rather than version checks.
+- **Discord IDs are `TEXT`.** Times are `INTEGER` milliseconds since the epoch (UTC). Calendar dates
+  are `TEXT` `YYYY-MM-DD`.
+- **Counters cannot exceed JavaScript's safe integer range** (enforced by `CHECK`).
+- **List queries keep Deno KV's key order** with explicit `ORDER BY`, because tests compare arrays.
+- **The service interfaces stay the same**, so callers do not change.
 
 ### Schema (migration 1)
 
 ```sql
--- Mood polls: one row per posted poll.
 CREATE TABLE polls (
   message_id    TEXT PRIMARY KEY,
   channel_id    TEXT NOT NULL,
-  poll_date     TEXT NOT NULL,              -- YYYY-MM-DD the poll is for
+  poll_date     TEXT NOT NULL,                  -- YYYY-MM-DD the poll is for
   created_at    INTEGER NOT NULL,
   expires_at    INTEGER NOT NULL,
-  collected_at  INTEGER                     -- NULL until results are stored
+  collected_at  INTEGER                         -- NULL until results are stored
 ) STRICT;
 CREATE INDEX polls_uncollected ON polls (expires_at) WHERE collected_at IS NULL;
 
--- Mood votes: at most one vote per user, per channel, per day.
 CREATE TABLE votes (
-  channel_id  TEXT NOT NULL,
-  vote_date   TEXT NOT NULL,                -- YYYY-MM-DD
-  user_id     TEXT NOT NULL,
-  user_name   TEXT NOT NULL,                -- display name at vote time
-  mood        TEXT NOT NULL CHECK (mood IN ('umazing', 'ok', 'glue')),
-  recorded_at INTEGER NOT NULL,
+  channel_id   TEXT NOT NULL,
+  vote_date    TEXT NOT NULL,                   -- YYYY-MM-DD
+  user_id      TEXT NOT NULL,
+  user_name    TEXT NOT NULL,                   -- display name at vote time
+  mood         TEXT NOT NULL CHECK (mood IN ('umazing', 'ok', 'glue')),
+  recorded_at  INTEGER NOT NULL,
   PRIMARY KEY (channel_id, vote_date, user_id)
 ) STRICT;
 CREATE INDEX votes_by_user ON votes (channel_id, user_id, vote_date DESC);
 
--- Latest \reset per channel or thread.
 CREATE TABLE context_resets (
   channel_id  TEXT PRIMARY KEY,
   message_id  TEXT NOT NULL,
   reset_at    INTEGER NOT NULL
 ) STRICT;
 
--- Autonomous chat watermark and cooldown per channel.
 CREATE TABLE autonomous_participation (
   channel_id                 TEXT PRIMARY KEY,
   latest_human_message_id    TEXT NOT NULL,
@@ -173,430 +143,531 @@ CREATE TABLE autonomous_participation (
   last_reaction_emoji        TEXT
 ) STRICT;
 
--- AI rate limiting: requests per user per UTC minute.
-CREATE TABLE ai_user_minute_requests (
-  user_id   TEXT NOT NULL,
-  minute    TEXT NOT NULL,                  -- YYYY-MM-DDTHH:MM (UTC)
-  requests  INTEGER NOT NULL CHECK (requests >= 0),
-  PRIMARY KEY (user_id, minute)
-) STRICT;
-
--- AI usage per UTC day: request count and token total.
 CREATE TABLE ai_daily_usage (
-  usage_date  TEXT PRIMARY KEY,             -- YYYY-MM-DD (UTC)
-  requests    INTEGER NOT NULL DEFAULT 0 CHECK (requests >= 0),
-  tokens      INTEGER NOT NULL DEFAULT 0 CHECK (tokens >= 0)
+  usage_date  TEXT PRIMARY KEY,                 -- YYYY-MM-DD (UTC)
+  requests    INTEGER NOT NULL DEFAULT 0 CHECK (requests BETWEEN 0 AND 9007199254740991),
+  tokens      INTEGER NOT NULL DEFAULT 0 CHECK (tokens BETWEEN 0 AND 9007199254740991)
 ) STRICT;
 
--- Discord action conversation state per (guild, channel, user).
--- The turn token replaces Deno KV versionstamps: a session is current only
--- while the stored token still equals the token it was given.
-CREATE TABLE discord_action_turns (
-  guild_id     TEXT NOT NULL,
-  channel_id   TEXT NOT NULL,
-  user_id      TEXT NOT NULL,
-  turn_token   TEXT NOT NULL,
-  message_id   TEXT NOT NULL,
-  is_reset     INTEGER NOT NULL DEFAULT 0 CHECK (is_reset IN (0, 1)),
-  pending      TEXT CHECK (pending IS NULL OR json_valid(pending)),  -- clarification request
-  expires_at   INTEGER NOT NULL,
-  PRIMARY KEY (guild_id, channel_id, user_id)
-) STRICT;
-
--- Idempotency: an action requested by one message runs at most once.
+-- An action requested by one Discord message runs at most once.
 CREATE TABLE discord_action_operations (
-  guild_id     TEXT NOT NULL,
-  message_id   TEXT NOT NULL,
-  action       TEXT NOT NULL,
-  state        TEXT NOT NULL CHECK (state IN ('pending', 'done')),
-  result       TEXT CHECK (result IS NULL OR json_valid(result)),
-  updated_at   INTEGER NOT NULL,
+  guild_id    TEXT NOT NULL,
+  message_id  TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  state       TEXT NOT NULL CHECK (state IN ('pending', 'done')),
+  result      TEXT CHECK (result IS NULL OR json_valid(result)),
+  updated_at  INTEGER NOT NULL,
   PRIMARY KEY (guild_id, message_id, action)
 ) STRICT;
 
--- Duplicate guards across messages: same event created twice, same event cancelled twice.
+-- The same event is not created twice or cancelled twice, across messages.
 CREATE TABLE discord_event_guards (
-  guild_id     TEXT NOT NULL,
-  kind         TEXT NOT NULL CHECK (kind IN ('creation_fingerprint', 'cancellation')),
-  guard_key    TEXT NOT NULL,               -- fingerprint hash or event ID
-  state        TEXT NOT NULL CHECK (state IN ('pending', 'done')),
-  result       TEXT CHECK (result IS NULL OR json_valid(result)),
-  updated_at   INTEGER NOT NULL,
+  guild_id    TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('creation_fingerprint', 'cancellation')),
+  guard_key   TEXT NOT NULL,                    -- fingerprint hash or event ID
+  state       TEXT NOT NULL CHECK (state IN ('pending', 'done')),
+  result      TEXT CHECK (result IS NULL OR json_valid(result)),
+  updated_at  INTEGER NOT NULL,
   PRIMARY KEY (guild_id, kind, guard_key)
 ) STRICT;
 ```
 
-`discord_action_turns` merges the two former keys (`discord_action_pending` and
-`discord_action_generation`), which were always read and written together under one compare-and-set.
-One row now holds the turn token and the optional pending clarification. Clearing the pending
-request sets `pending` to `NULL` and keeps the token, which preserves today's "abandon or reset
-leaves a new generation behind" rule.
+### Database setup and migrations
+
+`openDatabase(path)` in `src/db/database.ts`:
+
+- Sets `journal_mode = WAL`, `synchronous = FULL`, `foreign_keys = ON` and `busy_timeout = 5000`.
+  `FULL` keeps the "claim before a Discord write" guarantee across power loss; write volume is tiny.
+- Applies each migration newer than `PRAGMA user_version` in its own transaction, bumping
+  `user_version`.
+- Refuses to start if the database is newer than the code.
+- The path comes from `HARU_DB_PATH`, defaulting to `./data/haru.sqlite3`. `":memory:"` is used for
+  tests and sandbox scripts.
+
+### In-memory state
+
+`src/features/discord_actions/state.ts` holds three pieces of state.
+
+**Turns.** A map from `(guild, channel, user)` to:
+
+```ts
+interface TurnState {
+  token: string; // crypto.randomUUID(), replaced on every new turn and on clear
+  messageId: string;
+  isReset: boolean;
+  expiresAt: number; // 20 minutes after the last turn write
+  pending?: { request: PendingRequest; expiresAt: number }; // 20 minutes after ask()
+}
+```
+
+The rules, the same as today:
+
+- **New turn (`createSession`):** reject messages older than the stored message. Otherwise issue a
+  new token, and drop `pending` if it has expired or the new message abandons or restates the
+  request.
+- **`clearPending`:** issue a **new** token, set `isReset`, and drop `pending`. Older messages are
+  ignored.
+- **`ask()`:** sets `pending` only if the session's token is still the stored token, with its own
+  20-minute expiry.
+- **`ensureCurrent()`:** checks that the stored token still equals the session's token and has not
+  expired.
+- **`finishPending()`:** drops `pending` only if the token still matches.
+- **Expiry:** expired entries are ignored on read and removed by the maintenance job.
+
+**Per-guild lock.** A small async mutex keyed by guild ID. Event actions (create and cancel) run
+their whole "check guard, check Discord, claim, perform, record" sequence under it, so the
+read-await-write in today's `once()` cannot race.
+
+**Per-minute AI counter.** In `src/services/rate_limit.ts`, a map from `user` to
+`{ minute, count }`. Old minutes are replaced on access.
 
 ### How each operation maps
 
-| Operation                                                                          | SQL shape                                                                                                                                                                              |
-| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `recordVote`                                                                       | Upsert into `votes` on `(channel_id, vote_date, user_id)`. One row instead of two.                                                                                                     |
-| `getUserHistory`                                                                   | `SELECT … WHERE channel_id = ? AND user_id = ? ORDER BY vote_date DESC LIMIT ?` (uses `votes_by_user`).                                                                                |
-| `getVotesForDate`                                                                  | `SELECT … WHERE channel_id = ? AND vote_date = ?` (primary key prefix).                                                                                                                |
-| `getStats`                                                                         | `SELECT vote_date, mood, COUNT(*) … WHERE channel_id = ? AND vote_date BETWEEN ? AND ? GROUP BY vote_date, mood`. The code still fills days with no votes with zeros.                  |
-| `getConsecutiveGlueCount`                                                          | Same JavaScript streak logic over the user's latest 30 votes. Kept in code because its "consecutive calendar days" rule is already tested.                                             |
-| `getUsersAtRisk`                                                                   | `SELECT DISTINCT user_id … WHERE channel_id = ?`, then the streak logic per user.                                                                                                      |
-| `savePendingPoll` / `getExpiredPolls` / `getAllPendingPolls` / `markPollCollected` | Insert, then `WHERE collected_at IS NULL [AND expires_at <= ?]`, then `UPDATE … SET collected_at = ?`.                                                                                 |
-| `claimAutonomousParticipation` / `finish…`                                         | One transaction: read the channel row, apply the existing `isNewerHumanMessage` and cooldown rules, then upsert. No retry loop.                                                        |
-| `admitRequest`                                                                     | One transaction: read this minute's user count and today's tokens, check the limits, then increment both counters. No retry loop.                                                      |
-| `recordTokenUsage`                                                                 | `INSERT … ON CONFLICT(usage_date) DO UPDATE SET tokens = tokens + ?`, with a safe-integer guard before writing.                                                                        |
-| Discord action turn claim / `ensureCurrent` / `clearPending`                       | One transaction to read and replace the turn token. "Is this session still current?" becomes `turn_token = ?` on the row.                                                              |
-| Discord action `once`                                                              | Transaction 1 claims (`state = 'pending'`, failing if a row exists), then the Discord call runs, then transaction 2 records `done` with the result. The same two-phase shape as today. |
+| Operation                                                       | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordVote`                                                    | Upsert into `votes` on `(channel_id, vote_date, user_id)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `getUserHistory`                                                | `… WHERE channel_id = ? AND user_id = ? ORDER BY vote_date DESC LIMIT ?`                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `getVotesForDate`                                               | `… WHERE channel_id = ? AND vote_date = ? ORDER BY user_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `getStats`                                                      | `GROUP BY vote_date, mood` over the range. Empty days are filled in code, stepping with `setUTCDate`.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `getConsecutiveGlueCount`                                       | Same JavaScript streak logic over the latest 30 votes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `getUsersAtRisk`                                                | `SELECT DISTINCT user_id … ORDER BY user_id`, then the streak logic per user.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `savePendingPoll`                                               | Upsert on `message_id`, resetting `collected_at` (today's `kv.set` overwrote the record).                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `getExpiredPolls`, `getAllPendingPolls`                         | `WHERE collected_at IS NULL [AND expires_at <= ?] ORDER BY message_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `markPollCollected`                                             | `UPDATE … SET collected_at = ?`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `claimAutonomousParticipation`, `finishAutonomousParticipation` | One immediate transaction: read, apply `isNewerHumanMessage` and the cooldown, upsert. The last reaction emoji is kept unless a new one is given.                                                                                                                                                                                                                                                                                                                                                                                   |
+| `admitRequest`                                                  | Synchronously, with no `await` in between: check the in-memory minute count, read today's tokens, check both limits, then increment the minute count and `ai_daily_usage.requests`.                                                                                                                                                                                                                                                                                                                                                 |
+| `recordTokenUsage`                                              | `INSERT … ON CONFLICT (usage_date) DO UPDATE SET tokens = tokens + ?`. A `CHECK` failure becomes today's `RangeError`.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Discord action `once`                                           | Under the per-guild lock for guarded event actions: (1) if an operation row exists, return its result; (2) if a `done` guard points to an event that is no longer active on Discord, delete the guard; (3) in one transaction, check the session's token, insert the `pending` operation and the `pending` guard; (4) perform the Discord call; (5) in one transaction, mark the operation `done`, and mark the guard `done` if `result.ok \|\| result.uncertain`, otherwise delete it. If step 5 fails, the claim stays, as today. |
 
 ### Retention
 
-The hourly maintenance job deletes:
-
-| Table                                                                                                               | Rows deleted             | Today's equivalent                                                          |
-| ------------------------------------------------------------------------------------------------------------------- | ------------------------ | --------------------------------------------------------------------------- |
-| `ai_user_minute_requests`                                                                                           | Older than 2 minutes     | 2-minute TTL                                                                |
-| `ai_daily_usage`                                                                                                    | Older than 30 days       | 48-hour TTL. Keeping 30 days costs almost nothing and helps with debugging. |
-| `discord_action_turns`                                                                                              | `expires_at` in the past | 20-minute TTL                                                               |
-| `votes`, `polls`, `context_resets`, `autonomous_participation`, `discord_action_operations`, `discord_event_guards` | Never                    | No TTL today                                                                |
-
-Reads always filter on `expires_at` or the time window, so correctness never depends on when the job
-last ran.
-
-### Schema versioning
-
-- `src/db/migrations.ts` holds an ordered list of SQL migrations. Migration 1 is the schema above.
-- On startup, `openDatabase(path)`:
-  - sets `PRAGMA journal_mode = WAL`, `foreign_keys = ON`, `busy_timeout = 5000` and
-    `synchronous = NORMAL`
-  - reads `PRAGMA user_version`
-  - applies each newer migration in its own transaction, bumping `user_version` with each
-- A database with a newer `user_version` than the code knows about refuses to start, so an old build
-  never writes to a newer schema.
-- The path comes from `HARU_DB_PATH`, defaulting to `./data/haru.sqlite3`. `":memory:"` is used for
-  tests and sandbox scripts.
+The hourly maintenance job deletes `ai_daily_usage` rows older than 30 days and expired in-memory
+turn entries. All other tables keep their rows, as Deno KV did.
 
 ### Code layout
 
 ```
 src/db/
-  database.ts        openDatabase(path), pragmas, migration runner
-  migrations.ts      ordered SQL migrations
-  votes.ts           vote and poll queries
-  chat_state.ts      context resets, autonomous participation
-  ai_usage.ts        rate-limit and daily usage counters
-  discord_actions.ts turns, operations, event guards
-  maintenance.ts     retention deletes
+  database.ts          openDatabase(), pragmas, migration runner
+  migrations.ts        ordered SQL migrations
+  votes.ts             votes and polls
+  chat_state.ts        context resets, autonomous participation
+  ai_usage.ts          ai_daily_usage
+  discord_actions.ts   operations and event guards
+  maintenance.ts       retention deletes
+src/features/discord_actions/state.ts   turns, pending clarifications, per-guild lock
 ```
 
-`src/services/storage.ts`, `src/services/rate_limit.ts` and `src/features/discord_actions/mod.ts`
-keep their public interfaces and call these modules. `src/types/storage.ts` keeps its exported
-record types for the port. Its `odUserId`/`odUserName` field names are left as they are; the new
-columns are `user_id`/`user_name`, and the mapping happens in `src/db/votes.ts`.
+`src/types/storage.ts` keeps its exported record types. Its `odUserId` and `odUserName` field names
+stay for the port; `src/db/votes.ts` maps them to `user_id` and `user_name`.
 
-## Test conversion rules
+## Test conversion
 
-Each test file is converted in the same slice as the code it covers.
+### Support files (slice 0)
 
-| Deno                         | Bun                                                                                                                              |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `Deno.test(name, fn)`        | `test(name, fn)`                                                                                                                 |
-| `t.step(name, fn)`           | A `describe` block with one `test` per step (Bun runs them in order). Where steps share sequential state, keep it as one `test`. |
-| `assertEquals(a, b)`         | `expect(a).toStrictEqual(b)`. Not `toEqual`, which ignores `undefined` properties.                                               |
-| `assertStringIncludes(s, x)` | `expect(s).toContain(x)`                                                                                                         |
-| `assert(x)`                  | `expect(x).toBeTruthy()`, or a more specific matcher where it reads better                                                       |
-| `assertRejects(fn, E, msg)`  | `await expect(fn()).rejects.toThrow(...)`, checking both the class and the message                                               |
-| `assertThrows(fn, E, msg)`   | `expect(fn).toThrow(...)`                                                                                                        |
-| `assertMatch(s, re)`         | `expect(s).toMatch(re)`                                                                                                          |
-| `assertGreater(a, b)`        | `expect(a).toBeGreaterThan(b)`                                                                                                   |
-| `Deno.openKv(":memory:")`    | `openDatabase(":memory:")`                                                                                                       |
-| `Deno.env.set` / `delete`    | `process.env` with restore in `afterEach`                                                                                        |
+**`test_support/assert.ts`** provides:
 
-Deno's test sanitizers (leaked timers, ops and resources) have no Bun equivalent. Tests that relied
-on them implicitly get explicit cleanup (`afterEach`, `clearTimeout`, closing servers).
+- `assert(condition, message?)`, which keeps TypeScript narrowing;
+- `rejects(run, ErrorClass, messageIncludes?)` and `throws(...)`, which check the class **and** the
+  message and return the typed error.
 
-**Tests tied to Deno KV are rewritten, not converted.** `src/services/rate_limit.test.ts` (22
-in-memory KV instances, 23 direct KV operations) and parts of `storage.test.ts` and
-`discord_actions/mod.test.ts` test KV mechanics that no longer exist: compare-and-set conflicts,
-retry exhaustion, TTL values, compatibility with existing counters. They are replaced by tests of
-the same **behavior** on SQLite:
+Bun's own `toThrow(Class, message)` ignores the message, so it is not used for these.
 
-- concurrent admissions never exceed the limit
-- token totals are never lost
-- expired rows are invisible
-- an old session can never overwrite a newer turn
-- an action never runs twice for one message
+```ts
+import { expect } from "bun:test";
 
-**Test-count parity.** Slice 0 records the Deno test count per file as a baseline. For converted
-files, Bun counts must match except where a `t.step` group was split. For rewritten files, the table
-at the end of this document lists each removed KV-mechanics test and the behavior test that replaces
-it, so no behavior loses coverage.
+type ErrorClass<T extends Error> = abstract new (...args: never[]) => T;
+
+export function assert(condition: unknown, message = "Assertion failed"): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+export async function rejects<T extends Error>(
+  run: () => Promise<unknown>,
+  ErrorType: ErrorClass<T>,
+  messageIncludes?: string,
+): Promise<T> {
+  try {
+    await run();
+  } catch (error) {
+    expect(error).toBeInstanceOf(ErrorType);
+    if (messageIncludes !== undefined) expect((error as Error).message).toContain(messageIncludes);
+    return error as T;
+  }
+  throw new Error(`Expected ${ErrorType.name} to be thrown`);
+}
+// throws(): the same for synchronous functions.
+```
+
+**`test_support/setup.ts`** is preloaded through `bunfig.toml`. It sets a 20 s default timeout,
+because `[test] timeout` in `bunfig.toml` is ignored in Bun 1.4.4. It also replaces `fetch` with a
+function that throws on any unstubbed network call.
+
+### Rules
+
+| Deno                                                                              | Bun                                                                                                                           |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `Deno.test(name, fn)`                                                             | `test(name, fn)`                                                                                                              |
+| `t.step(name, fn)`                                                                | `describe(name, () => { for (...) test(...) })`. All 23 uses are independent loops. Bun cannot nest `test()` inside `test()`. |
+| `assertEquals(a, b)`                                                              | `expect(a).toStrictEqual(b)`. Use `toBe` for identity checks such as `public_fetch.test.ts:327` (comparing a `DOMException`). |
+| `assertStringIncludes(s, x)`                                                      | `expect(s).toContain(x)`                                                                                                      |
+| `assert(x)`                                                                       | `assert(x)` from `test_support/assert.ts`                                                                                     |
+| `assertRejects(...)`, `assertThrows(...)`                                         | `rejects(...)`, `throws(...)` from `test_support/assert.ts`, keeping the returned error where it is used (14 sites)           |
+| `assertMatch`, `assertGreater`                                                    | `toMatch`, `toBeGreaterThan`                                                                                                  |
+| `Deno.openKv(":memory:")`                                                         | `openDatabase(":memory:")`, one handle shared by the services under test                                                      |
+| `Deno.env.set` / `delete`                                                         | `process.env.X = "..."` / `delete process.env.X`. Never assign `undefined`, which stores the string `"undefined"`.            |
+| Replacing `Deno.cron` (`scheduler.autonomous.test.ts`, `poll_collection.test.ts`) | Pass a fake cron registrar                                                                                                    |
+| Replacing `Deno.resolveDns` (`public_fetch.test.ts`)                              | Pass a fake lookup                                                                                                            |
+| `Deno.serve`, `Deno.listen`, `Deno.Conn` (integration tests)                      | `Bun.serve` (with an explicit `idleTimeout`) or `node:net`                                                                    |
+| Fetch stubs typed `typeof fetch`                                                  | Type injected fetchers as `(input: RequestInfo \| URL, init?: RequestInit) => Promise<Response>`                              |
+
+**Tests tied to Deno KV are rewritten as behavior tests.** This covers `rate_limit.test.ts` and the
+KV-inspecting parts of `storage.test.ts`, `poll_collection.test.ts` and
+`discord_actions/mod.test.ts`. The behaviors covered:
+
+- concurrent admissions never exceed the limit;
+- token totals are never lost;
+- an old session never overwrites a newer turn;
+- an action never runs twice for a message;
+- an event is never created twice.
+
+### Exact counts
+
+Deno on `master` reports 543 tests (100 steps) over 33 files, and 17 transport tests (28 steps).
+After `t.step` groups become separate tests, Bun must report exactly:
+
+- **630** tests for the 33 unit test files (643 Deno tests and steps, minus 13 step parents);
+- **35** tests for the transport integration files (17 + 28, minus 10 step parents).
+
+Rewritten tests may change these numbers. Every change is recorded in the table at the end, with the
+behavior test that replaces it. A test script that silently skips a misspelled file must not pass,
+so CI compares the reported counts.
 
 ## Slices
 
-Every slice ends with:
+Each slice ends with:
 
 ```bash
 bun install --frozen-lockfile
-bun fmt --check
-bun check
+bun run fmt:check
+bun run check
 bun run lint
-bun test <files ported so far>
+bun test --isolate <test files ported so far>
 ```
 
-Files not yet ported stay as they are on `master` until their slice. CI runs the Bun job over ported
-files, plus the existing CloudFormation lint.
+`bun check` follows every import, including type-only imports. A ported file must therefore not
+import a module that still uses Deno; shared types and helpers move first.
 
-### Slice 0: Scaffolding and baseline
+### Slice 0: Scaffolding, formatting, test support, baseline
 
-Changes:
+**Changes**
 
-- `package.json`:
-  - `"type": "module"`.
-  - `engines.bun: "~1.4.4"` and `packageManager: "bun@1.4.4"`.
-  - `dependencies`: `@aws-sdk/client-cost-explorer@^3`, `@smithy/credential-provider-imds@^4`.
-  - `devDependencies`: `@types/bun@^1`.
-  - `scripts`: `start`, `dev` (`bun --watch`), `test`, `check`, `fmt`, `fmt:check`, `lint` (pinned
-    canary, see [Lint](#lint)), `test:transport`, and the `agent:*` scripts.
-- `bun.lock`, committed.
-- `bunfig.toml`:
-  - `[fmt]`, set as close to the current `deno fmt` settings as `bun fmt` allows (print width 100,
-    two-space indent, double quotes).
-  - `[lint.rules]`, starting from the defaults.
-  - Test settings.
-- `tsconfig.json`: `strict`, `noImplicitAny`, `noUnusedLocals`, `noUnusedParameters`,
-  `noFallthroughCasesInSwitch`, `noImplicitReturns`, `allowImportingTsExtensions`,
-  `module: "preserve"`, `moduleResolution: "bundler"`, `types: ["bun"]` and `noEmit`.
-- `.gitignore`: add `node_modules/` and `data/`.
-- CI: add a Bun job (`oven-sh/setup-bun` pinned to `1.4.4`, ARM runner) running the slice checks
-  over ported files. Keep the CloudFormation lint job. The Deno job keeps running over files not yet
-  ported until slice 6 removes it.
-- Baseline: run the Deno suite on `master` and save the per-file test counts to
-  `docs/bun-migration-baseline.txt`.
-- Assertion parity check: a small throwaway test confirming that `toStrictEqual` fails where
-  `assertEquals` fails, for `undefined` properties, class instances and `Date` values. Delete it
-  after recording the result.
+1. **Baseline first** (on `master`, before any change):
+   - record per-file Deno test counts in `docs/bun-migration-baseline.txt`;
+   - compare `deno lint` with `bun lint` (canary) output on `master`.
+2. **`package.json`:**
+   - `"type": "module"`, `packageManager: "bun@1.4.4"`, `engines.bun: "~1.4.4"`;
+   - the AWS SDK dependencies and `@types/bun`;
+   - scripts:
 
-Verify:
+     ```json
+     "start": "bun --env-file=.env main.ts",
+     "dev": "bun --watch --env-file=.env main.ts",
+     "test": "bun test --isolate",
+     "test:transport": "bun test --isolate ./tests/public_fetch.integration.ts ./tests/link_open.integration.ts",
+     "check": "bun check",
+     "fmt": "bun fmt",
+     "fmt:check": "bun fmt --check",
+     "lint": "bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0"
+     ```
 
-- `bun install --frozen-lockfile`, `bun fmt --check`, `bun check` and `bun run lint` succeed on the
-  empty ported set.
-- `bun --version` in CI prints `1.4.4`. The lint step reports the canary build it used.
-- The baseline file lists 33 test files and 543 tests (100 steps), plus 17 transport tests.
+   - the `agent:*` scripts are added in slice 4.
+3. **`bunfig.toml`:**
+
+   ```toml
+   env = false
+
+   [install]
+   auto = "disable"
+
+   [fmt]
+   printWidth = 100
+   tabWidth = 2
+   useTabs = false
+   singleQuote = false
+   proseWrap = "always"
+
+   [lint.rules]
+   # defaults (ESLint and typescript-eslint recommended); adjust after the baseline comparison
+
+   [test]
+   preload = ["./test_support/setup.ts"]
+   ```
+
+4. **`tsconfig.json`:** `strict`, `noImplicitAny`, `noUnusedLocals`, `noUnusedParameters`,
+   `noFallthroughCasesInSwitch`, `noImplicitReturns`, `allowImportingTsExtensions`,
+   `module: "preserve"`, `moduleResolution: "bundler"`, `types: ["bun"]`, `noEmit`.
+5. **`.gitignore`:** add `node_modules/`, `data/` and `.env*`.
+6. **`test_support/assert.ts` and `test_support/setup.ts`**, with their own tests.
+7. **One commit that runs `bun fmt` on the whole repo**, listed in `.git-blame-ignore-revs`. The
+   same commit removes `deno fmt --check` from the Deno CI job, since Prettier's output differs from
+   Deno's.
+8. **CI:**
+   - add `feat/bun` to the push trigger;
+   - add a Bun job (`oven-sh/setup-bun` reading `packageManager`, ARM runner, cache
+     `~/.bun/install/cache`);
+   - keep the CloudFormation lint;
+   - keep the Deno job (minus `fmt`) for unported files until slice 3.
+9. **Assertion parity check** (throwaway test). Record where `toStrictEqual` and `assertEquals`
+   disagree: `undefined` properties, class instances, `Date`, `Error`, typed arrays, `-0`, invalid
+   dates.
+
+**Verify**
+
+- Every command in the slice checklist passes.
+- CI prints Bun `1.4.4` and the canary version used for lint.
+- The baseline file shows 33 files, 543 tests (100 steps), and 17 transport tests (28 steps).
+- The lint comparison is recorded, and rules are adjusted so `bun lint` is at least as strict as
+  `deno lint` was.
 
 ### Slice 1: Code without Deno APIs, plus environment variables
 
-Port `src/config.ts`, `ai_service.ts` and `src/services/usage.ts` (`Deno.env` to `process.env`).
-Then convert the tests for every module that needs no other runtime change:
+**Changes**
 
-- `src/utils/retry`
-- `src/features/poll`, `stats`, `reaction_gif`, `reactions`, `chat_context`
-- `src/features/autonomous_chat/turns`, `discord_actions/time`
-- `src/services/discord`, `discord_events`, `web_search`, `reaction_context`, `usage`
-- `src/config`
-- `ai_service` and `ai_service.tools`
+- `src/config.ts`, `ai_service.ts`, `src/services/usage.ts`: `process.env`.
+- `usage.ts`: drop the `--allow-sys` workaround; inject `TIMEOUT_MS` so its test doesn't take 15 s;
+  type the injected fetcher explicitly. Keep the environment-then-IMDSv2 credential chain.
+- `discord_events.ts`: replace the constructor parameter property on `DiscordApiError`; type the
+  injected fetcher explicitly.
+- Move `StorageService`, `ContextStorageService` and `isNewerHumanMessage` into
+  `src/types/storage.ts`. `storage.ts` re-exports them, and the Deno code is unchanged otherwise.
+- Convert these tests:
+  - `src/utils/retry`
+  - `src/features/poll`, `stats`, `reaction_gif`, `reactions`, `chat_context`
+  - `src/features/autonomous_chat/turns`, `autonomous_chat`
+  - `src/features/discord_actions/time`
+  - `src/services/discord`, `discord_events`, `web_search`, `reaction_context`, `usage`
+  - `src/config`
+  - `ai_service`, `ai_service.tools`
 
-Two other changes in this slice:
+**Verify**
 
-- Fix the one constructor parameter property (`DiscordApiError` in
-  `src/services/discord_events.ts`), so the code is also valid without type transforms.
-- `usage.ts`: keep the explicit environment-then-IMDSv2 credential chain, and drop the
-  `defaultUserAgentProvider` override that only existed for Deno's `--allow-sys`.
+- The slice checklist passes for the converted files.
+- Per-file counts match the baseline.
+- The Deno job still passes for the remaining files.
 
-Verify:
+### Slice 2: Link transport and DNS
 
-- The slice checks pass, and per-file counts match the baseline.
-- `usage.test.ts` passes with the real AWS SDK, using the existing injected request handler.
+**Changes**
 
-### Slice 2: SQLite data layer
+- `src/runtime_env.ts`: `stripProxyEnvironment()` deletes `HTTP_PROXY`, `HTTPS_PROXY` and
+  `ALL_PROXY` in both cases. It is called from `main.ts` in slice 3, and has a test now.
+- `public_fetch.ts`, `resolveAddresses(hostname, signal, lookup = defaultLookup)`:
+  - `defaultLookup` is `Bun.dns.lookup(hostname, { backend: "c-ares" })`.
+  - Race it against the signal, rejecting with the signal's reason. Remove the abort listener when
+    the lookup settles.
+  - Not found means unresolvable. Every returned address goes through the existing blocklist.
+- `public_fetch.ts`, `requestPinned(url, address, signal, ca)`:
 
-Build `src/db/` as described in [Data model](#data-model). Then switch `storage.ts`, `rate_limit.ts`
-and `discord_actions/mod.ts` to it, keeping their public interfaces.
+  ```ts
+  const target = new URL(url.href);
+  target.hostname = isIP(address) === 6 ? `[${address}]` : address;
+  const response = await fetch(target, {
+    method: "GET",
+    redirect: "manual",
+    decompress: false,
+    keepalive: false,
+    signal,
+    headers: {
+      Host: url.host,
+      Accept: "text/html,application/xhtml+xml",
+      "Accept-Encoding": "gzip, deflate, br",
+      "User-Agent": "HaruBot/1.0",
+    },
+    tls: { ca, rejectUnauthorized: true, ...(isIP(hostname) ? {} : { serverName: hostname }) },
+  });
+  ```
 
-Tests:
+  Keep the existing gzip, deflate and br decoding with its size limits on the raw body. Reject other
+  encodings, including `zstd`. Return no body for 204, 205 and 304. Remove undici and the
+  Deno-specific comments.
+- **Tests.** Convert `public_fetch.test.ts`, `link_open.test.ts`,
+  `tests/public_fetch.integration.ts`, `tests/link_open.integration.ts` and
+  `tests/fixtures/link_tls.ts`.
+  - Use `Bun.serve` with an explicit `idleTimeout`, or `node:net`.
+  - Replace the DNS sibling-cancellation tests with "a hung lookup ends at the deadline" and
+    "partial family results are validated".
+  - Re-validate the Brotli case that the Deno test comment marks as runtime-specific.
+- **IPv6:** add an IPv6 loopback case that runs where IPv6 is available and is skipped (with a
+  logged reason) where it is not.
 
-- `src/db/*.test.ts`, one file per module, on `:memory:` databases:
-  - **Migrations:** a fresh database reaches `user_version = 1`; running them twice is a no-op; a
-    database from a newer version refuses to open.
-  - **Constraints:** an invalid mood, invalid JSON or a negative counter is rejected by SQLite
-    itself.
-  - **Votes:** voting again the same day replaces the vote; history order and limit; stats over a
-    range including empty days; streaks across gaps.
-  - **Polls:** expired-and-uncollected selection; marking a poll collected.
-  - **AI usage:** many concurrent `admitRequest` calls never exceed the per-user limit; the budget
-    check; no token totals lost under concurrent `recordTokenUsage`; minute and day rollover.
-  - **Autonomous participation:** an older message never replaces a newer one; the cooldown; the
-    last reaction emoji is kept.
-  - **Discord actions:** a turn token supersedes older sessions; `clearPending` keeps a new turn;
-    `once` never runs an action twice for a message, including concurrent attempts; the event
-    guards.
-  - **Maintenance:** expired rows are deleted; rows with no expiry are kept.
-- Convert or rewrite the tests for `storage`, `rate_limit`, `poll_collection` and `discord_actions`
-  (`mod`, `authorization`, `cancellation`), following the
-  [test conversion rules](#test-conversion-rules).
+**Verify**
 
-Verify:
+- `bun run test:transport` reports exactly 35 tests. These cover:
+  - pinning, `Host` and SNI, and wrong-certificate rejection;
+  - redirects not followed;
+  - stalled and trickling bodies ending at the 8-second deadline;
+  - invalid compression, the expanded-size limit, and rejected bodies released;
+  - a hung lookup ending at the deadline;
+  - proxy variables removed.
+- Unit counts match the baseline, apart from the recorded DNS test replacements.
 
-- The slice checks pass. Converted files match baseline counts, and every rewritten test is listed
-  in the table at the end.
-- The behavior guaranteed by PR #26 (atomic usage accounting), PR #29 (retryable poll collection),
-  PR #21 (Discord action idempotency and ordering) and PR #35/#37 (autonomous participation) still
-  holds, each shown by a named test.
+### Slice 3: Data layer and runtime (the bot runs)
 
-### Slice 3: Link-safety transport
+**Changes**
 
-In `src/services/public_fetch.ts`:
+- `src/db/*` and `src/features/discord_actions/state.ts`, as in [Data model](#data-model).
+- `storage.ts`, `rate_limit.ts` and `discord_actions/mod.ts` moved onto them. Public interfaces
+  unchanged.
+- **`src/scheduler.ts`:**
+  - `registerCronJobs(registrar, …)`. The production registrar:
 
-- `resolveAddresses`:
-  - Use an injected lookup, by default `Bun.dns.lookup(hostname, { backend: "c-ares" })`.
-  - Race it against the caller's signal. On abort, return immediately and let the lookup finish by
-    itself.
-  - An empty result or "not found" fails the request as unresolvable. Every returned address goes
-    through the existing blocklist.
-- `requestPinned`:
-  - Bun `fetch` to `scheme://<validated IP>:<port>/path`, with the IPv6 address in brackets.
-  - The original `Host` header, `tls: { serverName: hostname, ca, rejectUnauthorized: true }`,
-    `redirect: "manual"`, `decompress: false`, `keepalive: false`, and the caller's `signal`.
-  - Keep the existing decompression and size limits on the raw body.
-- Delete the undici import, the `Readable` bridging, and the Deno-specific comments.
-- `link_open.ts` is unchanged apart from imports.
+    ```ts
+    export const bunCron: CronRegistrar = (name, schedule, handler) => {
+      Bun.cron(schedule, async () => {
+        try {
+          await handler();
+        } catch (error) {
+          console.error(`[CRON] ${name} failed:`, error);
+        }
+      }, { tz: "UTC" });
+    };
+    ```
 
-Convert `public_fetch.test.ts`, `link_open.test.ts`, `tests/public_fetch.integration.ts`,
-`tests/link_open.integration.ts` and `tests/fixtures/link_tls.ts`. Replace the DNS sibling
-cancellation tests with "a hung lookup ends at the deadline" and "partial family results are
-validated".
+  - The five schedules are unchanged. A sixth job at `15 * * * *` runs maintenance.
+  - Date arithmetic for the stats window uses `setUTCDate`.
+- **`src/server.ts`:**
+  `Bun.serve({ port: 8000, development: false, idleTimeout: 120, fetch: handler, error })`. The
+  `error()` handler logs and returns a plain 500.
+- **`main.ts`:** `stripProxyEnvironment()`, then
+  `openDatabase(process.env.HARU_DB_PATH ?? "./data/haru.sqlite3")`, then start the gateway, cron
+  and server.
+- **`discord_gateway.ts`:** IDENTIFY properties `"bun"`.
+- **Tests.**
+  - New `src/db/*.test.ts` and `state.test.ts`:
+    - migrations, including refusing a newer database;
+    - constraints;
+    - vote upsert, history, stats across DST under `TZ=America/Los_Angeles`, and streaks;
+    - polls, including the overwrite case;
+    - the AI budget: concurrent admissions and the safe-integer limit;
+    - autonomous participation;
+    - turns: a new token on clear, the separate pending expiry, a stale `ask()` rejected;
+    - the per-guild lock;
+    - operation and guard claims, including concurrent attempts;
+    - maintenance.
+  - Convert or rewrite `storage`, `rate_limit`, `poll_collection`, `discord_actions` (`mod`,
+    `authorization`, `cancellation`), `bot_actions*`, `scheduler.autonomous` and `server`.
+  - A registrar test: a throwing handler is caught.
+  - A schedule test: `Bun.cron.parse(schedule, from, { tz: "UTC" })` gives the same UTC times with
+    `TZ` unset, `UTC` and `America/Los_Angeles`.
+  - A server test: a throwing handler returns a plain 500.
+- **CI:** remove the Deno job. Only `scripts/` still uses Deno, until slice 4.
 
-Verify:
+**Verify**
 
-- All transport integration tests pass under `bun test tests/`, on loopback fixtures only, covering:
-  - pinning to the validated address
-  - `Host` and SNI preserved
-  - wrong certificate name rejected
-  - redirects not followed by the transport
-  - stalled and trickling bodies hitting the 8-second deadline
-  - invalid compression
-  - expanded-size limit
-  - rejected bodies released
-  - a hung DNS lookup ending at the deadline
-- The unit tests for the IP blocklist and redirect revalidation match the baseline counts.
+- The slice checklist passes.
+- Counts match the baseline, with every rewrite recorded.
+- Named tests show that the behavior of these PRs still holds:
+  - #21: Discord action idempotency and ordering;
+  - #26: atomic usage accounting;
+  - #29: retryable poll collection;
+  - #35 and #37: autonomous participation.
+- **Smoke run.** Use a test bot or Bot Sandbox, never the production token while production is
+  online:
+  - `bun run start`; `/health` returns `OK`; the gateway logs READY;
+  - a mention gets a reply, and `\reset` works;
+  - an event clarification works, then is abandoned;
+  - `POST /trigger_poll` posts a poll, and it appears in `polls`;
+  - a handler slower than 10 s completes;
+  - the autonomous job logs each minute;
+  - `data/haru.sqlite3` is at `user_version = 1`.
 
-### Slice 4: Scheduler, HTTP server and entry point
+### Slice 4: Scripts
 
-- `src/scheduler.ts`:
-  - `registerCronJobs` takes a `cron(name, schedule, handler)` registrar. The production registrar
-    wraps `Bun.cron(schedule, handler, { tz: "UTC" })` and logs the job name.
-  - The five schedules (`0 5 * * *`, `0 6 * * *`, `0 6 * * SUN`, `30 * * * *`, `* * * * *`) are
-    unchanged.
-  - A sixth job, `15 * * * *`, runs the database maintenance.
-  - Bun does not start a job again until the previous run finishes, which matches `Deno.cron`.
-- `src/server.ts`: `Bun.serve({ port: 8000, fetch: handler })`. The handler is already a standard
-  `Request` to `Response` function and is unchanged.
-- `main.ts`: `openDatabase(process.env.HARU_DB_PATH ?? "./data/haru.sqlite3")` instead of
-  `Deno.openKv`, and start the gateway, cron and server as today.
-- Convert `src/scheduler.autonomous.test.ts`, which uses the injected registrar,
-  `src/server.test.ts` and the four `bot_actions*.test.ts` files.
+**Changes**
 
-Verify:
-
-- The slice checks pass, and per-file counts match the baseline.
-- A test asserts, using `Bun.cron.parse(schedule, from, { tz: "UTC" })`, that every production
-  schedule resolves to the same UTC time with `TZ` unset, `TZ=UTC` and `TZ=America/Los_Angeles`. A
-  pre-check on Bun 1.4.4 with `TZ=America/Los_Angeles` gave 05:00, 06:00 and Sunday 06:00 UTC with
-  `{ tz: "UTC" }`, but 13:00 and 14:00 UTC without it.
-- A **local smoke run** against a test bot or Bot Sandbox, not the production token while production
-  is online:
-  - `bun run start`
-  - `/health` returns `OK`
-  - the gateway logs READY
-  - a mention gets a reply, and `\reset` works
-  - `POST /trigger_poll` with `ADMIN_HTTP_TOKEN` posts a poll
-  - the every-minute autonomous-chat job logs that it ran
-  - `data/haru.sqlite3` is created at `user_version = 1`, and the poll appears in `polls`
-
-### Slice 5: Scripts
-
-- `scripts/issue_agent/*`: `Deno.Command` becomes `Bun.spawn`, and `Deno.args` and `Deno.cwd()`
-  become `process.argv.slice(2)` and `process.cwd()`.
-- The sandbox and evaluation scripts use `openDatabase(":memory:")` or a separate sandbox file,
-  never the production database, along with `process.argv` and `process.exitCode`.
+- `scripts/issue_agent/*`: `Bun.spawn`, `process.argv.slice(2)`, `process.cwd()`.
+- Sandbox and evaluation scripts: `openDatabase(":memory:")` or a separate sandbox file, never the
+  production database. `process.argv` and `process.exitCode`.
 - Convert `scripts/run_discord_sandbox.test.ts` and `scripts/test_reactions_sandbox.test.ts`.
-- Update the `agent:*` and sandbox entries in `package.json`.
+- Add the `agent:*` and sandbox scripts to `package.json`.
 
-Verify:
+**Verify**
 
-- The slice checks pass.
-- `bun run agent:next-issue` without `--claim` works (read-only, needs `gh` authenticated).
-- Each sandbox script's preview or dry-run mode starts and exits cleanly without posting.
+- The slice checklist passes.
+- `bun run agent:next-issue` without `--claim` works (read-only; needs `gh`).
+- Each sandbox script's preview mode starts and exits without posting.
 
-### Slice 6: Remove Deno and finish
+### Slice 5: Remove Deno and finish
 
-- Delete `deno.json`, `deno.lock`, the Deno settings in `.vscode/` and the Deno CI job.
-- Run `bun fmt` over the whole repo **as its own commit**, so formatting churn stays separate from
-  logic changes.
+**Changes**
+
+- Delete `deno.json`, `deno.lock` and the Deno settings in `.vscode/`.
 - README:
-  - Bun commands for setup, development, testing, formatting and linting.
-  - `HARU_DB_PATH` replaces `DENO_KV_PATH`.
-  - A short description of the data model and the empty starting database.
-  - The Deno Deploy and Deno sections removed.
-  - The AWS section marked as pending the deployment follow-up.
-- CI (Bun only): `bun install --frozen-lockfile`, `bun fmt --check`, `bun check`, `bun run lint`,
-  `bun test`, `bun run test:transport`, and the CloudFormation lint.
+  - Bun setup, development, test, format and lint commands;
+  - `HARU_DB_PATH`, and `.env` loaded only by `start` and `dev`;
+  - the data model summary and the behavior changes;
+  - the AWS section marked as pending the deployment follow-up.
+- Final CI:
+  - `bun install --frozen-lockfile`;
+  - `fmt:check`, `check`, `lint`, `test` and `test:transport`, with the count comparison;
+  - the CloudFormation lint.
 
-Verify:
+**Verify**
 
-- `git grep -n -i deno -- ':!docs/'` finds nothing except the deployment notes.
-- Full suite green. Every difference from the baseline is explained in the table below.
-- The slice 4 smoke run is repeated on the final commit.
+- `git grep -n -i deno -- ':!docs/'` finds nothing.
+- Full suite at the exact expected counts.
+- The slice 3 smoke run is repeated on the final commit.
 - CI is green on `feat/bun`.
 
-### Slice 7: Pull request
+### Slice 6: Pull request
 
-Open a PR from `feat/bun` to `master`. Merging it **does not deploy anything**, since deploys are
-manual. Until the deployment follow-up is done, production keeps running the Deno build at
-`59535bf`, and `master` can no longer produce a Deno hotfix. If one is needed, branch from the tag
-`deno-final` (created on `59535bf` before this PR merges).
+- Tag `59535bf` as `deno-final` and push the tag.
+- Open a PR from `feat/bun` to `master`. Merging does not deploy anything. Production keeps running
+  `deno-final` until the deployment follow-up; Deno hotfixes branch from that tag.
 
 ## Deployment notes (for later)
 
-Not part of this plan. Recorded so the follow-up starts from the right place.
+Not part of this plan.
 
-- **The systemd unit and helper scripts live in the CloudFormation startup script.** Changing
-  `ExecStart` or the Deno install means a CloudFormation update, which stops and restarts the
-  instance, and risks **replacing it** if `ExistingAmiId` is not pinned (see the README). Suggested
-  approach: move `haru.service` and the `haru-*` helper scripts into the repo (for example
-  `deploy/aws/`), and have the deploy step install them from the checkout, so runtime changes no
-  longer need infrastructure updates.
-- **Installing Bun.** Install a pinned `1.4.x` linux-aarch64 build with a checksum check in the
-  deploy step, as is done for Deno today.
+- **Move the systemd unit and helper scripts into the repo.** They are written by the CloudFormation
+  startup script today, so changing them means a CloudFormation update. That stops and restarts the
+  instance, and risks replacing it if `ExistingAmiId` is not pinned. Move `haru.service` and the
+  `haru-*` helpers into `deploy/aws/`, and install them from the checkout during deploy.
+- **Install Bun.** A pinned `1.4.4` linux-aarch64 build with a checksum check.
+- **Install dependencies:** `bun install --frozen-lockfile --production` as the `haru` user,
+  replacing `deno cache`. Runtime auto-install is disabled, so a missing install fails loudly.
 - **Unit settings:**
-  - `ExecStart=/usr/local/bin/bun run main.ts`
-  - `Environment=TZ=UTC`
-  - `Environment=HARU_DB_PATH=/var/lib/haru/haru.sqlite3`
-  - Keep `ProtectSystem=strict` and `ReadWritePaths=/var/lib/haru`.
-  - Remove the Deno-only `DENO_DIR` and `DENO_KV_PATH`.
-- **Fresh database.** The new database file is a different format and starts empty. Use a new file
-  name next to the old one, and leave the Deno KV file and its S3 backups untouched. Name the new
-  backup differently (for example `kv/haru-bun.sqlite3`) so `kv/latest.sqlite3` keeps the last Deno
-  backup.
-- **Backups.** The existing `sqlite3 .backup` helper works unchanged on the new file, and WAL mode
-  is safe with `.backup`.
+  - `ExecStart=/usr/local/bin/bun run main.ts` (not `bun run start`, which adds a wrapper process);
+  - `Environment=NODE_ENV=production`, `TZ=UTC` and `HARU_DB_PATH=/var/lib/haru/haru.sqlite3`;
+  - keep `ProtectSystem=strict` and `ReadWritePaths=/var/lib/haru`;
+  - remove `DENO_DIR` and `DENO_KV_PATH`;
+  - do not set proxy variables (they are stripped anyway).
+- **Fresh database.** Use a new file name. Keep the Deno KV file and its S3 backups untouched, and
+  name the new backup differently (for example `kv/haru-bun.sqlite3`). Polls posted in the 24 hours
+  before cutover will not be collected.
+- **Backups.** Check that the instance's `sqlite3` CLI is 3.37 or newer, which `STRICT` tables need
+  for `.backup`.
 - **Memory.** Check memory use on the `t4g.nano` (512 MB) after cutover.
-- **`deploy_aws.sh`** still runs `cloudformation deploy` without `ExistingAmiId`. Fix that, or use
-  only the app-only deploy path, before the first Bun deploy.
+- **`deploy_aws.sh`.** It still runs `cloudformation deploy` without `ExistingAmiId`. Fix that, or
+  use only the app-only deploy path.
 - **Rollback.** Redeploy `deno-final` with the old unit. The Deno KV file is still on the instance.
 
-## Future work (after the port)
+## Future work
 
-- Switch from the pinned canary to stable `bun lint` once it ships.
-- Data model follow-ups: a `users` table (display names kept current instead of a snapshot per
-  vote), per-guild settings in the database instead of environment variables, and renaming
-  `odUserId`/`odUserName` in `src/types/storage.ts`.
-- Restructure the repo layout (move the root-level modules into `src/`).
+- Switch to stable `bun lint` when it ships.
+- Data model follow-ups:
+  - a `users` table with current display names;
+  - per-guild settings in the database;
+  - renaming `odUserId` and `odUserName`.
+- Restructure the repo layout.
+- Pre-existing gateway quirks:
+  - a heartbeat timer is not cleared on reconnect;
+  - fatal close codes such as 4004 still reconnect.
 
 ## Test-count differences against the baseline
 
-Filled in during the port. Rewritten Deno KV mechanics tests are listed with the behavior test that
-replaces them.
+Filled in during the port.
 
-| File | Deno tests | Bun tests | Reason / replacement |
-| ---- | ---------- | --------- | -------------------- |
+| File | Deno tests + steps | Bun tests | Reason / replacement |
+| ---- | ------------------ | --------- | -------------------- |
