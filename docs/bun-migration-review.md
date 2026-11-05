@@ -10,6 +10,14 @@ transport, runtime and tooling, and tests and slicing. Every finding below was r
 
 All experiments ran on Bun 1.4.4 (SQLite 3.53.4) on loopback only.
 
+## Decisions (2026-11-05)
+
+| Question                              | Decision                                                                                        |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Proxy environment variables (issue 1) | Delete them from `process.env` at startup, with a test.                                         |
+| Event duplicate guards (issue 3)      | Add a revision column and compare it. Under review: see the data-model simplification question. |
+| Running canary `bun lint` (issue 14)  | `bunx bun@<exact canary> lint --max-warnings 0`, with the Bun install cache kept in CI.         |
+
 ## Summary
 
 | #  | Issue                                                                                          | Severity | Status                       |
