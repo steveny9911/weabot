@@ -491,6 +491,7 @@ import a module that still uses Deno; shared types and helpers move first.
   Keep the existing gzip, deflate and br decoding with its size limits on the raw body. Reject other
   encodings, including `zstd`. Return no body for 204, 205 and 304. Remove undici and the
   Deno-specific comments.
+
 - **Tests.** Convert `public_fetch.test.ts`, `link_open.test.ts`,
   `tests/public_fetch.integration.ts`, `tests/link_open.integration.ts` and
   `tests/fixtures/link_tls.ts`.
@@ -524,13 +525,17 @@ import a module that still uses Deno; shared types and helpers move first.
 
     ```ts
     export const bunCron: CronRegistrar = (name, schedule, handler) => {
-      Bun.cron(schedule, async () => {
-        try {
-          await handler();
-        } catch (error) {
-          console.error(`[CRON] ${name} failed:`, error);
-        }
-      }, { tz: "UTC" });
+      Bun.cron(
+        schedule,
+        async () => {
+          try {
+            await handler();
+          } catch (error) {
+            console.error(`[CRON] ${name} failed:`, error);
+          }
+        },
+        { tz: "UTC" },
+      );
     };
     ```
 

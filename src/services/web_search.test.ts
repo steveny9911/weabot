@@ -157,9 +157,7 @@ Deno.test("formatSearchResultsForContext truncates long snippets and fills blank
 });
 
 Deno.test("formatSearchResultsForContext omits snippet when not provided", () => {
-  const text = formatSearchResultsForContext("deno", [
-    { title: "Deno", url: "https://deno.land" },
-  ]);
+  const text = formatSearchResultsForContext("deno", [{ title: "Deno", url: "https://deno.land" }]);
   assertEquals(text.includes(" - "), false);
 });
 
@@ -289,9 +287,7 @@ Deno.test("web search handles missing web/results payload as empty results", asy
 Deno.test("web search maps missing title/description to empty strings", async () => {
   const mock = mockFetch({
     web: {
-      results: [
-        { url: "https://x.example" },
-      ],
+      results: [{ url: "https://x.example" }],
     },
   });
 

@@ -57,14 +57,18 @@ function validateChoice(
   if (!choice || typeof choice !== "object") return "Missing structured participation choice.";
   switch (choice.action) {
     case "reply":
-      return typeof choice.text === "string" && choice.text.trim().length > 0 &&
-          choice.text.length <= 280 && text === choice.text && Object.keys(choice).length === 3
+      return typeof choice.text === "string" &&
+        choice.text.trim().length > 0 &&
+        choice.text.length <= 280 &&
+        text === choice.text &&
+        Object.keys(choice).length === 3
         ? undefined
         : "Reply must contain only a nonempty text contribution of at most 280 characters.";
     case "react":
       return allowedIds.includes(choice.messageId) &&
-          AUTONOMOUS_REACTION_EMOJIS.some((emoji) => emoji === choice.emoji) && text === "" &&
-          Object.keys(choice).length === 5
+        AUTONOMOUS_REACTION_EMOJIS.some((emoji) => emoji === choice.emoji) &&
+        text === "" &&
+        Object.keys(choice).length === 5
         ? undefined
         : "Reaction must target an allowed synthetic message with one supported emoji and no text.";
     case "silent":
@@ -112,9 +116,9 @@ async function main(): Promise<void> {
       ok: result.ok && !validationError && tokensValid,
       ...(result.ok
         ? {
-          observedChoice: result.participation,
-          intendedActionObserved: result.participation?.action === fixture.intendedAction,
-        }
+            observedChoice: result.participation,
+            intendedActionObserved: result.participation?.action === fixture.intendedAction,
+          }
         : {}),
       tokensUsed: result.tokensUsed ?? 0,
       ...(validationError ? { error: validationError } : {}),
@@ -122,17 +126,19 @@ async function main(): Promise<void> {
     });
   }
   const ok = cases.every((entry) => entry.ok);
-  console.log(JSON.stringify(
-    {
-      ok,
-      dryRun: true,
-      discordAccess: "none",
-      cases,
-      totalTokensUsed: cases.reduce((sum, entry) => sum + entry.tokensUsed, 0),
-    },
-    null,
-    2,
-  ));
+  console.log(
+    JSON.stringify(
+      {
+        ok,
+        dryRun: true,
+        discordAccess: "none",
+        cases,
+        totalTokensUsed: cases.reduce((sum, entry) => sum + entry.tokensUsed, 0),
+      },
+      null,
+      2,
+    ),
+  );
   if (!ok) Deno.exitCode = 1;
 }
 
@@ -140,11 +146,13 @@ if (import.meta.main) {
   try {
     await main();
   } catch (error) {
-    console.error(JSON.stringify({
-      ok: false,
-      dryRun: true,
-      error: error instanceof Error ? error.message : "Semantic test failed.",
-    }));
+    console.error(
+      JSON.stringify({
+        ok: false,
+        dryRun: true,
+        error: error instanceof Error ? error.message : "Semantic test failed.",
+      }),
+    );
     Deno.exitCode = 1;
   }
 }

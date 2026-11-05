@@ -102,10 +102,11 @@ function nPositiveInteger(value: string | undefined, fallback: number): number {
  */
 export function loadConfig(): AppConfig {
   const web_search_api_key = Deno.env.get("BRAVE_SEARCH_API_KEY");
-  const web_search_enabled = (Deno.env.get("WEB_SEARCH_ENABLED") ??
-    (web_search_api_key ? "true" : "false")).toLowerCase() !== "false";
-  const link_open_enabled = (Deno.env.get("LINK_OPEN_ENABLED") ?? "true").toLowerCase() !==
-    "false";
+  const web_search_enabled =
+    (
+      Deno.env.get("WEB_SEARCH_ENABLED") ?? (web_search_api_key ? "true" : "false")
+    ).toLowerCase() !== "false";
+  const link_open_enabled = (Deno.env.get("LINK_OPEN_ENABLED") ?? "true").toLowerCase() !== "false";
   const parsed_autonomous_chat_reply_chance = parseFloat(
     Deno.env.get("AUTONOMOUS_CHAT_REPLY_CHANCE") ?? "0.35",
   );
@@ -117,13 +118,15 @@ export function loadConfig(): AppConfig {
 
   let channel_ids: string[] = [];
   if (channel_ids_raw) {
-    channel_ids = channel_ids_raw.split(",").map((id) => id.trim()).filter(Boolean);
+    channel_ids = channel_ids_raw
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
   }
 
   if (channel_id_single && !channel_ids.includes(channel_id_single)) {
-    channel_ids = channel_ids.length > 0 ? [...channel_ids, channel_id_single] : [
-      channel_id_single,
-    ];
+    channel_ids =
+      channel_ids.length > 0 ? [...channel_ids, channel_id_single] : [channel_id_single];
   }
 
   if (channel_ids.length === 0) {
@@ -133,7 +136,10 @@ export function loadConfig(): AppConfig {
   const channel_ids_unique = [...new Set(channel_ids)];
   const autonomous_chat_channel_ids_raw = Deno.env.get("AUTONOMOUS_CHAT_CHANNEL_IDS");
   const autonomous_chat_channel_ids = autonomous_chat_channel_ids_raw
-    ? autonomous_chat_channel_ids_raw.split(",").map((id) => id.trim()).filter(Boolean)
+    ? autonomous_chat_channel_ids_raw
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
     : channel_ids_unique;
 
   return {
@@ -155,10 +161,7 @@ export function loadConfig(): AppConfig {
       100,
       nPositiveInteger(Deno.env.get("AI_CONTEXT_MAX_MESSAGES"), 40),
     ),
-    aiContextInactivityMinutes: nPositiveInteger(
-      Deno.env.get("AI_CONTEXT_INACTIVITY_MINUTES"),
-      20,
-    ),
+    aiContextInactivityMinutes: nPositiveInteger(Deno.env.get("AI_CONTEXT_INACTIVITY_MINUTES"), 20),
 
     openaiAdminKey: Deno.env.get("OPENAI_ADMIN_KEY")?.trim() || undefined,
     usageOpenaiProjectId: Deno.env.get("USAGE_OPENAI_PROJECT_ID")?.trim() || undefined,
@@ -174,11 +177,13 @@ export function loadConfig(): AppConfig {
     discordActionsEnabled:
       (Deno.env.get("DISCORD_ACTIONS_ENABLED") ?? "true").toLowerCase() === "true",
     discordActionsGuildIds: (Deno.env.get("DISCORD_ACTIONS_GUILD_IDS") ?? "")
-      .split(",").map((id) => id.trim()).filter(Boolean),
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
 
     // Autonomous Chat
-    autonomousChatEnabled: (Deno.env.get("AUTONOMOUS_CHAT_ENABLED") ?? "false").toLowerCase() ===
-      "true",
+    autonomousChatEnabled:
+      (Deno.env.get("AUTONOMOUS_CHAT_ENABLED") ?? "false").toLowerCase() === "true",
     autonomousChatChannelIds: [...new Set(autonomous_chat_channel_ids)],
     autonomousChatMinHumanMessages: parseInt(
       Deno.env.get("AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES") ?? "4",

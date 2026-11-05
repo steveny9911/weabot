@@ -42,9 +42,9 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   };
 }
 
-function mockFetch(
-  handler: (url: string, init?: RequestInit) => Promise<Response> | Response,
-): { restore: () => void } {
+function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Response> | Response): {
+  restore: () => void;
+} {
   const originalFetch = fetchPage;
 
   fetchPage = (input: string, init?: RequestInit) => {
@@ -258,29 +258,32 @@ Deno.test("open blocks additional local/private/reserved IPv4 and IPv6 hosts", a
   }
 });
 
-Deno.test("open allows public hosts including normalized hostname and public IPv6 mapped IPv4", async () => {
-  const mock = mockFetch((_url) => {
-    return new Response("<html><title>Hi</title><body>ok</body></html>", {
-      status: 200,
-      headers: { "content-type": "text/html" },
+Deno.test(
+  "open allows public hosts including normalized hostname and public IPv6 mapped IPv4",
+  async () => {
+    const mock = mockFetch((_url) => {
+      return new Response("<html><title>Hi</title><body>ok</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
     });
-  });
 
-  try {
-    const service = createLinkOpenService(createMockConfig());
+    try {
+      const service = createLinkOpenService(createMockConfig());
 
-    const normalized = await service.open("https://Example.COM./test");
-    assertEquals(normalized.ok, true);
-    if (normalized.ok) {
-      assertEquals(normalized.page.domain, "example.com");
+      const normalized = await service.open("https://Example.COM./test");
+      assertEquals(normalized.ok, true);
+      if (normalized.ok) {
+        assertEquals(normalized.page.domain, "example.com");
+      }
+
+      const mappedPublic = await service.open("http://[::ffff:8.8.8.8]/x");
+      assertEquals(mappedPublic.ok, true);
+    } finally {
+      mock.restore();
     }
-
-    const mappedPublic = await service.open("http://[::ffff:8.8.8.8]/x");
-    assertEquals(mappedPublic.ok, true);
-  } finally {
-    mock.restore();
-  }
-});
+  },
+);
 
 Deno.test("open follows a safe relative redirect and succeeds", async () => {
   let calls = 0;
@@ -328,8 +331,8 @@ Deno.test("open handles redirect edge failures", async () => {
   }
 
   {
-    const mockBadLocation = mockFetch((_url) =>
-      new Response(null, { status: 302, headers: { location: "http://[::1" } })
+    const mockBadLocation = mockFetch(
+      (_url) => new Response(null, { status: 302, headers: { location: "http://[::1" } }),
     );
     try {
       const service = createLinkOpenService(createMockConfig());
@@ -341,8 +344,9 @@ Deno.test("open handles redirect edge failures", async () => {
   }
 
   {
-    const mockUnsupportedScheme = mockFetch((_url) =>
-      new Response(null, { status: 302, headers: { location: "ftp://example.com/file" } })
+    const mockUnsupportedScheme = mockFetch(
+      (_url) =>
+        new Response(null, { status: 302, headers: { location: "ftp://example.com/file" } }),
     );
     try {
       const service = createLinkOpenService(createMockConfig());
@@ -356,8 +360,9 @@ Deno.test("open handles redirect edge failures", async () => {
 
 Deno.test("open handles non-ok, missing-body, and fetch error responses", async () => {
   {
-    const mockServerError = mockFetch((_url) =>
-      new Response("server error", { status: 500, headers: { "content-type": "text/html" } })
+    const mockServerError = mockFetch(
+      (_url) =>
+        new Response("server error", { status: 500, headers: { "content-type": "text/html" } }),
     );
     try {
       const service = createLinkOpenService(createMockConfig());
@@ -369,8 +374,8 @@ Deno.test("open handles non-ok, missing-body, and fetch error responses", async 
   }
 
   {
-    const mockMissingBody = mockFetch((_url) =>
-      new Response(null, { status: 200, headers: { "content-type": "text/html" } })
+    const mockMissingBody = mockFetch(
+      (_url) => new Response(null, { status: 200, headers: { "content-type": "text/html" } }),
     );
     try {
       const service = createLinkOpenService(createMockConfig());
@@ -424,8 +429,7 @@ Deno.test("open enforces stream body size limit when content-length is absent", 
 
 Deno.test("open decodes numeric entities and truncates long excerpt", async () => {
   const longBody = "word ".repeat(1000);
-  const html =
-    `<html><head><title> A&#66; &#x43; &unknown; </title></head><body>${longBody}</body></html>`;
+  const html = `<html><head><title> A&#66; &#x43; &unknown; </title></head><body>${longBody}</body></html>`;
   const mock = mockFetch((_url) => {
     return new Response(html, {
       status: 200,

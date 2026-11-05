@@ -41,36 +41,28 @@ Deno.test("buildStatsEmbed calculates totals correctly", () => {
 });
 
 Deno.test("buildStatsEmbed shows green color when umazing dominates", () => {
-  const stats: DailyStats[] = [
-    { date: "2025-12-10", umazing: 10, ok: 2, glue: 1, total: 13 },
-  ];
+  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 10, ok: 2, glue: 1, total: 13 }];
   const result = buildStatsEmbed(stats);
 
   assertEquals(result.embeds[0].color, 0x00ff00); // Green
 });
 
 Deno.test("buildStatsEmbed shows yellow color when ok dominates", () => {
-  const stats: DailyStats[] = [
-    { date: "2025-12-10", umazing: 2, ok: 10, glue: 3, total: 15 },
-  ];
+  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 2, ok: 10, glue: 3, total: 15 }];
   const result = buildStatsEmbed(stats);
 
   assertEquals(result.embeds[0].color, 0xffcc00); // Yellow
 });
 
 Deno.test("buildStatsEmbed shows red color when glue dominates", () => {
-  const stats: DailyStats[] = [
-    { date: "2025-12-10", umazing: 1, ok: 2, glue: 10, total: 13 },
-  ];
+  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 1, ok: 2, glue: 10, total: 13 }];
   const result = buildStatsEmbed(stats);
 
   assertEquals(result.embeds[0].color, 0xff6b6b); // Red
 });
 
 Deno.test("buildStatsEmbed has 3 mood fields for single day", () => {
-  const stats: DailyStats[] = [
-    { date: "2025-12-10", umazing: 5, ok: 3, glue: 2, total: 10 },
-  ];
+  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 5, ok: 3, glue: 2, total: 10 }];
   const result = buildStatsEmbed(stats);
   const fields = result.embeds[0].fields!;
 
@@ -93,9 +85,7 @@ Deno.test("buildStatsEmbed adds Recent Days field for multiple days", () => {
 });
 
 Deno.test("buildStatsEmbed percentage bar shows 'No data' for zero total", () => {
-  const stats: DailyStats[] = [
-    { date: "2025-12-10", umazing: 0, ok: 0, glue: 0, total: 0 },
-  ];
+  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 0, ok: 0, glue: 0, total: 0 }];
   const result = buildStatsEmbed(stats);
   const fields = result.embeds[0].fields!;
 
@@ -105,9 +95,7 @@ Deno.test("buildStatsEmbed percentage bar shows 'No data' for zero total", () =>
 });
 
 Deno.test("buildStatsEmbed percentage bar calculates correctly", () => {
-  const stats: DailyStats[] = [
-    { date: "2025-12-10", umazing: 5, ok: 3, glue: 2, total: 10 },
-  ];
+  const stats: DailyStats[] = [{ date: "2025-12-10", umazing: 5, ok: 3, glue: 2, total: 10 }];
   const result = buildStatsEmbed(stats);
   const fields = result.embeds[0].fields!;
 

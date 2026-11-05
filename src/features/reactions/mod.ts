@@ -7,7 +7,7 @@ export const REACTION_INTENTS = [
   "concern",
   "disapproval",
 ] as const;
-export type ReactionIntent = typeof REACTION_INTENTS[number];
+export type ReactionIntent = (typeof REACTION_INTENTS)[number];
 export const DECISION_REASONS = [
   "shared_joke",
   "acknowledgment",
@@ -20,7 +20,7 @@ export const DECISION_REASONS = [
   "incomplete",
   "ambiguous",
 ] as const;
-export type DecisionReason = typeof DECISION_REASONS[number];
+export type DecisionReason = (typeof DECISION_REASONS)[number];
 export interface ReactionChoice {
   emoji: string;
   intent: ReactionIntent;
@@ -129,24 +129,31 @@ export function availableReactions(context: ReactionContext | null): ReactionCho
   if (context && !context.canReact) return [];
   const reviewed = guildIds[context?.guildId ?? ""];
   return REACTION_INTENTS.flatMap((intent) => {
-    const local = context && reviewed
-      ? custom.flatMap((entry, index) => {
-        const e = context.emojis.find((emoji) => emoji.id === reviewed[index]);
-        return entry.intent === intent && e?.available && /^[A-Za-z0-9_]{2,32}$/.test(e.name) &&
-            (e.roles.length === 0 || e.roles.some((role) => context.memberRoles.includes(role)))
-          ? [{
-            emoji: `${e.name}:${e.id}`,
-            intent,
-            description: `${entry.description} ${meanings[intent]}`,
-          }]
-          : [];
-      })
-      : [];
-    return local.length ? local : unicode[intent].map((emoji) => ({
-      emoji,
-      intent,
-      description: meanings[intent],
-    }));
+    const local =
+      context && reviewed
+        ? custom.flatMap((entry, index) => {
+            const e = context.emojis.find((emoji) => emoji.id === reviewed[index]);
+            return entry.intent === intent &&
+              e?.available &&
+              /^[A-Za-z0-9_]{2,32}$/.test(e.name) &&
+              (e.roles.length === 0 || e.roles.some((role) => context.memberRoles.includes(role)))
+              ? [
+                  {
+                    emoji: `${e.name}:${e.id}`,
+                    intent,
+                    description: `${entry.description} ${meanings[intent]}`,
+                  },
+                ]
+              : [];
+          })
+        : [];
+    return local.length
+      ? local
+      : unicode[intent].map((emoji) => ({
+          emoji,
+          intent,
+          description: meanings[intent],
+        }));
   });
 }
 
@@ -160,9 +167,10 @@ export function reactionChoices(
   return REACTION_INTENTS.flatMap((intent) => {
     const candidates = available.filter((choice) => choice.intent === intent);
     if (!candidates.length) return [];
-    const varied = candidates.length > 1
-      ? candidates.filter((entry) => entry.emoji !== previousEmoji)
-      : candidates;
+    const varied =
+      candidates.length > 1
+        ? candidates.filter((entry) => entry.emoji !== previousEmoji)
+        : candidates;
     const sample = random();
     const index = Number.isFinite(sample)
       ? Math.floor(Math.min(0.999999, Math.max(0, sample)) * varied.length)

@@ -120,52 +120,81 @@ function isOptionalString(value: unknown): boolean {
 }
 
 function isGuild(value: unknown): value is DiscordGuild {
-  return isRecord(value) && isString(value.id) && isString(value.owner_id) &&
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.owner_id) &&
     Array.isArray(value.roles) &&
-    value.roles.every((role) =>
-      isRecord(role) && isString(role.id) && isPermissions(role.permissions)
-    );
+    value.roles.every(
+      (role) => isRecord(role) && isString(role.id) && isPermissions(role.permissions),
+    )
+  );
 }
 
 function isMember(value: unknown): value is DiscordMember {
-  return isRecord(value) && isRecord(value.user) && isString(value.user.id) &&
+  return (
+    isRecord(value) &&
+    isRecord(value.user) &&
+    isString(value.user.id) &&
     (value.user.bot === undefined || typeof value.user.bot === "boolean") &&
-    Array.isArray(value.roles) && value.roles.every(isString) &&
-    isOptionalString(value.communication_disabled_until);
+    Array.isArray(value.roles) &&
+    value.roles.every(isString) &&
+    isOptionalString(value.communication_disabled_until)
+  );
 }
 
 function isChannel(value: unknown): value is DiscordChannel {
-  return isRecord(value) && isString(value.id) && typeof value.name === "string" &&
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    typeof value.name === "string" &&
     Number.isInteger(value.type) &&
     (value.guild_id === undefined || isString(value.guild_id)) &&
     (value.permission_overwrites === undefined ||
       (Array.isArray(value.permission_overwrites) &&
-        value.permission_overwrites.every((overwrite) =>
-          isRecord(overwrite) && isString(overwrite.id) &&
-          (overwrite.type === 0 || overwrite.type === 1) &&
-          isPermissions(overwrite.allow) && isPermissions(overwrite.deny)
-        )));
+        value.permission_overwrites.every(
+          (overwrite) =>
+            isRecord(overwrite) &&
+            isString(overwrite.id) &&
+            (overwrite.type === 0 || overwrite.type === 1) &&
+            isPermissions(overwrite.allow) &&
+            isPermissions(overwrite.deny),
+        )))
+  );
 }
 
 function isScheduledEvent(value: unknown): value is DiscordScheduledEvent {
-  return isRecord(value) && isString(value.id) && isString(value.guild_id) &&
-    isString(value.name) && (value.channel_id === null || isString(value.channel_id)) &&
-    Number.isInteger(value.entity_type) && Number.isInteger(value.status) &&
-    isString(value.scheduled_start_time) && isOptionalString(value.scheduled_end_time) &&
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.guild_id) &&
+    isString(value.name) &&
+    (value.channel_id === null || isString(value.channel_id)) &&
+    Number.isInteger(value.entity_type) &&
+    Number.isInteger(value.status) &&
+    isString(value.scheduled_start_time) &&
+    isOptionalString(value.scheduled_end_time) &&
     isOptionalString(value.description) &&
     (value.creator_id === undefined || value.creator_id === null || isString(value.creator_id)) &&
-    (value.recurrence_rule === undefined || value.recurrence_rule === null ||
+    (value.recurrence_rule === undefined ||
+      value.recurrence_rule === null ||
       isRecord(value.recurrence_rule)) &&
-    (value.entity_metadata === undefined || value.entity_metadata === null ||
+    (value.entity_metadata === undefined ||
+      value.entity_metadata === null ||
       (isRecord(value.entity_metadata) &&
         (value.entity_metadata.location === undefined ||
-          typeof value.entity_metadata.location === "string")));
+          typeof value.entity_metadata.location === "string")))
+  );
 }
 
 function isInvite(value: unknown): value is DiscordInvite {
-  return isRecord(value) && isString(value.code) && /^[\w-]+$/.test(value.code) &&
+  return (
+    isRecord(value) &&
+    isString(value.code) &&
+    /^[\w-]+$/.test(value.code) &&
     (value.guild === undefined || (isRecord(value.guild) && isString(value.guild.id))) &&
-    (value.channel === undefined || (isRecord(value.channel) && isString(value.channel.id)));
+    (value.channel === undefined || (isRecord(value.channel) && isString(value.channel.id)))
+  );
 }
 
 function isArrayOf<T>(guard: (value: unknown) => value is T) {
@@ -188,9 +217,9 @@ function responseError(response: Response, data: unknown, mutation: boolean): Di
     return new DiscordApiError(
       retry_after === undefined
         ? "Discord is rate limiting requests. Please wait before trying again."
-        : `Discord is rate limiting requests. Please try again in ${
-          Math.ceil(retry_after)
-        } seconds.`,
+        : `Discord is rate limiting requests. Please try again in ${Math.ceil(
+            retry_after,
+          )} seconds.`,
       429,
       false,
       retry_after,
@@ -200,14 +229,14 @@ function responseError(response: Response, data: unknown, mutation: boolean): Di
   const message = uncertain
     ? "Discord did not confirm the result. Check Discord before trying again; the action may have succeeded."
     : response.status === 401
-    ? "Discord rejected the bot credentials. The bot administrator needs to check its token."
-    : response.status === 403
-    ? "Discord denied this request. Check the bot's server and channel permissions."
-    : response.status === 404
-    ? "The Discord server, channel, member, or event could not be found or is inaccessible."
-    : response.status === 400
-    ? "Discord rejected the request details. Check the event or invite settings."
-    : "Discord could not complete this request. Please try again later.";
+      ? "Discord rejected the bot credentials. The bot administrator needs to check its token."
+      : response.status === 403
+        ? "Discord denied this request. Check the bot's server and channel permissions."
+        : response.status === 404
+          ? "The Discord server, channel, member, or event could not be found or is inaccessible."
+          : response.status === 400
+            ? "Discord rejected the request details. Check the event or invite settings."
+            : "Discord could not complete this request. Please try again later.";
   return new DiscordApiError(message, response.status, uncertain);
 }
 
@@ -226,7 +255,8 @@ export function createDiscordEventsClient(
 ): DiscordEventsClient {
   const request_fetch = options.fetch ?? globalThis.fetch;
   const timeout_ms = options.timeoutMs ?? 15_000;
-  const sleep = options.sleep ??
+  const sleep =
+    options.sleep ??
     ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
 
   async function requestOnce<T>(
@@ -302,13 +332,17 @@ export function createDiscordEventsClient(
     reason?: string,
     mutationMethod: "POST" | "PATCH" = "POST",
   ): Promise<T> {
-    for (let retries = 0;; retries++) {
+    for (let retries = 0; ; retries++) {
       try {
         return await requestOnce(path, guard, payload, reason, mutationMethod);
       } catch (error) {
         if (
-          payload !== undefined || retries >= 2 || !(error instanceof DiscordApiError) ||
-          error.status !== 429 || error.uncertain || error.retryAfter === undefined ||
+          payload !== undefined ||
+          retries >= 2 ||
+          !(error instanceof DiscordApiError) ||
+          error.status !== 429 ||
+          error.uncertain ||
+          error.retryAfter === undefined ||
           error.retryAfter > 15
         ) {
           throw error;
@@ -351,7 +385,9 @@ export function createDiscordEventsClient(
       request(
         `/guilds/${encodeURIComponent(guildId)}/scheduled-events/${encodeURIComponent(eventId)}`,
         (value): value is DiscordScheduledEvent =>
-          isScheduledEvent(value) && value.id === eventId && value.guild_id === guildId &&
+          isScheduledEvent(value) &&
+          value.id === eventId &&
+          value.guild_id === guildId &&
           value.status === 4,
         { status: 4 },
         reason,
@@ -378,8 +414,8 @@ export const DiscordPermissions = {
 
 // An unbounded all-bits mask lets owners/admins pass checks for future bits too.
 const ALL_PERMISSIONS = ~0n;
-const TIMEOUT_PERMISSIONS = DiscordPermissions.VIEW_CHANNEL |
-  DiscordPermissions.READ_MESSAGE_HISTORY;
+const TIMEOUT_PERMISSIONS =
+  DiscordPermissions.VIEW_CHANNEL | DiscordPermissions.READ_MESSAGE_HISTORY;
 
 function basePermissions(guild: DiscordGuild, member: DiscordMember): bigint {
   if (member.user.id === guild.owner_id) return ALL_PERMISSIONS;
@@ -412,8 +448,8 @@ export function getChannelPermissions(
   let permissions = basePermissions(guild, member);
   if (permissions & DiscordPermissions.ADMINISTRATOR) return permissions;
   const overwrites = channel.permission_overwrites ?? [];
-  const everyone = overwrites.find((overwrite) =>
-    overwrite.id === guild.id && overwrite.type === 0
+  const everyone = overwrites.find(
+    (overwrite) => overwrite.id === guild.id && overwrite.type === 0,
   );
   if (everyone) permissions = (permissions & ~BigInt(everyone.deny)) | BigInt(everyone.allow);
 
@@ -427,8 +463,8 @@ export function getChannelPermissions(
     }
   }
   permissions = (permissions & ~deny) | allow;
-  const personal = overwrites.find((overwrite) =>
-    overwrite.id === member.user.id && overwrite.type === 1
+  const personal = overwrites.find(
+    (overwrite) => overwrite.id === member.user.id && overwrite.type === 1,
   );
   if (personal) permissions = (permissions & ~BigInt(personal.deny)) | BigInt(personal.allow);
   return applyTimeout(permissions, member);

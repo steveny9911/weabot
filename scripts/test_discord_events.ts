@@ -46,21 +46,21 @@ function tomorrowEvening(): { date: string; start: string; end: string } {
     day: "2-digit",
   }).formatToParts(new Date());
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)!.value;
-  const tomorrow = new Date(Date.UTC(
-    Number(part("year")),
-    Number(part("month")) - 1,
-    Number(part("day")) + 1,
-  ));
+  const tomorrow = new Date(
+    Date.UTC(Number(part("year")), Number(part("month")) - 1, Number(part("day")) + 1),
+  );
   const date = tomorrow.toISOString().slice(0, 10);
   // Vancouver's DST changes are before midday; both evening times share this offset.
   const offsetText = new Intl.DateTimeFormat("en", {
     timeZone: TIME_ZONE,
     timeZoneName: "shortOffset",
-  }).formatToParts(new Date(`${date}T20:00:00Z`)).find((p) => p.type === "timeZoneName")!.value;
+  })
+    .formatToParts(new Date(`${date}T20:00:00Z`))
+    .find((p) => p.type === "timeZoneName")!.value;
   const offset = /^GMT([+-])(\d{1,2})(?::(\d{2}))?$/.exec(offsetText);
   ensure(offset, "Could not resolve the Vancouver timezone offset.");
-  const offsetMinutes = (offset[1] === "+" ? 1 : -1) *
-    (Number(offset[2]) * 60 + Number(offset[3] ?? 0));
+  const offsetMinutes =
+    (offset[1] === "+" ? 1 : -1) * (Number(offset[2]) * 60 + Number(offset[3] ?? 0));
   const utc = (hour: string) =>
     new Date(Date.parse(`${date}T${hour}:00:00Z`) - offsetMinutes * 60_000).toISOString();
   return { date, start: utc("20"), end: utc("22") };
@@ -150,8 +150,7 @@ async function main(): Promise<void> {
   const runId = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`;
   const title = `Haru sandbox test ${runId}`;
   const expected = tomorrowEvening();
-  const request =
-    `Create a Discord event named ${title} in General voice on ${expected.date} at 20:00 America/Vancouver, ending at 22:00 that same day, and create an event invite expiring in 60 seconds limited to 1 use.`;
+  const request = `Create a Discord event named ${title} in General voice on ${expected.date} at 20:00 America/Vancouver, ending at 22:00 that same day, and create an event invite expiring in 60 seconds limited to 1 use.`;
   const events: DiscordScheduledEvent[] = [];
   const invites: DiscordInvite[] = [];
   const verified: Record<string, unknown> = {};
@@ -207,13 +206,13 @@ async function main(): Promise<void> {
       );
       const event: DiscordScheduledEvent = dryRun
         ? {
-          ...payload,
-          id: "999999999999999991",
-          guild_id: id,
-          channel_id: VOICE_CHANNEL_ID,
-          creator_id: botId,
-          status: 1,
-        }
+            ...payload,
+            id: "999999999999999991",
+            guild_id: id,
+            channel_id: VOICE_CHANNEL_ID,
+            creator_id: botId,
+            status: 1,
+          }
         : await real.createScheduledEvent(id, payload, reason);
       events.push(event);
       const actual = dryRun
@@ -295,18 +294,16 @@ async function main(): Promise<void> {
       { name: "complete", content: request },
       ...(dryRun
         ? [
-          { name: "needs_clarification", content: "Create an event for game night." },
-          {
-            name: "hypothetical",
-            content:
-              `Hypothetically, how would I ask Haru to create an event called ${title}? Please explain without doing it.`,
-          },
-          {
-            name: "negated",
-            content:
-              `Do not create an event called ${title} or create an invitation; I am only discussing the idea.`,
-          },
-        ]
+            { name: "needs_clarification", content: "Create an event for game night." },
+            {
+              name: "hypothetical",
+              content: `Hypothetically, how would I ask Haru to create an event called ${title}? Please explain without doing it.`,
+            },
+            {
+              name: "negated",
+              content: `Do not create an event called ${title} or create an invitation; I am only discussing the idea.`,
+            },
+          ]
         : []),
     ];
     for (const scenario of scenarios) {
@@ -323,17 +320,22 @@ async function main(): Promise<void> {
       });
       const toolCalls: string[] = [];
       const toolArguments: Record<string, unknown>[] = [];
-      const result = await ai.generateReply([{
-        author: "Simulated sandbox owner",
-        content: scenario.content,
-      }], {
-        ...session,
-        executeTool(name, args) {
-          toolCalls.push(name);
-          toolArguments.push({ name, arguments: args });
-          return session.executeTool(name, args);
+      const result = await ai.generateReply(
+        [
+          {
+            author: "Simulated sandbox owner",
+            content: scenario.content,
+          },
+        ],
+        {
+          ...session,
+          executeTool(name, args) {
+            toolCalls.push(name);
+            toolArguments.push({ name, arguments: args });
+            return session.executeTool(name, args);
+          },
         },
-      });
+      );
       const item: Record<string, unknown> = {
         name: scenario.name,
         ai_ok: result.ok,
@@ -358,7 +360,10 @@ async function main(): Promise<void> {
           receipt && new URL(receipt).searchParams.get("event") === events[0].id,
           "Action result omitted the event invite query parameter.",
         );
-        ensure(session.results.every((r) => r.ok), "A complete request returned an action error.");
+        ensure(
+          session.results.every((r) => r.ok),
+          "A complete request returned an action error.",
+        );
       } else {
         ensure(
           events.length + invites.length === countBefore,
@@ -366,7 +371,7 @@ async function main(): Promise<void> {
         );
         ensure(
           !toolCalls.some((name) =>
-            ["create_discord_event", "create_discord_invite"].includes(name)
+            ["create_discord_event", "create_discord_invite"].includes(name),
           ),
           "The AI attempted a write for a non-action case.",
         );
@@ -418,25 +423,27 @@ async function main(): Promise<void> {
         }
       }
     }
-    console.log(JSON.stringify(
-      {
-        ok: !failure,
-        mode: dryRun ? "dry-run: real AI, simulated Discord writes" : "live sandbox",
-        requester: {
-          context: "SIMULATED sandbox owner; not an actual Discord message",
-          id: guild.owner_id,
+    console.log(
+      JSON.stringify(
+        {
+          ok: !failure,
+          mode: dryRun ? "dry-run: real AI, simulated Discord writes" : "live sandbox",
+          requester: {
+            context: "SIMULATED sandbox owner; not an actual Discord message",
+            id: guild.owner_id,
+          },
+          bot: { id: botId, username: me.username },
+          guild: { id: SANDBOX_ID, name: "Bot Sandbox" },
+          cases,
+          verified,
+          kept: !dryRun && keep,
+          cleanup,
+          ...(failure ? { error: failure } : {}),
         },
-        bot: { id: botId, username: me.username },
-        guild: { id: SANDBOX_ID, name: "Bot Sandbox" },
-        cases,
-        verified,
-        kept: !dryRun && keep,
-        cleanup,
-        ...(failure ? { error: failure } : {}),
-      },
-      null,
-      2,
-    ));
+        null,
+        2,
+      ),
+    );
   }
   if (failure) Deno.exitCode = 1;
 }

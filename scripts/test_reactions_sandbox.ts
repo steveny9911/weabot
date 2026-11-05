@@ -13,10 +13,12 @@ export function sandboxOptions(args: string[]): { send: boolean; after: string }
   const after = args.find((arg) => arg.startsWith("--after="))?.slice(8);
   if (
     args.some((arg) => arg !== "--send" && arg !== "--dry-run" && !arg.startsWith("--after=")) ||
-    args.filter((arg) => arg.startsWith("--after=")).length !== 1 || !after ||
+    args.filter((arg) => arg.startsWith("--after=")).length !== 1 ||
+    !after ||
     !/^[1-9]\d*$/.test(after) ||
-    args.includes("--send") && args.includes("--dry-run")
-  ) throw new Error("Use [--send | --dry-run] --after=<message ID>.");
+    (args.includes("--send") && args.includes("--dry-run"))
+  )
+    throw new Error("Use [--send | --dry-run] --after=<message ID>.");
   return { send: args.includes("--send"), after };
 }
 export function sandboxDiscord(client: DiscordClient, after: string): DiscordClient {
@@ -29,8 +31,8 @@ export function sandboxDiscord(client: DiscordClient, after: string): DiscordCli
     ...client,
     getRecentMessages: async (channelId, limit) => {
       check(channelId);
-      return (await client.getRecentMessages(channelId, limit)).filter((m) =>
-        /^\d+$/.test(m.id) && BigInt(m.id) > BigInt(after)
+      return (await client.getRecentMessages(channelId, limit)).filter(
+        (m) => /^\d+$/.test(m.id) && BigInt(m.id) > BigInt(after),
       );
     },
     postMessage: (channelId, payload) => {
@@ -78,10 +80,11 @@ async function main() {
   const channels = await events.getChannels(REACTION_SANDBOX_GUILD);
   if (
     context.guildId !== REACTION_SANDBOX_GUILD ||
-    !channels.some((c) =>
-      c.id === REACTION_SANDBOX_CHANNEL && c.name === "bitconnect-memes" && c.type === 0
+    !channels.some(
+      (c) => c.id === REACTION_SANDBOX_CHANNEL && c.name === "bitconnect-memes" && c.type === 0,
     )
-  ) throw new Error("Sandbox identity mismatch.");
+  )
+    throw new Error("Sandbox identity mismatch.");
   // Live runs persist duplicate protection across invocations; previews use disposable memory.
   const kv = await Deno.openKv(options.send ? "/tmp/haru-reaction-sandbox.sqlite3" : ":memory:");
   try {

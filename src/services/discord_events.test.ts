@@ -130,31 +130,34 @@ Deno.test("Discord event and invite POSTs preserve payloads and encode audit rea
   ]);
 });
 
-Deno.test("Discord cancellation PATCH changes only status and encodes its route and audit reason", async () => {
-  const canceled = { ...event, guild_id: "guild/name", id: "event/name", status: 4 };
-  let count = 0;
-  const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock((url, init) => {
-      count++;
-      assertEquals(
-        url,
-        "https://discord.com/api/v10/guilds/guild%2Fname/scheduled-events/event%2Fname",
-      );
-      assertEquals(init?.method, "PATCH");
-      assertEquals(JSON.parse(String(init?.body)), { status: 4 });
-      const headers = new Headers(init?.headers);
-      assertEquals(headers.get("Authorization"), "Bot fake-token");
-      assertEquals(headers.get("X-Audit-Log-Reason"), encodeURIComponent("Cancel for café user"));
-      assert(init?.signal);
-      return jsonResponse(canceled);
-    }),
-  });
-  assertEquals(
-    await client.cancelScheduledEvent("guild/name", "event/name", "Cancel for café user"),
-    canceled,
-  );
-  assertEquals(count, 1);
-});
+Deno.test(
+  "Discord cancellation PATCH changes only status and encodes its route and audit reason",
+  async () => {
+    const canceled = { ...event, guild_id: "guild/name", id: "event/name", status: 4 };
+    let count = 0;
+    const client = createDiscordEventsClient("fake-token", {
+      fetch: fetchMock((url, init) => {
+        count++;
+        assertEquals(
+          url,
+          "https://discord.com/api/v10/guilds/guild%2Fname/scheduled-events/event%2Fname",
+        );
+        assertEquals(init?.method, "PATCH");
+        assertEquals(JSON.parse(String(init?.body)), { status: 4 });
+        const headers = new Headers(init?.headers);
+        assertEquals(headers.get("Authorization"), "Bot fake-token");
+        assertEquals(headers.get("X-Audit-Log-Reason"), encodeURIComponent("Cancel for café user"));
+        assert(init?.signal);
+        return jsonResponse(canceled);
+      }),
+    });
+    assertEquals(
+      await client.cancelScheduledEvent("guild/name", "event/name", "Cancel for café user"),
+      canceled,
+    );
+    assertEquals(count, 1);
+  },
+);
 
 Deno.test("Discord cancellation requires an exact canceled receipt", async (t) => {
   const cases = [
@@ -189,7 +192,10 @@ Deno.test("Discord cancellation requires an exact canceled receipt", async (t) =
 });
 
 Deno.test("Discord single event reads reject another event or guild", async (t) => {
-  for (const body of [{ ...event, id: "other" }, { ...event, guild_id: "other" }]) {
+  for (const body of [
+    { ...event, id: "other" },
+    { ...event, guild_id: "other" },
+  ]) {
     await t.step(`${body.guild_id}/${body.id}`, async () => {
       let count = 0;
       const client = createDiscordEventsClient("fake-token", {
@@ -241,8 +247,8 @@ Deno.test("ambiguous mutations are never retried or reported as definite failure
             kind === "event"
               ? client.createScheduledEvent("guild", event_payload)
               : kind === "invite"
-              ? client.createInvite("voice", invite_payload)
-              : client.cancelScheduledEvent("guild", "event"),
+                ? client.createInvite("voice", invite_payload)
+                : client.cancelScheduledEvent("guild", "event"),
           DiscordApiError,
         );
         assertEquals(count, 1);
@@ -289,8 +295,8 @@ Deno.test("Discord 429 and client errors are definite failures without retries",
 
 Deno.test("Discord rate limit header survives a non-JSON error response", async () => {
   const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() =>
-      new Response("too many requests", { status: 429, headers: { "Retry-After": "1.5" } })
+    fetch: fetchMock(
+      () => new Response("too many requests", { status: 429, headers: { "Retry-After": "1.5" } }),
     ),
   });
   const error = await assertRejects(
@@ -344,27 +350,30 @@ Deno.test("Discord reads can retry using Retry-After when the body is unreadable
   assertEquals(delays, [125]);
 });
 
-Deno.test("Discord read retries stop after two waits and preserve the final safe error", async () => {
-  let count = 0;
-  const delays: number[] = [];
-  const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() => {
-      count++;
-      return jsonResponse({ retry_after: 15, message: "fake-token must never appear" }, 429);
-    }),
-    sleep: (milliseconds) => {
-      delays.push(milliseconds);
-      return Promise.resolve();
-    },
-  });
-  const error = await assertRejects(() => client.getMember("guild", "member"), DiscordApiError);
-  assertEquals(count, 3);
-  assertEquals(delays, [15000, 15000]);
-  assertEquals(error.status, 429);
-  assertEquals(error.retryAfter, 15);
-  assertEquals(error.uncertain, false);
-  assertEquals(error.message.includes("fake-token"), false);
-});
+Deno.test(
+  "Discord read retries stop after two waits and preserve the final safe error",
+  async () => {
+    let count = 0;
+    const delays: number[] = [];
+    const client = createDiscordEventsClient("fake-token", {
+      fetch: fetchMock(() => {
+        count++;
+        return jsonResponse({ retry_after: 15, message: "fake-token must never appear" }, 429);
+      }),
+      sleep: (milliseconds) => {
+        delays.push(milliseconds);
+        return Promise.resolve();
+      },
+    });
+    const error = await assertRejects(() => client.getMember("guild", "member"), DiscordApiError);
+    assertEquals(count, 3);
+    assertEquals(delays, [15000, 15000]);
+    assertEquals(error.status, 429);
+    assertEquals(error.retryAfter, 15);
+    assertEquals(error.uncertain, false);
+    assertEquals(error.message.includes("fake-token"), false);
+  },
+);
 
 Deno.test("Discord reads do not retry long, missing, or invalid rate limit delays", async (t) => {
   for (const retry_after of [15.001, undefined, -1, "1", null]) {
@@ -420,31 +429,37 @@ Deno.test("Discord reads do not retry non-rate-limit failures", async (t) => {
   }
 });
 
-Deno.test("Discord request timeout aborts transport and marks only mutation uncertain", async () => {
-  let count = 0;
-  const client = createDiscordEventsClient("fake-token", {
-    timeoutMs: 1,
-    fetch: fetchMock((_url, init) =>
-      new Promise((_resolve, reject) => {
-        count++;
-        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-      })
-    ),
-  });
-  const mutation_error = await assertRejects(
-    () => client.createScheduledEvent("guild", event_payload),
-    DiscordApiError,
-  );
-  assertEquals(mutation_error.uncertain, true);
-  const cancel_error = await assertRejects(
-    () => client.cancelScheduledEvent("guild", "event"),
-    DiscordApiError,
-  );
-  assertEquals(cancel_error.uncertain, true);
-  const read_error = await assertRejects(() => client.getGuild("guild"), DiscordApiError);
-  assertEquals(read_error.uncertain, false);
-  assertEquals(count, 3);
-});
+Deno.test(
+  "Discord request timeout aborts transport and marks only mutation uncertain",
+  async () => {
+    let count = 0;
+    const client = createDiscordEventsClient("fake-token", {
+      timeoutMs: 1,
+      fetch: fetchMock(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            count++;
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+              once: true,
+            });
+          }),
+      ),
+    });
+    const mutation_error = await assertRejects(
+      () => client.createScheduledEvent("guild", event_payload),
+      DiscordApiError,
+    );
+    assertEquals(mutation_error.uncertain, true);
+    const cancel_error = await assertRejects(
+      () => client.cancelScheduledEvent("guild", "event"),
+      DiscordApiError,
+    );
+    assertEquals(cancel_error.uncertain, true);
+    const read_error = await assertRejects(() => client.getGuild("guild"), DiscordApiError);
+    assertEquals(read_error.uncertain, false);
+    assertEquals(count, 3);
+  },
+);
 
 Deno.test("Discord malformed permission responses fail closed", async () => {
   const client = createDiscordEventsClient("fake-token", {
@@ -462,16 +477,19 @@ Deno.test("Discord lists older events with a nullable creator id", async () => {
   assertEquals(await client.listScheduledEvents("guild"), [old_event]);
 });
 
-Deno.test("Discord event reads retain recurring series metadata for action validation", async () => {
-  const recurring_event = {
-    ...event,
-    recurrence_rule: { frequency: 2, interval: 1, by_weekday: [5] },
-  };
-  const client = createDiscordEventsClient("fake-token", {
-    fetch: fetchMock(() => jsonResponse(recurring_event)),
-  });
-  assertEquals(await client.getScheduledEvent("guild", "event"), recurring_event);
-});
+Deno.test(
+  "Discord event reads retain recurring series metadata for action validation",
+  async () => {
+    const recurring_event = {
+      ...event,
+      recurrence_rule: { frequency: 2, interval: 1, by_weekday: [5] },
+    };
+    const client = createDiscordEventsClient("fake-token", {
+      fetch: fetchMock(() => jsonResponse(recurring_event)),
+    });
+    assertEquals(await client.getScheduledEvent("guild", "event"), recurring_event);
+  },
+);
 
 function overwrite(id: string, type: number, allow = 0n, deny = 0n) {
   return { id, type, allow: String(allow), deny: String(deny) };
@@ -539,12 +557,10 @@ Deno.test("active timeout is applied after channel overwrites and expires normal
 });
 
 Deno.test("owner and administrator bypass overwrites and timeout", () => {
-  for (
-    const privileged of [
-      { user: { id: "owner" }, roles: [] },
-      { user: { id: "admin-member" }, roles: ["admin"] },
-    ]
-  ) {
+  for (const privileged of [
+    { user: { id: "owner" }, roles: [] },
+    { user: { id: "admin-member" }, roles: ["admin"] },
+  ]) {
     const timed_out = { ...privileged, communication_disabled_until: "2099-01-01T00:00:00Z" };
     const all_needed = P.CREATE_EVENTS | P.CREATE_INSTANT_INVITE | P.MANAGE_CHANNELS | P.CONNECT;
     assertEquals(getGuildPermissions(guild, timed_out) & all_needed, all_needed);

@@ -60,30 +60,29 @@ export function szExtractAutoSearchQuery(content: string | undefined): string | 
 
   // Avoid small talk or subjective prompts
   if (
-    /^(hi|hello|hey|yo|sup|how are you|how r u|how's it going|what's up|whats up)\b/i
-      .test(cleaned)
+    /^(hi|hello|hey|yo|sup|how are you|how r u|how's it going|what's up|whats up)\b/i.test(cleaned)
   ) {
     return null;
   }
+  if (/\b(what do you think|how do you feel|what's your favorite|should I)\b/i.test(cleaned)) {
+    return null;
+  }
   if (
-    /\b(what do you think|how do you feel|what's your favorite|should I)\b/i.test(
+    /\b(what are you talking about|what do you mean|what's that about|who are you|why are you|how are you)\b/i.test(
       cleaned,
     )
   ) {
     return null;
   }
-  if (
-    /\b(what are you talking about|what do you mean|what's that about|who are you|why are you|how are you)\b/i
-      .test(cleaned)
-  ) {
-    return null;
-  }
 
-  const questionLike = /\?$/.test(cleaned) ||
-    /^(who|what|when|where|why|how|define|explain|meaning of|difference between|compare|best|top)\b/i
-      .test(cleaned) ||
-    /\b(what is|who is|when is|where is|how to|define|explain|meaning of|difference between|compare|best|top)\b/i
-      .test(cleaned);
+  const questionLike =
+    /\?$/.test(cleaned) ||
+    /^(who|what|when|where|why|how|define|explain|meaning of|difference between|compare|best|top)\b/i.test(
+      cleaned,
+    ) ||
+    /\b(what is|who is|when is|where is|how to|define|explain|meaning of|difference between|compare|best|top)\b/i.test(
+      cleaned,
+    );
 
   if (!questionLike) return null;
 
@@ -93,10 +92,7 @@ export function szExtractAutoSearchQuery(content: string | undefined): string | 
 /**
  * Format search results for AI context (neutral, no character voice).
  */
-export function formatSearchResultsForContext(
-  query: string,
-  results: SearchResult[],
-): string {
+export function formatSearchResultsForContext(query: string, results: SearchResult[]): string {
   const cleanQuery = query.trim();
   if (results.length === 0) {
     return `Reference notes for "${cleanQuery}": none`;

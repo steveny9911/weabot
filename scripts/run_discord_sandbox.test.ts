@@ -20,32 +20,28 @@ Deno.test("local runner preserves actual request and adds only a process-local m
 });
 
 Deno.test("local runner ignores other guilds, channels, DMs, bots, and webhooks", () => {
-  for (
-    const change of [
-      { guild_id: "another-guild" },
-      { guild_id: undefined },
-      { channel_id: "another-channel" },
-      { author: { id: botId, bot: true } },
-      { webhook_id: "webhook" },
-      { author: undefined },
-      { id: undefined },
-    ]
-  ) {
+  for (const change of [
+    { guild_id: "another-guild" },
+    { guild_id: undefined },
+    { channel_id: "another-channel" },
+    { author: { id: botId, bot: true } },
+    { webhook_id: "webhook" },
+    { author: undefined },
+    { id: undefined },
+  ]) {
     assertEquals(localSandboxMessage({ ...message, ...change }, botId), null);
   }
 });
 
 Deno.test("local runner ignores ordinary messages and real mentions handled by AWS", () => {
-  for (
-    const change of [
-      { content: "create a game night event tomorrow" },
-      { content: "Haru local," },
-      { content: "Discussing Haru local, create an event" },
-      { content: `Haru local, <@${botId}> create an event` },
-      { content: `Haru local, <@!${botId}> create an event` },
-      { mentions: [{ id: botId }] },
-    ]
-  ) {
+  for (const change of [
+    { content: "create a game night event tomorrow" },
+    { content: "Haru local," },
+    { content: "Discussing Haru local, create an event" },
+    { content: `Haru local, <@${botId}> create an event` },
+    { content: `Haru local, <@!${botId}> create an event` },
+    { mentions: [{ id: botId }] },
+  ]) {
     assertEquals(localSandboxMessage({ ...message, ...change }, botId), null);
   }
 });

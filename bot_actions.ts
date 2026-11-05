@@ -172,10 +172,7 @@ export async function sendMessage(
 /**
  * Returns true if the message mentions the bot.
  */
-export function bMessageMentionsBot(
-  message: Record<string, unknown>,
-  bot_id: string,
-): boolean {
+export function bMessageMentionsBot(message: Record<string, unknown>, bot_id: string): boolean {
   if (!message) return false;
 
   const mentions = message.mentions as unknown;
@@ -282,14 +279,8 @@ export async function handleMessage(
   message: Record<string, unknown>,
   deps: BotDependencies,
 ): Promise<void> {
-  const {
-    config,
-    aiService,
-    rateLimitService,
-    webSearchService,
-    linkOpenService,
-    storageService,
-  } = deps;
+  const { config, aiService, rateLimitService, webSearchService, linkOpenService, storageService } =
+    deps;
 
   // Get bot user ID
   const bot_id = await getBotUserId(config);
@@ -306,8 +297,7 @@ export async function handleMessage(
   }
 
   const channel_id = (message["channel_id"] ?? message["channelId"] ?? config.channelId) as
-    | string
-    | undefined;
+    string | undefined;
   if (!channel_id) {
     console.error("No channel id available on incoming message");
     return;
@@ -352,9 +342,8 @@ export async function handleMessage(
         typeof message["id"] === "string" ? message["id"] : undefined,
       );
     }
-    const source_timestamp = typeof message["timestamp"] === "string"
-      ? Date.parse(message["timestamp"])
-      : NaN;
+    const source_timestamp =
+      typeof message["timestamp"] === "string" ? Date.parse(message["timestamp"]) : NaN;
     const reset_at = Number.isFinite(source_timestamp) ? source_timestamp : Date.now();
     await storageService.setContextReset({
       channelId: channel_id,
@@ -444,17 +433,13 @@ export async function handleMessage(
     ctx_for_ai.push({ author: "web", content: lines.join("\n") });
     strip_urls_from_reply = true;
   } else {
-    const auto_query = webSearchService && config.webSearchEnabled
-      ? szExtractAutoSearchQuery(content)
-      : null;
+    const auto_query =
+      webSearchService && config.webSearchEnabled ? szExtractAutoSearchQuery(content) : null;
 
     if (auto_query) {
       const search_result = await webSearchService?.search(auto_query);
       if (search_result && search_result.ok) {
-        const web_context = formatSearchResultsForContext(
-          auto_query,
-          search_result.results,
-        );
+        const web_context = formatSearchResultsForContext(auto_query, search_result.results);
         ctx_for_ai.push({ author: "web", content: web_context });
         console.log(`[SEARCH] Auto search used for: ${auto_query}`);
       } else if (search_result) {
@@ -467,18 +452,23 @@ export async function handleMessage(
   const guild_id = typeof message["guild_id"] === "string" ? message["guild_id"] : "";
   const message_id = typeof message["id"] === "string" ? message["id"] : "";
   const allowed_guilds = config.discordActionsGuildIds ?? [];
-  const action_session = config.discordActionsEnabled && deps.discordActionService &&
-      !is_open_command && guild_id && message_id && user_id !== "unknown" &&
-      (!allowed_guilds.length || allowed_guilds.includes(guild_id))
-    ? await deps.discordActionService.createSession({
-      guildId: guild_id,
-      channelId: channel_id,
-      userId: user_id,
-      botId: bot_id,
-      messageId: message_id,
-      content: content ?? "",
-    })
-    : undefined;
+  const action_session =
+    config.discordActionsEnabled &&
+    deps.discordActionService &&
+    !is_open_command &&
+    guild_id &&
+    message_id &&
+    user_id !== "unknown" &&
+    (!allowed_guilds.length || allowed_guilds.includes(guild_id))
+      ? await deps.discordActionService.createSession({
+          guildId: guild_id,
+          channelId: channel_id,
+          userId: user_id,
+          botId: bot_id,
+          messageId: message_id,
+          content: content ?? "",
+        })
+      : undefined;
   const ai_result = await aiService.generateReply(ctx_for_ai, action_session);
   const action_reply = action_session ? formatActionResults(action_session.results) : null;
 
@@ -546,9 +536,10 @@ export async function saveContext(
 
     const data = await res.json();
     let msgs = Array.isArray(data)
-      ? data.filter((message): message is Record<string, unknown> =>
-        message !== null && typeof message === "object"
-      )
+      ? data.filter(
+          (message): message is Record<string, unknown> =>
+            message !== null && typeof message === "object",
+        )
       : [];
 
     // Ensure the triggering message is included

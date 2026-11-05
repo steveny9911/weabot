@@ -20,26 +20,26 @@ All experiments ran on Bun 1.4.4 (SQLite 3.53.4) on loopback only.
 
 ## Summary
 
-| #  | Issue                                                                                          | Severity | Status                       |
-| -- | ---------------------------------------------------------------------------------------------- | -------- | ---------------------------- |
-| 1  | Bun `fetch` follows proxy environment variables, bypassing IP pinning                          | High     | Verified (re-run)            |
-| 2  | `clearPending` must rotate the turn token; the plan says it keeps it                           | High     | Verified (code)              |
-| 3  | The `once` claim loses its turn check and atomic event-guard claim                             | High     | Verified (code)              |
-| 4  | One `expires_at` merges two lifetimes, so clarifications stop expiring                         | High     | Verified (code)              |
-| 5  | Slices 2 and 3 cannot run: mixed Deno/Bun breaks, imports cross slices                         | High     | Verified (code)              |
-| 6  | A throwing `Bun.cron` handler kills the whole process                                          | High     | Verified (re-run)            |
-| 7  | Test rule for `assertRejects`/`assertThrows` gives false greens; `assert` loses type narrowing | High     | Verified (re-run)            |
-| 8  | `Bun.serve` dev mode returns a stack-trace page in production                                  | Medium   | Verified (re-run)            |
-| 9  | Test runner: 5 s default timeout, `.env` loaded, globals leak across files, no network guard   | Medium   | Verified (re-run)            |
-| 10 | `Bun.serve` closes requests idle for 10 s                                                      | Medium   | Verified (docs)              |
-| 11 | `bun fmt` (Prettier) reformats 65 files; formatting plan is inconsistent                       | Medium   | Verified (docs) / Reported   |
-| 12 | Weekly stats drop or duplicate a day across DST in non-UTC time zones                          | Medium   | Verified (re-run)            |
-| 13 | Transport details: missing `Accept-Encoding`, `Bun/1.4.4` user agent, IP-literal SNI           | Medium   | Verified (re-run)            |
-| 14 | Lint gaps: warnings don't fail; canary download size; shadowing pitfall                        | Medium   | Reported                     |
-| 15 | Bun auto-installs missing packages at runtime                                                  | Medium   | Reported (docs)              |
-| 16 | Smaller data-layer items (overflow guard, transaction mode, durability, ordering, upsert)      | Low      | Verified (code) / Reported   |
-| 17 | Smaller test items (exact counts, discovery, `toStrictEqual` gaps, `fetch` stub types)         | Low      | Verified (re-run) / Reported |
-| 18 | Tooling and deployment-note gaps (version pinning, CI trigger, `NODE_ENV`, `bun install`)      | Low      | Reported                     |
+| #   | Issue                                                                                          | Severity | Status                       |
+| --- | ---------------------------------------------------------------------------------------------- | -------- | ---------------------------- |
+| 1   | Bun `fetch` follows proxy environment variables, bypassing IP pinning                          | High     | Verified (re-run)            |
+| 2   | `clearPending` must rotate the turn token; the plan says it keeps it                           | High     | Verified (code)              |
+| 3   | The `once` claim loses its turn check and atomic event-guard claim                             | High     | Verified (code)              |
+| 4   | One `expires_at` merges two lifetimes, so clarifications stop expiring                         | High     | Verified (code)              |
+| 5   | Slices 2 and 3 cannot run: mixed Deno/Bun breaks, imports cross slices                         | High     | Verified (code)              |
+| 6   | A throwing `Bun.cron` handler kills the whole process                                          | High     | Verified (re-run)            |
+| 7   | Test rule for `assertRejects`/`assertThrows` gives false greens; `assert` loses type narrowing | High     | Verified (re-run)            |
+| 8   | `Bun.serve` dev mode returns a stack-trace page in production                                  | Medium   | Verified (re-run)            |
+| 9   | Test runner: 5 s default timeout, `.env` loaded, globals leak across files, no network guard   | Medium   | Verified (re-run)            |
+| 10  | `Bun.serve` closes requests idle for 10 s                                                      | Medium   | Verified (docs)              |
+| 11  | `bun fmt` (Prettier) reformats 65 files; formatting plan is inconsistent                       | Medium   | Verified (docs) / Reported   |
+| 12  | Weekly stats drop or duplicate a day across DST in non-UTC time zones                          | Medium   | Verified (re-run)            |
+| 13  | Transport details: missing `Accept-Encoding`, `Bun/1.4.4` user agent, IP-literal SNI           | Medium   | Verified (re-run)            |
+| 14  | Lint gaps: warnings don't fail; canary download size; shadowing pitfall                        | Medium   | Reported                     |
+| 15  | Bun auto-installs missing packages at runtime                                                  | Medium   | Reported (docs)              |
+| 16  | Smaller data-layer items (overflow guard, transaction mode, durability, ordering, upsert)      | Low      | Verified (code) / Reported   |
+| 17  | Smaller test items (exact counts, discovery, `toStrictEqual` gaps, `fetch` stub types)         | Low      | Verified (re-run) / Reported |
+| 18  | Tooling and deployment-note gaps (version pinning, CI trigger, `NODE_ENV`, `bun install`)      | Low      | Reported                     |
 
 Things the reviewers confirmed are fine are listed at the end.
 
@@ -152,25 +152,31 @@ type Claim = "claimed" | "already" | "superseded" | "guard_conflict";
 
 const claim = db.transaction(
   (turn: TurnKey, token: string, op: OperationKey, guard?: GuardClaim): Claim => {
-    const current = db.query(
-      `SELECT 1 FROM discord_action_turns
+    const current = db
+      .query(
+        `SELECT 1 FROM discord_action_turns
      WHERE guild_id = ? AND channel_id = ? AND user_id = ? AND turn_token = ? AND expires_at > ?`,
-    ).get(turn.guildId, turn.channelId, turn.userId, token, now());
+      )
+      .get(turn.guildId, turn.channelId, turn.userId, token, now());
     if (!current) return "superseded";
 
-    const inserted = db.query(
-      `INSERT INTO discord_action_operations (guild_id, message_id, action, state, updated_at)
+    const inserted = db
+      .query(
+        `INSERT INTO discord_action_operations (guild_id, message_id, action, state, updated_at)
      VALUES (?, ?, ?, 'pending', ?) ON CONFLICT DO NOTHING`,
-    ).run(op.guildId, op.messageId, op.action, now());
+      )
+      .run(op.guildId, op.messageId, op.action, now());
     if (inserted.changes !== 1) return "already";
 
     if (guard) {
-      const guarded = db.query(
-        `INSERT INTO discord_event_guards (guild_id, kind, guard_key, state, revision, updated_at)
+      const guarded = db
+        .query(
+          `INSERT INTO discord_event_guards (guild_id, kind, guard_key, state, revision, updated_at)
        VALUES (?, ?, ?, 'pending', 1, ?)
        ON CONFLICT DO UPDATE SET state = 'pending', revision = revision + 1, updated_at = excluded.updated_at
        WHERE discord_event_guards.revision = ?`,
-      ).run(guard.guildId, guard.kind, guard.key, now(), guard.expectedRevision ?? -1);
+        )
+        .run(guard.guildId, guard.kind, guard.key, now(), guard.expectedRevision ?? -1);
       if (guarded.changes !== 1) throw new GuardConflict(); // rolls back the operation insert
     }
     return "claimed";
@@ -286,13 +292,17 @@ export type CronRegistrar = (
 ) => void;
 
 export const bunCron: CronRegistrar = (name, schedule, handler) => {
-  Bun.cron(schedule, async () => {
-    try {
-      await handler();
-    } catch (error) {
-      console.error(`[CRON] ${name} failed:`, error);
-    }
-  }, { tz: "UTC" });
+  Bun.cron(
+    schedule,
+    async () => {
+      try {
+        await handler();
+      } catch (error) {
+        console.error(`[CRON] ${name} failed:`, error);
+      }
+    },
+    { tz: "UTC" },
+  );
 };
 ```
 

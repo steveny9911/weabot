@@ -123,8 +123,8 @@ function bIsBlockedIpv6(bytes: number[]): boolean {
   // Only native global unicast and validated IPv4-mapped addresses are allowed.
   // This also excludes translation/tunnel prefixes, deprecated site-local space,
   // unspecified/compatible IPv4, and future reserved allocations.
-  const mapped = bytes.slice(0, 10).every((b) => b === 0) &&
-    bytes[10] === 0xff && bytes[11] === 0xff;
+  const mapped =
+    bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
   if (mapped) return bIsBlockedIpv4(bytes.slice(12));
   if ((bytes[0] & 0xe0) !== 0x20) return true; // outside 2000::/3
   if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] < 2) return true; // 2001::/23
@@ -163,11 +163,7 @@ export class BlockedDestinationError extends Error {
 
 export type LinkFetch = (url: string, init: RequestInit) => Promise<Response>;
 export type ResolveAddresses = (hostname: string, signal?: AbortSignal) => Promise<string[]>;
-export type PinnedRequest = (
-  url: URL,
-  address: string,
-  signal?: AbortSignal,
-) => Promise<Response>;
+export type PinnedRequest = (url: URL, address: string, signal?: AbortSignal) => Promise<Response>;
 
 /** Resolve both families before connecting; an incomplete lookup fails closed. */
 export async function resolveAddresses(hostname: string, signal?: AbortSignal): Promise<string[]> {
@@ -229,7 +225,7 @@ export async function requestPinned(
   let closing: Promise<void> | undefined;
   const close = () => {
     signal?.removeEventListener("abort", abort);
-    return closing ??= dispatcher.destroy().catch(() => {});
+    return (closing ??= dispatcher.destroy().catch(() => {}));
   };
   const abort = () => {
     source?.destroy(new DOMException("Aborted", "AbortError"));
@@ -249,8 +245,9 @@ export async function requestPinned(
     });
     const headers = new Headers();
     for (const [key, value] of Object.entries(response.headers)) {
-      if (Array.isArray(value)) { for (const entry of value) headers.append(key, entry); }
-      else if (value !== undefined) headers.set(key, value);
+      if (Array.isArray(value)) {
+        for (const entry of value) headers.append(key, entry);
+      } else if (value !== undefined) headers.set(key, value);
     }
     source = response.body;
     // BodyReadable emits AbortError when destroyed before it is consumed. A
@@ -264,13 +261,14 @@ export async function requestPinned(
     }
     const encoding = headers.get("content-encoding")?.trim().toLowerCase();
     if (encoding && encoding !== "identity") {
-      const decoder = encoding === "gzip"
-        ? createGunzip()
-        : encoding === "deflate"
-        ? createInflate()
-        : encoding === "br"
-        ? createBrotliDecompress()
-        : undefined;
+      const decoder =
+        encoding === "gzip"
+          ? createGunzip()
+          : encoding === "deflate"
+            ? createInflate()
+            : encoding === "br"
+              ? createBrotliDecompress()
+              : undefined;
       if (!decoder) {
         source.destroy();
         throw new Error("Unsupported content encoding");
@@ -328,18 +326,23 @@ export async function requestPinned(
  * Neither redirects, environment proxies, cookies, nor URL credentials are
  * followed/forwarded by this transport. Redirect policy stays in link_open.
  */
-export function createPublicFetch(dependencies: {
-  resolve?: ResolveAddresses;
-  request?: PinnedRequest;
-} = {}): LinkFetch {
+export function createPublicFetch(
+  dependencies: {
+    resolve?: ResolveAddresses;
+    request?: PinnedRequest;
+  } = {},
+): LinkFetch {
   const resolve = dependencies.resolve ?? resolveAddresses;
   const request = dependencies.request ?? requestPinned;
   return async (input, init) => {
     const url = new URL(input);
     if (
-      !["http:", "https:"].includes(url.protocol) || url.username || url.password ||
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
       bIsBlockedHost(url)
-    ) throw new BlockedDestinationError();
+    )
+      throw new BlockedDestinationError();
     const hostname = szNormalizeHost(url.hostname);
     const signal = init.signal ?? undefined;
     signal?.throwIfAborted();
@@ -354,7 +357,8 @@ export function createPublicFetch(dependencies: {
           ? bIsBlockedIpv4(aiParseIpv4(address)!)
           : bIsBlockedIpv6(aiParseIpv6(address)!);
       })
-    ) throw new BlockedDestinationError();
+    )
+      throw new BlockedDestinationError();
     // Pass an IP, never the hostname, to the socket implementation. A DNS
     // rebind after validation cannot change this destination.
     return await request(url, addresses[0], signal);

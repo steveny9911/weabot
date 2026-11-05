@@ -1,9 +1,9 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { createDiscordClient } from "./discord.ts";
 
-function mockFetch(
-  handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
-): { restore: () => void } {
+function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>): {
+  restore: () => void;
+} {
   const original_fetch = globalThis.fetch;
 
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -48,14 +48,12 @@ Deno.test("addReaction encodes its route and sends an authorized bodyless PUT", 
   }
 });
 
-for (
-  const [name, status, code] of [
-    ["missing permissions", 403, 50013],
-    ["unknown emoji", 404, 10014],
-    ["rate limit", 429, 0],
-    ["server error", 500, 0],
-  ] as const
-) {
+for (const [name, status, code] of [
+  ["missing permissions", 403, 50013],
+  ["unknown emoji", 404, 10014],
+  ["rate limit", 429, 0],
+  ["server error", 500, 0],
+] as const) {
   Deno.test(`addReaction returns ${name} without retrying or sending fallback text`, async () => {
     let requests = 0;
     const expected = Response.json({ code }, { status });
@@ -238,9 +236,8 @@ Deno.test("getPollVoters checks the empty page after exactly 100 voters", async 
     if (!url.includes("/answers/1?")) return json({ users: [] });
     answerRequests++;
     return json({
-      users: answerRequests === 1
-        ? Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) }))
-        : [],
+      users:
+        answerRequests === 1 ? Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) })) : [],
     });
   });
   try {
@@ -262,24 +259,39 @@ const malformedMessages: [string, unknown][] = [
   ["duplicate answer", { poll: { answers: [MOOD_ANSWERS[0], MOOD_ANSWERS[0]] } }],
   ["invalid answer text", { poll: { answers: [{ answer_id: 1, poll_media: { text: 4 } }] } }],
   ["missing tally", { poll: { answers: MOOD_ANSWERS } }],
-  ["unfinalized tally", {
-    poll: { answers: MOOD_ANSWERS, results: { is_finalized: false, answer_counts: [] } },
-  }],
+  [
+    "unfinalized tally",
+    {
+      poll: { answers: MOOD_ANSWERS, results: { is_finalized: false, answer_counts: [] } },
+    },
+  ],
   ["missing counts", { poll: { answers: MOOD_ANSWERS, results: { is_finalized: true } } }],
   ["negative count", pollMessage([-1, 0, 0])],
   ["fractional count", pollMessage([1.5, 0, 0])],
-  ["unknown answer count", {
-    poll: {
-      answers: MOOD_ANSWERS,
-      results: { is_finalized: true, answer_counts: [{ id: 4, count: 1 }] },
+  [
+    "unknown answer count",
+    {
+      poll: {
+        answers: MOOD_ANSWERS,
+        results: { is_finalized: true, answer_counts: [{ id: 4, count: 1 }] },
+      },
     },
-  }],
-  ["duplicate answer counts", {
-    poll: {
-      answers: MOOD_ANSWERS,
-      results: { is_finalized: true, answer_counts: [{ id: 1, count: 0 }, { id: 1, count: 0 }] },
+  ],
+  [
+    "duplicate answer counts",
+    {
+      poll: {
+        answers: MOOD_ANSWERS,
+        results: {
+          is_finalized: true,
+          answer_counts: [
+            { id: 1, count: 0 },
+            { id: 1, count: 0 },
+          ],
+        },
+      },
     },
-  }],
+  ],
 ];
 
 for (const [name, message] of malformedMessages) {
@@ -313,7 +325,7 @@ const malformedVoters: [string, unknown][] = [
 for (const [name, voters] of malformedVoters) {
   Deno.test(`getPollVoters rejects ${name}`, async () => {
     const fetch_mock = mockFetch((url) =>
-      json(url.includes("/messages/") ? pollMessage([1, 0, 0]) : voters)
+      json(url.includes("/messages/") ? pollMessage([1, 0, 0]) : voters),
     );
     try {
       await assertRejects(
@@ -328,44 +340,51 @@ for (const [name, voters] of malformedVoters) {
 }
 
 for (const stage of ["message", "first answer", "later answer", "later page"] as const) {
-  Deno.test(`getPollVoters rejects HTTP failure at ${stage} without returning partial data`, async () => {
-    const fetch_mock = mockFetch((url) => {
-      if (url.includes("/messages/")) {
-        return stage === "message"
-          ? new Response("Forbidden", { status: 403 })
-          : json(pollMessage(stage === "later page" ? [101, 0, 0] : [0, 0, 0]));
-      }
-      if (
-        (stage === "first answer" && url.includes("/answers/1?")) ||
-        (stage === "later answer" && url.includes("/answers/2?")) ||
-        (stage === "later page" && url.includes("after="))
-      ) return new Response("Forbidden", { status: 403 });
-      return json({
-        users: stage === "later page"
-          ? Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) }))
-          : [],
+  Deno.test(
+    `getPollVoters rejects HTTP failure at ${stage} without returning partial data`,
+    async () => {
+      const fetch_mock = mockFetch((url) => {
+        if (url.includes("/messages/")) {
+          return stage === "message"
+            ? new Response("Forbidden", { status: 403 })
+            : json(pollMessage(stage === "later page" ? [101, 0, 0] : [0, 0, 0]));
+        }
+        if (
+          (stage === "first answer" && url.includes("/answers/1?")) ||
+          (stage === "later answer" && url.includes("/answers/2?")) ||
+          (stage === "later page" && url.includes("after="))
+        )
+          return new Response("Forbidden", { status: 403 });
+        return json({
+          users:
+            stage === "later page"
+              ? Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) }))
+              : [],
+        });
       });
-    });
-    try {
-      const error = await assertRejects(
-        () => createDiscordClient("token").getPollVoters("channel", "poll"),
-        Error,
-        "poll poll in channel channel",
-      );
-      assertStringIncludes(String(error.cause), "HTTP 403");
-    } finally {
-      fetch_mock.restore();
-    }
-  });
+      try {
+        const error = await assertRejects(
+          () => createDiscordClient("token").getPollVoters("channel", "poll"),
+          Error,
+          "poll poll in channel channel",
+        );
+        assertStringIncludes(String(error.cause), "HTTP 403");
+      } finally {
+        fetch_mock.restore();
+      }
+    },
+  );
 }
 
 Deno.test("getPollVoters rejects non-advancing pagination instead of looping", async () => {
   const fetch_mock = mockFetch((url) =>
     json(
-      url.includes("/messages/") ? pollMessage([200, 0, 0]) : {
-        users: Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) })),
-      },
-    )
+      url.includes("/messages/")
+        ? pollMessage([200, 0, 0])
+        : {
+            users: Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1) })),
+          },
+    ),
   );
   try {
     await assertRejects(
@@ -383,7 +402,7 @@ for (const stage of ["message", "voters"]) {
     const fetch_mock = mockFetch((url) =>
       stage === "message" || !url.includes("/messages/")
         ? new Response("invalid json")
-        : json(pollMessage())
+        : json(pollMessage()),
     );
     try {
       await assertRejects(

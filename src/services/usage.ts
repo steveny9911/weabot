@@ -68,10 +68,7 @@ async function available<T>(read: () => Promise<T>): Promise<UsageValue<T>> {
   }
 }
 
-export function createUsageService(
-  config: AppConfig,
-  deps: UsageDependencies = {},
-): UsageService {
+export function createUsageService(config: AppConfig, deps: UsageDependencies = {}): UsageService {
   const now = deps.now ?? (() => new Date());
   const fetcher = deps.fetch ?? fetch;
   // Use env credentials locally and IMDSv2 on EC2 rather than the default
@@ -100,7 +97,8 @@ export function createUsageService(
       return roleCredentials();
     },
   });
-  const awsSend = deps.awsSend ??
+  const awsSend =
+    deps.awsSend ??
     ((input, signal) => client.send(new GetCostAndUsageCommand(input), { abortSignal: signal }));
   let cache: { month: string; expires: number; report: Promise<MonthlyUsage> } | undefined;
 
@@ -139,9 +137,12 @@ export function createUsageService(
       }
       if (data.has_more === false) return results;
       if (
-        data.has_more !== true || typeof data.next_page !== "string" ||
-        !data.next_page || seen.has(data.next_page)
-      ) throw new Error("Invalid pagination");
+        data.has_more !== true ||
+        typeof data.next_page !== "string" ||
+        !data.next_page ||
+        seen.has(data.next_page)
+      )
+        throw new Error("Invalid pagination");
       seen.add(data.next_page);
       url.searchParams.set("page", data.next_page);
     }
@@ -157,15 +158,18 @@ export function createUsageService(
     let amount = 0;
     let currency: string | undefined;
     for (let page = 0; page < 100; page++) {
-      const data = await awsSend({
-        TimePeriod: {
-          Start: start.toISOString().slice(0, 10),
-          End: tomorrow.toISOString().slice(0, 10),
+      const data = await awsSend(
+        {
+          TimePeriod: {
+            Start: start.toISOString().slice(0, 10),
+            End: tomorrow.toISOString().slice(0, 10),
+          },
+          Granularity: "MONTHLY",
+          Metrics: ["UnblendedCost"],
+          ...(next ? { NextPageToken: next } : {}),
         },
-        Granularity: "MONTHLY",
-        Metrics: ["UnblendedCost"],
-        ...(next ? { NextPageToken: next } : {}),
-      }, signal);
+        signal,
+      );
       if (!Array.isArray(data.ResultsByTime)) throw new Error("Missing AWS results");
       for (const bucket of data.ResultsByTime) {
         const metric = bucket.Total?.UnblendedCost;
@@ -194,25 +198,28 @@ export function createUsageService(
         available(() => awsCost(start, end, signal)),
         config.openaiAdminKey
           ? available(async () => {
-            const results = await openaiResults("costs", start, end, signal);
-            let amount = 0;
-            for (const result of results) {
-              const money = object(result.amount);
-              if (money.currency !== "usd") throw new Error("Unexpected currency");
-              amount += number(money.value);
-            }
-            return { amount, currency: "USD" };
-          })
+              const results = await openaiResults("costs", start, end, signal);
+              let amount = 0;
+              for (const result of results) {
+                const money = object(result.amount);
+                if (money.currency !== "usd") throw new Error("Unexpected currency");
+                amount += number(money.value);
+              }
+              return { amount, currency: "USD" };
+            })
           : Promise.resolve(missing),
         config.openaiAdminKey
           ? available(async () => {
-            const results = await openaiResults("usage/completions", start, end, signal);
-            return results.reduce<TokenTotals>((total, result) => ({
-              input: tokenCount(total.input + tokenCount(result.input_tokens)),
-              cached: tokenCount(total.cached + tokenCount(result.input_cached_tokens ?? 0)),
-              output: tokenCount(total.output + tokenCount(result.output_tokens)),
-            }), { input: 0, cached: 0, output: 0 });
-          })
+              const results = await openaiResults("usage/completions", start, end, signal);
+              return results.reduce<TokenTotals>(
+                (total, result) => ({
+                  input: tokenCount(total.input + tokenCount(result.input_tokens)),
+                  cached: tokenCount(total.cached + tokenCount(result.input_cached_tokens ?? 0)),
+                  output: tokenCount(total.output + tokenCount(result.output_tokens)),
+                }),
+                { input: 0, cached: 0, output: 0 },
+              );
+            })
           : Promise.resolve(missing),
       ]);
       return {

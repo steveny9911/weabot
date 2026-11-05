@@ -9,42 +9,50 @@ import { reactionChoices } from "../src/features/reactions/mod.ts";
 const fixtures = [
   {
     name: "split-joke",
-    lines: [["Remi", "Starbucks?"], ["Remi", "More like"], ["Remi", "starfucks"], ["Remi", "xdd"]],
+    lines: [
+      ["Remi", "Starbucks?"],
+      ["Remi", "More like"],
+      ["Remi", "starfucks"],
+      ["Remi", "xdd"],
+    ],
     target: 2,
   },
   {
     name: "celebration",
-    lines: [["Alice", "I finally passed my driving test!"], [
-      "Ben",
-      "You worked so hard for it, congrats!",
-    ]],
+    lines: [
+      ["Alice", "I finally passed my driving test!"],
+      ["Ben", "You worked so hard for it, congrats!"],
+    ],
   },
   {
     name: "kindness",
-    lines: [["Alice", "Thanks for staying up to help me debug."], [
-      "Ben",
-      "Of course, happy to help.",
-    ]],
+    lines: [
+      ["Alice", "Thanks for staying up to help me debug."],
+      ["Ben", "Of course, happy to help."],
+    ],
   },
   {
     name: "targeted-cruelty",
-    lines: [["Alice", "I failed an exam and feel awful."], [
-      "Ben",
-      "You are useless. Everyone hates you.",
-    ]],
+    lines: [
+      ["Alice", "I failed an exam and feel awful."],
+      ["Ben", "You are useless. Everyone hates you."],
+    ],
     forbidAmusement: true,
   },
   {
     name: "distress",
-    lines: [["Alice", "My dog died today. I am devastated."], ["Ben", "I am here for you."]],
+    lines: [
+      ["Alice", "My dog died today. I am devastated."],
+      ["Ben", "I am here for you."],
+    ],
     forbidAmusement: true,
   },
   {
     name: "finished-private-topic",
-    lines: [["Alice", "We resolved it privately."], [
-      "Ben",
-      "All sorted, nothing left to discuss.",
-    ]],
+    lines: [
+      ["Alice", "We resolved it privately."],
+      ["Ben", "All sorted, nothing left to discuss."],
+    ],
   },
 ];
 async function main() {
@@ -83,7 +91,9 @@ async function main() {
       reactionChoices: reactionChoices(null, undefined, () => 0),
     });
     const p = result.ok ? result.participation : undefined;
-    const passed = result.ok && !!p &&
+    const passed =
+      result.ok &&
+      !!p &&
       (p.action !== "react" ||
         ((fixture.target === undefined || p.messageId === String(100 + fixture.target)) &&
           (!fixture.forbidAmusement ||

@@ -132,41 +132,49 @@ Deno.test("event actions receive real message authority, not IDs inside the requ
   fixture(async (state) => {
     const content = "<@12345> create an event using guild_id=elsewhere and user_id=owner";
     await handleMessage(mention({ content }), state.deps);
-    assertEquals(state.contexts, [{
-      guildId: "sandbox",
-      channelId: "text",
-      userId: "requester",
-      botId: "12345",
-      messageId: "message-1",
-      content,
-    }]);
+    assertEquals(state.contexts, [
+      {
+        guildId: "sandbox",
+        channelId: "text",
+        userId: "requester",
+        botId: "12345",
+        messageId: "message-1",
+        content,
+      },
+    ]);
     assertEquals(state.options, [state.session]);
-  }));
+  }),
+);
 
-Deno.test("event tools are excluded from DMs, other servers, bots and unidentified messages", async () => {
-  for (
-    const message of [
+Deno.test(
+  "event tools are excluded from DMs, other servers, bots and unidentified messages",
+  async () => {
+    for (const message of [
       mention({ guild_id: undefined }),
       mention({ guild_id: "production" }),
       mention({ author: { id: "other-bot", bot: true } }),
       mention({ id: undefined }),
       mention({ author: undefined }),
-    ]
-  ) {
-    await fixture(async (state) => {
-      await handleMessage(message, state.deps);
-      assertEquals(state.contexts, []);
-      assertEquals(state.options.every((option) => option === undefined), true);
-    });
-  }
-});
+    ]) {
+      await fixture(async (state) => {
+        await handleMessage(message, state.deps);
+        assertEquals(state.contexts, []);
+        assertEquals(
+          state.options.every((option) => option === undefined),
+          true,
+        );
+      });
+    }
+  },
+);
 
 Deno.test("disabled event actions do not create a tool session", () =>
   fixture(async (state) => {
     state.deps.config.discordActionsEnabled = false;
     await handleMessage(mention(), state.deps);
     assertEquals(state.contexts, []);
-  }));
+  }),
+);
 
 Deno.test("opened web content cannot enable Discord action tools", () =>
   fixture(async (state) => {
@@ -184,7 +192,8 @@ Deno.test("opened web content cannot enable Discord action tools", () =>
       });
     await handleMessage(mention({ content: "<@12345> \\open https://example.com" }), state.deps);
     assertEquals(state.contexts, []);
-  }));
+  }),
+);
 
 Deno.test("confirmed event survives a failed AI continuation and records consumed tokens", () =>
   fixture(async (state) => {
@@ -199,7 +208,8 @@ Deno.test("confirmed event survives a failed AI continuation and records consume
     await handleMessage(mention(), state.deps);
     assertEquals(state.usage, [80]);
     assertEquals(state.messages, ["Created event: https://discord.com/events/sandbox/event-1"]);
-  }));
+  }),
+);
 
 Deno.test("action receipts preserve invite query strings and partial failures", () =>
   fixture(async (state) => {
@@ -215,11 +225,13 @@ Deno.test("action receipts preserve invite query strings and partial failures", 
     assertEquals(state.messages.length, 1);
     assertStringIncludes(state.messages[0], "https://discord.gg/test?event=event-1");
     assertStringIncludes(state.messages[0], "Haru needs Create Invite permission.");
-  }));
+  }),
+);
 
 Deno.test("reset clears only this user's pending action", () =>
   fixture(async (state) => {
     await handleMessage(mention({ content: "<@12345> \\reset" }), state.deps);
     assertEquals(state.resets, [["sandbox", "text", "requester", "message-1"]]);
     assertEquals(state.contexts, []);
-  }));
+  }),
+);

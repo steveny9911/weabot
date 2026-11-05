@@ -23,8 +23,8 @@ function context(guildId = "589723496473690132"): ReactionContext {
 }
 Deno.test("server repertoire resolves reviewed IDs only within that server", () => {
   assert(
-    reactionChoices(context(), undefined, () => 0).some((c) =>
-      c.emoji === "BocchiSip:1559742515698081933"
+    reactionChoices(context(), undefined, () => 0).some(
+      (c) => c.emoji === "BocchiSip:1559742515698081933",
     ),
   );
   assert(availableReactions(context("782856078907277332")).every((c) => !c.emoji.includes(":")));
@@ -45,11 +45,11 @@ Deno.test("no channel reaction permissions expose no expressions", () => {
   assertEquals(reactionChoices({ ...context(), canReact: false }), []);
 });
 Deno.test("variation excludes last expression within a meaning and never changes stance", () => {
-  const first = reactionChoices(context(), undefined, () => 0).find((c) =>
-    c.intent === "appreciation"
+  const first = reactionChoices(context(), undefined, () => 0).find(
+    (c) => c.intent === "appreciation",
   )!;
-  const next = reactionChoices(context(), first.emoji, () => 0).find((c) =>
-    c.intent === "appreciation"
+  const next = reactionChoices(context(), first.emoji, () => 0).find(
+    (c) => c.intent === "appreciation",
   )!;
   assert(first.emoji !== next.emoji);
   assertEquals(next.intent, first.intent);
@@ -63,8 +63,8 @@ Deno.test("a renamed reviewed ID keeps its meaning but an unreviewed same-name I
   c.emojis[0].id = "unreviewed";
   c.emojis[0].name = "BocchiSip";
   assert(
-    availableReactions(c).filter((c) => c.intent === "dry_amusement").every((c) =>
-      !c.emoji.includes(":")
-    ),
+    availableReactions(c)
+      .filter((c) => c.intent === "dry_amusement")
+      .every((c) => !c.emoji.includes(":")),
   );
 });

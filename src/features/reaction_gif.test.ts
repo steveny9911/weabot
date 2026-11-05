@@ -28,7 +28,10 @@ Deno.test("szPickRandomGreetingGif always returns from fixed pool", () => {
 });
 
 Deno.test("szPickRandomGreetingGif handles edge samples deterministically", () => {
-  assertEquals(szPickRandomGreetingGif(() => 0), aszHaruGreetingGifPool[0]);
+  assertEquals(
+    szPickRandomGreetingGif(() => 0),
+    aszHaruGreetingGifPool[0],
+  );
   assertEquals(
     szPickRandomGreetingGif(() => 0.999999),
     aszHaruGreetingGifPool[aszHaruGreetingGifPool.length - 1],
@@ -37,7 +40,10 @@ Deno.test("szPickRandomGreetingGif handles edge samples deterministically", () =
     szPickRandomGreetingGif(() => 1),
     aszHaruGreetingGifPool[aszHaruGreetingGifPool.length - 1],
   );
-  assertEquals(szPickRandomGreetingGif(() => -0.25), aszHaruGreetingGifPool[0]);
+  assertEquals(
+    szPickRandomGreetingGif(() => -0.25),
+    aszHaruGreetingGifPool[0],
+  );
 });
 
 Deno.test("szSelectGreetingGifForReply returns gif only for greeting replies", () => {

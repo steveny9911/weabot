@@ -215,8 +215,8 @@ links, generating a reply, or sending to Discord subsequently fails.
 `AI_DAILY_TOKEN_BUDGET` is a **soft threshold** on reported tokens across mentions and autonomous
 chat. Admission stops once recorded usage reaches it. Already admitted requests can finish above the
 threshold; there are no token reservations or strict limits on in-flight usage. For example, two
-requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget by
-199. Use provider spending controls if a strict spending limit is required.
+requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget
+by 199. Use provider spending controls if a strict spending limit is required.
 
 Reported tokens, including usage returned with failed generations, are recorded atomically. Tokens
 are charged to the UTC day when the response is recorded; requests count on their admission day.
@@ -402,23 +402,28 @@ runs these checks on both the production Deno 2.6.0 runtime and the current Deno
 ### Test Workflow
 
 1. **Start the bot**:
+
    ```bash
    export ADMIN_HTTP_TOKEN="$(openssl rand -hex 32)"
    deno task dev
    ```
 
 2. **Test the poll**:
+
    ```bash
    curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_poll
    ```
+
    Check your Discord channel – a poll should appear!
 
 3. **Test the stats embed**:
+
    ```bash
    curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_stats
    ```
 
 4. **Test the wellness alert**:
+
    ```bash
    # Post a sample alert (customize name and days)
    curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/trigger_alert?name=TestUser&days=7"

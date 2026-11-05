@@ -93,7 +93,7 @@ export function createRequestHandler(
               channelId,
               date: now.toISOString().split("T")[0],
               createdAt: Date.now(),
-              expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
+              expiresAt: Date.now() + DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000,
               collected: false,
             };
 
@@ -207,19 +207,19 @@ export function createRequestHandler(
         }
         const totalVotes = collected.reduce((total, result) => total + result.votes, 0);
         const results = [
-          ...collected.map(({ poll, votes }) =>
-            `Poll ${poll.messageId} (${poll.date}): ${votes} votes`
+          ...collected.map(
+            ({ poll, votes }) => `Poll ${poll.messageId} (${poll.date}): ${votes} votes`,
           ),
-          ...failed.map(({ poll }) =>
-            `Poll ${poll.messageId} (${poll.date}): failed; pending retry`
+          ...failed.map(
+            ({ poll }) => `Poll ${poll.messageId} (${poll.date}): failed; pending retry`,
           ),
         ];
         return new Response(
           `${
             failed.length ? "❌" : "✅"
-          } Collected ${totalVotes} votes from ${collected.length} poll(s); ${failed.length} failed\n\n${
-            results.join("\n")
-          }`,
+          } Collected ${totalVotes} votes from ${collected.length} poll(s); ${failed.length} failed\n\n${results.join(
+            "\n",
+          )}`,
           { status: failed.length ? 500 : 200 },
         );
       } catch (error) {
@@ -257,9 +257,7 @@ export function createRequestHandler(
         console.log(
           `[SERVER] Recorded vote in ${channelId}: ${userName} (${userId}) = ${mood} on ${date}`,
         );
-        return new Response(
-          `✅ Vote recorded in ${channelId}: ${userName} = ${mood} on ${date}`,
-        );
+        return new Response(`✅ Vote recorded in ${channelId}: ${userName} = ${mood} on ${date}`);
       } catch (error) {
         console.error("[SERVER] Error recording vote:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });
@@ -358,10 +356,10 @@ export function createRequestHandler(
     // Get AI usage statistics
     if (url.pathname === "/ai-usage") {
       if (!rateLimit) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit service not configured" }),
-          { status: 503, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "Rate limit service not configured" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       try {
@@ -441,9 +439,7 @@ export function createRequestHandler(
 
         await storage.savePendingPoll(pollRecord);
 
-        return new Response(
-          `✅ Added pending poll:\n${JSON.stringify(pollRecord, null, 2)}`,
-        );
+        return new Response(`✅ Added pending poll:\n${JSON.stringify(pollRecord, null, 2)}`);
       } catch (error) {
         console.error("[SERVER] Error adding pending poll:", error);
         return new Response(`❌ Error: ${error}`, { status: 500 });

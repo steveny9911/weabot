@@ -76,11 +76,8 @@ export function buildStatsEmbed(
   // Add daily breakdown if we have multiple days
   if (stats.length > 1) {
     const recentDays = stats.slice(-7).map((day) => {
-      const emoji = day.umazing >= day.ok && day.umazing >= day.glue
-        ? "🌟"
-        : day.glue > day.ok
-        ? "🩹"
-        : "😐";
+      const emoji =
+        day.umazing >= day.ok && day.umazing >= day.glue ? "🌟" : day.glue > day.ok ? "🩹" : "😐";
       return `${day.date}: ${emoji} (${day.total} votes)`;
     });
 
@@ -123,15 +120,13 @@ export function buildStatsEmbed(
 /**
  * Builds an alert embed for users at risk.
  */
-export function buildAlertEmbed(
-  userName: string,
-  consecutiveDays: number,
-): EmbedMessagePayload {
+export function buildAlertEmbed(userName: string, consecutiveDays: number): EmbedMessagePayload {
   return {
     embeds: [
       {
         title: "💙 Wellness Check",
-        description: `Hey **${userName}**, we noticed you've been feeling "glue" ` +
+        description:
+          `Hey **${userName}**, we noticed you've been feeling "glue" ` +
           `for ${consecutiveDays} days in a row. ` +
           `Just wanted to check in and remind you that it's okay to have tough days. ` +
           `Your friends are here for you. 💪`,
@@ -139,7 +134,8 @@ export function buildAlertEmbed(
         fields: [
           {
             name: "Resources",
-            value: "• Talk to someone you trust\n" +
+            value:
+              "• Talk to someone you trust\n" +
               "• Take a break if you need it\n" +
               "• Remember: this too shall pass",
             inline: false,

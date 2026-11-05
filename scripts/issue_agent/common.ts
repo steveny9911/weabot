@@ -1,10 +1,5 @@
 export type AgentDecision =
-  | "accepted"
-  | "needs-info"
-  | "rejected"
-  | "in-progress"
-  | "pr-open"
-  | "closed-inactive";
+  "accepted" | "needs-info" | "rejected" | "in-progress" | "pr-open" | "closed-inactive";
 
 export interface GhLabel {
   name: string;
@@ -188,14 +183,9 @@ export function parseDecisionMarker(body: string): AgentDecisionMarker | null {
 
   const raw_decision = match[1].toLowerCase();
   if (
-    ![
-      "accepted",
-      "needs-info",
-      "rejected",
-      "in-progress",
-      "pr-open",
-      "closed-inactive",
-    ].includes(raw_decision)
+    !["accepted", "needs-info", "rejected", "in-progress", "pr-open", "closed-inactive"].includes(
+      raw_decision,
+    )
   ) {
     return null;
   }
@@ -212,8 +202,8 @@ export function findLatestDecisionComment(
   actorLogin: string,
 ): AgentDecisionMarker | null {
   const comments = issue.comments ?? [];
-  const by_newest = [...comments].sort((a, b) =>
-    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  const by_newest = [...comments].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
   for (const comment of by_newest) {

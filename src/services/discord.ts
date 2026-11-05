@@ -99,14 +99,11 @@ export function createDiscordClient(token: string): DiscordClient {
 
   return {
     async postMessage(channelId, payload) {
-      const response = await fetchWithRetry(
-        `${API_BASE}/channels/${channelId}/messages`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-        },
-      );
+      const response = await fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
       return response;
     },
 
@@ -115,9 +112,9 @@ export function createDiscordClient(token: string): DiscordClient {
       const timer = setTimeout(() => controller.abort(), REACTION_TIMEOUT_MS);
       try {
         return await fetch(
-          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${
-            encodeURIComponent(messageId)
-          }/reactions/${encodeURIComponent(emoji)}/@me`,
+          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(
+            messageId,
+          )}/reactions/${encodeURIComponent(emoji)}/@me`,
           {
             method: "PUT",
             headers,
@@ -172,8 +169,9 @@ export function createDiscordClient(token: string): DiscordClient {
       }
 
       return data
-        .filter((message): message is Record<string, unknown> =>
-          message !== null && typeof message === "object"
+        .filter(
+          (message): message is Record<string, unknown> =>
+            message !== null && typeof message === "object",
         )
         .map(oMapDiscordMessage);
     },
@@ -185,9 +183,9 @@ export function createDiscordClient(token: string): DiscordClient {
       const timer = setTimeout(() => controller.abort(), REACTION_TIMEOUT_MS);
       try {
         const response = await fetchWithRetry(
-          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${
-            encodeURIComponent(messageId)
-          }`,
+          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(
+            messageId,
+          )}`,
           { headers, signal: controller.signal, redirect: "error" },
         );
         if (!response.ok) {
@@ -221,8 +219,11 @@ export function createDiscordClient(token: string): DiscordClient {
         const id = answer?.answer_id;
         const media = asRecord(answer?.poll_media);
         if (
-          typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 ||
-          answerIds.has(id) || !media ||
+          typeof id !== "number" ||
+          !Number.isSafeInteger(id) ||
+          id <= 0 ||
+          answerIds.has(id) ||
+          !media ||
           (media.text != null && typeof media.text !== "string")
         ) {
           throw new Error(`[DISCORD] Invalid or duplicate answer for ${context}`);
@@ -241,8 +242,12 @@ export function createDiscordClient(token: string): DiscordClient {
       for (const value of tally.answer_counts) {
         const count = asRecord(value);
         if (
-          typeof count?.id !== "number" || !answerIds.has(count.id) || counts.has(count.id) ||
-          typeof count.count !== "number" || !Number.isSafeInteger(count.count) || count.count < 0
+          typeof count?.id !== "number" ||
+          !answerIds.has(count.id) ||
+          counts.has(count.id) ||
+          typeof count.count !== "number" ||
+          !Number.isSafeInteger(count.count) ||
+          count.count < 0
         ) {
           throw new Error(`[DISCORD] Invalid answer counts for ${context}`);
         }
@@ -272,8 +277,10 @@ export function createDiscordClient(token: string): DiscordClient {
           for (const value of data.users) {
             const user = asRecord(value);
             if (
-              typeof user?.id !== "string" || !/^[1-9]\d*$/.test(user.id) ||
-              BigInt(user.id) <= after || seen.has(user.id) ||
+              typeof user?.id !== "string" ||
+              !/^[1-9]\d*$/.test(user.id) ||
+              BigInt(user.id) <= after ||
+              seen.has(user.id) ||
               (user.username != null && typeof user.username !== "string") ||
               (user.global_name != null && typeof user.global_name !== "string")
             ) {
@@ -307,7 +314,7 @@ export function createDiscordClient(token: string): DiscordClient {
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 

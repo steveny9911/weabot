@@ -45,11 +45,7 @@ function decide(
 }
 
 Deno.test("decideAutonomousChatReply skips when there is not enough recent human activity", () => {
-  const decision = decide([
-    message("m1", "u1", 4),
-    message("m2", "u2", 3),
-    message("m3", "u3", 2),
-  ]);
+  const decision = decide([message("m1", "u1", 4), message("m2", "u2", 3), message("m3", "u3", 2)]);
 
   assertEquals(decision.shouldReply, false);
   assertEquals(decision.reason, "only 3 recent human message(s)");
@@ -115,7 +111,10 @@ Deno.test("decideAutonomousChatReply returns capped oldest-to-newest context whe
 
   assertEquals(decision.shouldReply, true);
   assertEquals(decision.reason, "active conversation eligible");
-  assertEquals(decision.contextMessages.map((context) => context.id), ["m3", "m4", "m5"]);
+  assertEquals(
+    decision.contextMessages.map((context) => context.id),
+    ["m3", "m4", "m5"],
+  );
 });
 
 Deno.test("decideAutonomousChatReply excludes messages before an inactivity gap", () => {
@@ -128,7 +127,10 @@ Deno.test("decideAutonomousChatReply excludes messages before an inactivity gap"
   ]);
 
   assertEquals(decision.shouldReply, true);
-  assertEquals(decision.contextMessages.map((context) => context.id), ["m1", "m2", "m3", "m4"]);
+  assertEquals(
+    decision.contextMessages.map((context) => context.id),
+    ["m1", "m2", "m3", "m4"],
+  );
 });
 
 Deno.test("decideAutonomousChatReply honors a persisted context reset", () => {
@@ -145,7 +147,10 @@ Deno.test("decideAutonomousChatReply honors a persisted context reset", () => {
   );
 
   assertEquals(decision.shouldReply, true);
-  assertEquals(decision.contextMessages.map((context) => context.id), ["m1", "m2", "m3", "m4"]);
+  assertEquals(
+    decision.contextMessages.map((context) => context.id),
+    ["m1", "m2", "m3", "m4"],
+  );
 });
 
 Deno.test("autonomous participation shares cooldown with reactions and needs fresh humans", () => {
@@ -173,27 +178,33 @@ Deno.test("autonomous participation shares cooldown with reactions and needs fre
   );
 });
 
-Deno.test("autonomous reaction targets are fresh humans visible in context without our reaction", () => {
-  const decision = decide([
-    message("old", "u1", 8),
-    message("m1", "u1", 4),
-    message("m2", "u2", 3, "meme", { hasOwnReaction: true }),
-    message("other-bot", "bot2", 2.5, "ping", { authorBot: true }),
-    message("m3", "u3", 2),
-    message("m4", "u4", 1),
-  ], {
-    maxContextMessages: 5,
-    lastParticipation: {
-      channelId: "channel",
-      latestHumanMessageId: "old",
-      latestHumanTimestampMs: NOW_MS - 8 * 60_000,
-      attemptedAt: NOW_MS - 40 * 60_000,
-    },
-  });
-  assertEquals(decision.shouldReply, true);
-  assertEquals(decision.latestHumanMessage?.id, "m4");
-  assertEquals(decision.reactionMessageIds, ["m1", "m3", "m4"]);
-});
+Deno.test(
+  "autonomous reaction targets are fresh humans visible in context without our reaction",
+  () => {
+    const decision = decide(
+      [
+        message("old", "u1", 8),
+        message("m1", "u1", 4),
+        message("m2", "u2", 3, "meme", { hasOwnReaction: true }),
+        message("other-bot", "bot2", 2.5, "ping", { authorBot: true }),
+        message("m3", "u3", 2),
+        message("m4", "u4", 1),
+      ],
+      {
+        maxContextMessages: 5,
+        lastParticipation: {
+          channelId: "channel",
+          latestHumanMessageId: "old",
+          latestHumanTimestampMs: NOW_MS - 8 * 60_000,
+          attemptedAt: NOW_MS - 40 * 60_000,
+        },
+      },
+    );
+    assertEquals(decision.shouldReply, true);
+    assertEquals(decision.latestHumanMessage?.id, "m4");
+    assertEquals(decision.reactionMessageIds, ["m1", "m3", "m4"]);
+  },
+);
 
 Deno.test("bot messages and reactions never supply required human activity", () => {
   const decision = decide([
@@ -207,10 +218,7 @@ Deno.test("bot messages and reactions never supply required human activity", () 
 });
 
 Deno.test("same-millisecond snowflakes preserve the newest human watermark and target", () => {
-  const messages = [
-    message("200", "u2", 1),
-    message("100", "u1", 1),
-  ];
+  const messages = [message("200", "u2", 1), message("100", "u1", 1)];
   const decision = decide(messages, {
     minHumanMessages: 1,
     lastParticipation: {

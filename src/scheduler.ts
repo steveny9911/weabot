@@ -65,7 +65,7 @@ export function registerCronJobs(
             channelId,
             date: now.toISOString().split("T")[0],
             createdAt: Date.now(),
-            expiresAt: Date.now() + (DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000),
+            expiresAt: Date.now() + DEFAULT_MOOD_CONFIG.durationHours * 60 * 60 * 1000,
             collected: false,
           };
 

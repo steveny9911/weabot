@@ -19,12 +19,21 @@ export function localSandboxMessage(
 ): Record<string, unknown> | null {
   const author = message.author as Record<string, unknown> | undefined;
   if (
-    message.guild_id !== SANDBOX_ID || message.channel_id !== TEXT_CHANNEL_ID ||
-    typeof message.id !== "string" || !message.id || !author ||
-    typeof author.id !== "string" || !author.id || author.id === botId ||
-    author.bot || message.webhook_id || typeof message.content !== "string" ||
-    !/^Haru local,\s*\S/i.test(message.content) || bMessageMentionsBot(message, botId)
-  ) return null;
+    message.guild_id !== SANDBOX_ID ||
+    message.channel_id !== TEXT_CHANNEL_ID ||
+    typeof message.id !== "string" ||
+    !message.id ||
+    !author ||
+    typeof author.id !== "string" ||
+    !author.id ||
+    author.id === botId ||
+    author.bot ||
+    message.webhook_id ||
+    typeof message.content !== "string" ||
+    !/^Haru local,\s*\S/i.test(message.content) ||
+    bMessageMentionsBot(message, botId)
+  )
+    return null;
 
   // A real @Haru mention would wake the deployed bot too. Recognize the local
   // prefix only inside this process, without editing the posted message.

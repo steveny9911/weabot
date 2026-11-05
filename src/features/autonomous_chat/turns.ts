@@ -23,23 +23,33 @@ export function conversationTurns(messages: RecentDiscordMessage[]): Conversatio
       ? Date.parse(message.timestamp) - Date.parse(previous.timestamp)
       : Infinity;
     if (
-      last && previous && previous.authorId === message.authorId &&
-      !previous.authorBot && !message.authorBot && gap >= 0 && gap <= 15_000 &&
+      last &&
+      previous &&
+      previous.authorId === message.authorId &&
+      !previous.authorBot &&
+      !message.authorBot &&
+      gap >= 0 &&
+      gap <= 15_000 &&
       (!message.referencedMessage || message.referencedMessage.id === reference)
-    ) last.messages.push(message);
+    )
+      last.messages.push(message);
     else turns.push({ id: message.id, messages: [message], anchorIds: [] });
   }
   for (const turn of turns) {
-    const substantive = turn.messages.filter((m) =>
-      !isIncompleteFragment(m) && (m.imageUrls.length > 0 || !LAUGHTER.test(m.content.trim()))
+    const substantive = turn.messages.filter(
+      (m) =>
+        !isIncompleteFragment(m) && (m.imageUrls.length > 0 || !LAUGHTER.test(m.content.trim())),
     );
     const finalConnector = turn.messages.findLastIndex(isIncompleteFragment);
-    turn.anchorIds = turn.messages.filter((m, index) =>
-      !isIncompleteFragment(m) &&
-      (m.imageUrls.length > 0 || !(substantive.length && LAUGHTER.test(m.content.trim()))) &&
-      // A question before a connective and its continuation is setup, not the joke itself.
-      !(index < finalConnector && /\?\s*$/.test(m.content))
-    ).map((m) => m.id);
+    turn.anchorIds = turn.messages
+      .filter(
+        (m, index) =>
+          !isIncompleteFragment(m) &&
+          (m.imageUrls.length > 0 || !(substantive.length && LAUGHTER.test(m.content.trim()))) &&
+          // A question before a connective and its continuation is setup, not the joke itself.
+          !(index < finalConnector && /\?\s*$/.test(m.content)),
+      )
+      .map((m) => m.id);
   }
   return turns;
 }

@@ -100,118 +100,135 @@ async function fixture(
     },
   };
   try {
-    await run(createDiscordActionService(client, kv, "America/Vancouver", () => NOW), writes);
+    await run(
+      createDiscordActionService(client, kv, "America/Vancouver", () => NOW),
+      writes,
+    );
   } finally {
     kv.close();
   }
 }
 
-Deno.test("Discord multiline quotes cannot authorize any action or pending clarification", async () => {
-  for (
-    const [action, request] of [
+Deno.test(
+  "Discord multiline quotes cannot authorize any action or pending clarification",
+  async () => {
+    for (const [action, request] of [
       ["create_discord_event", EVENT_REQUEST],
       ["create_discord_invite", INVITE_REQUEST],
       ["cancel_discord_event", CANCEL_REQUEST],
-    ] as const
-  ) {
-    for (const marker of [">>> From Alex:", ">>>"]) {
-      await fixture(async (service, writes) => {
-        const content = `Haru, summarize this quoted message:\n${marker}\n${request}`;
-        assertEquals(hasExplicitActionRequest(content), false);
-        const session = await service.createSession(context(content));
-        assertEquals((await session.executeTool(action, args(action, request))).ok, false);
-        assertEquals(
-          (await session.executeTool("clarify_discord_action", {
-            request_quote: request,
-            question: "Which channel?",
-          })).ok,
-          false,
-        );
-        const followup = await service.createSession(context("General", "601"));
-        assertEquals((await followup.executeTool(action, args(action, request))).ok, false);
-        assertEquals(writes, []);
-      });
+    ] as const) {
+      for (const marker of [">>> From Alex:", ">>>"]) {
+        await fixture(async (service, writes) => {
+          const content = `Haru, summarize this quoted message:\n${marker}\n${request}`;
+          assertEquals(hasExplicitActionRequest(content), false);
+          const session = await service.createSession(context(content));
+          assertEquals((await session.executeTool(action, args(action, request))).ok, false);
+          assertEquals(
+            (
+              await session.executeTool("clarify_discord_action", {
+                request_quote: request,
+                question: "Which channel?",
+              })
+            ).ok,
+            false,
+          );
+          const followup = await service.createSession(context("General", "601"));
+          assertEquals((await followup.executeTool(action, args(action, request))).ok, false);
+          assertEquals(writes, []);
+        });
+      }
     }
-  }
-});
+  },
+);
 
-Deno.test("a direct request before a multiline quote retains only its own action authority", async () => {
-  await fixture(async (service, writes) => {
-    const content = `${INVITE_REQUEST}\n>>> Other person's request:\n${EVENT_REQUEST}`;
-    const session = await service.createSession(context(content));
-    assertEquals(hasExplicitActionRequest(content), true);
-    assertEquals(
-      (await session.executeTool(
-        "create_discord_event",
-        args("create_discord_event", EVENT_REQUEST),
-      ))
-        .ok,
-      false,
-    );
-    assertEquals(
-      (await session.executeTool(
-        "create_discord_invite",
-        args("create_discord_invite", INVITE_REQUEST),
-      ))
-        .ok,
-      true,
-    );
-    assertEquals(writes, ["create_discord_invite"]);
-  });
-});
-
-Deno.test("event creation, invitation, and cancellation require their own request authority", async () => {
-  const requests: Record<Action, string> = {
-    create_discord_event: EVENT_REQUEST,
-    create_discord_invite: INVITE_REQUEST,
-    cancel_discord_event: CANCEL_REQUEST,
-  };
-  for (const requested of Object.keys(requests) as Action[]) {
-    for (const attempted of Object.keys(requests) as Action[]) {
-      await fixture(async (service, writes) => {
-        const request = requests[requested];
-        const session = await service.createSession(context(request));
-        const result = await session.executeTool(attempted, args(attempted, request));
-        assertEquals(result.ok, attempted === requested, `${requested} -> ${attempted}`);
-        assertEquals(writes, attempted === requested ? [attempted] : []);
-      });
-    }
-  }
-});
-
-Deno.test("requesting an invitation for an existing event does not authorize event creation", async () => {
-  for (
-    const request of [
-      "Create an invite for the Movie night event.",
-      "Create an event invitation for Movie night.",
-      "Create a Movie night event invite.",
-    ]
-  ) {
+Deno.test(
+  "a direct request before a multiline quote retains only its own action authority",
+  async () => {
     await fixture(async (service, writes) => {
-      const session = await service.createSession(context(request));
+      const content = `${INVITE_REQUEST}\n>>> Other person's request:\n${EVENT_REQUEST}`;
+      const session = await service.createSession(context(content));
+      assertEquals(hasExplicitActionRequest(content), true);
       assertEquals(
-        (await session.executeTool("create_discord_event", args("create_discord_event", request)))
-          .ok,
+        (
+          await session.executeTool(
+            "create_discord_event",
+            args("create_discord_event", EVENT_REQUEST),
+          )
+        ).ok,
         false,
       );
       assertEquals(
-        (await session.executeTool("create_discord_invite", args("create_discord_invite", request)))
-          .ok,
+        (
+          await session.executeTool(
+            "create_discord_invite",
+            args("create_discord_invite", INVITE_REQUEST),
+          )
+        ).ok,
         true,
       );
       assertEquals(writes, ["create_discord_invite"]);
     });
-  }
-});
+  },
+);
+
+Deno.test(
+  "event creation, invitation, and cancellation require their own request authority",
+  async () => {
+    const requests: Record<Action, string> = {
+      create_discord_event: EVENT_REQUEST,
+      create_discord_invite: INVITE_REQUEST,
+      cancel_discord_event: CANCEL_REQUEST,
+    };
+    for (const requested of Object.keys(requests) as Action[]) {
+      for (const attempted of Object.keys(requests) as Action[]) {
+        await fixture(async (service, writes) => {
+          const request = requests[requested];
+          const session = await service.createSession(context(request));
+          const result = await session.executeTool(attempted, args(attempted, request));
+          assertEquals(result.ok, attempted === requested, `${requested} -> ${attempted}`);
+          assertEquals(writes, attempted === requested ? [attempted] : []);
+        });
+      }
+    }
+  },
+);
+
+Deno.test(
+  "requesting an invitation for an existing event does not authorize event creation",
+  async () => {
+    for (const request of [
+      "Create an invite for the Movie night event.",
+      "Create an event invitation for Movie night.",
+      "Create a Movie night event invite.",
+    ]) {
+      await fixture(async (service, writes) => {
+        const session = await service.createSession(context(request));
+        assertEquals(
+          (await session.executeTool("create_discord_event", args("create_discord_event", request)))
+            .ok,
+          false,
+        );
+        assertEquals(
+          (
+            await session.executeTool(
+              "create_discord_invite",
+              args("create_discord_invite", request),
+            )
+          ).ok,
+          true,
+        );
+        assertEquals(writes, ["create_discord_invite"]);
+      });
+    }
+  },
+);
 
 Deno.test("combined event and invite requests retain both permissions", async () => {
-  for (
-    const request of [
-      "Create Movie night on January 1 2027 at 8pm in General and share an invite.",
-      "Create the Movie night event with an invite.",
-      "Create an event and an invitation.",
-    ]
-  ) {
+  for (const request of [
+    "Create Movie night on January 1 2027 at 8pm in General and share an invite.",
+    "Create the Movie night event with an invite.",
+    "Create an event and an invitation.",
+  ]) {
     await fixture(async (service, writes) => {
       const session = await service.createSession(context(request));
       for (const action of ["create_discord_event", "create_discord_invite"] as const) {
@@ -222,28 +239,29 @@ Deno.test("combined event and invite requests retain both permissions", async ()
   }
 });
 
-Deno.test("pending clarification retains the original action kind for an ordinary answer", async () => {
-  for (
-    const [action, request] of [
+Deno.test(
+  "pending clarification retains the original action kind for an ordinary answer",
+  async () => {
+    for (const [action, request] of [
       ["create_discord_event", "Create a Movie night event."],
       ["create_discord_invite", INVITE_REQUEST],
       ["cancel_discord_event", "Cancel the event."],
-    ] as const
-  ) {
-    await fixture(async (service, writes) => {
-      const initial = await service.createSession(context(request));
-      const clarification = await initial.executeTool("clarify_discord_action", {
-        request_quote: request,
-        question: action === "cancel_discord_event" ? "Which event?" : "Which channel?",
+    ] as const) {
+      await fixture(async (service, writes) => {
+        const initial = await service.createSession(context(request));
+        const clarification = await initial.executeTool("clarify_discord_action", {
+          request_quote: request,
+          question: action === "cancel_discord_event" ? "Which event?" : "Which channel?",
+        });
+        assertEquals(clarification.needsClarification, true);
+        const reply = action === "cancel_discord_event" ? "Movie night" : "General";
+        const followup = await service.createSession(context(reply, "601"));
+        assertEquals((await followup.executeTool(action, args(action, request))).ok, true);
+        assertEquals(writes, [action]);
       });
-      assertEquals(clarification.needsClarification, true);
-      const reply = action === "cancel_discord_event" ? "Movie night" : "General";
-      const followup = await service.createSession(context(reply, "601"));
-      assertEquals((await followup.executeTool(action, args(action, request))).ok, true);
-      assertEquals(writes, [action]);
-    });
-  }
-});
+    }
+  },
+);
 
 Deno.test("quoted clarification answers cannot supply event cancellation references", async () => {
   await fixture(async (service, writes) => {

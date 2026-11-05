@@ -1,9 +1,10 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { fetchWithRetry } from "./retry.ts";
 
-function mockFetchSequence(
-  sequence: Array<Response | Error>,
-): { restore: () => void; getCalls: () => number } {
+function mockFetchSequence(sequence: Array<Response | Error>): {
+  restore: () => void;
+  getCalls: () => number;
+} {
   const original_fetch = globalThis.fetch;
   let calls = 0;
 
@@ -25,9 +26,7 @@ function mockFetchSequence(
 }
 
 Deno.test("fetchWithRetry returns immediately on success", async () => {
-  const mock = mockFetchSequence([
-    new Response("ok", { status: 200 }),
-  ]);
+  const mock = mockFetchSequence([new Response("ok", { status: 200 })]);
 
   try {
     const response = await fetchWithRetry("https://example.com");
@@ -39,9 +38,7 @@ Deno.test("fetchWithRetry returns immediately on success", async () => {
 });
 
 Deno.test("fetchWithRetry does not retry non-retryable status", async () => {
-  const mock = mockFetchSequence([
-    new Response("bad request", { status: 400 }),
-  ]);
+  const mock = mockFetchSequence([new Response("bad request", { status: 400 })]);
 
   try {
     const response = await fetchWithRetry("https://example.com");
@@ -59,11 +56,11 @@ Deno.test("fetchWithRetry retries retryable status and eventually succeeds", asy
   ]);
 
   try {
-    const response = await fetchWithRetry(
-      "https://example.com",
-      undefined,
-      { maxRetries: 2, initialDelayMs: 1, maxDelayMs: 2 },
-    );
+    const response = await fetchWithRetry("https://example.com", undefined, {
+      maxRetries: 2,
+      initialDelayMs: 1,
+      maxDelayMs: 2,
+    });
     assertEquals(response.status, 200);
     assertEquals(mock.getCalls(), 2);
   } finally {
@@ -81,11 +78,11 @@ Deno.test("fetchWithRetry retries with Retry-After on 429", async () => {
   ]);
 
   try {
-    const response = await fetchWithRetry(
-      "https://example.com",
-      undefined,
-      { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 5 },
-    );
+    const response = await fetchWithRetry("https://example.com", undefined, {
+      maxRetries: 1,
+      initialDelayMs: 1,
+      maxDelayMs: 5,
+    });
     assertEquals(response.status, 200);
     assertEquals(mock.getCalls(), 2);
   } finally {
@@ -100,11 +97,11 @@ Deno.test("fetchWithRetry returns last failed retryable response after max retri
   ]);
 
   try {
-    const response = await fetchWithRetry(
-      "https://example.com",
-      undefined,
-      { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 2 },
-    );
+    const response = await fetchWithRetry("https://example.com", undefined, {
+      maxRetries: 1,
+      initialDelayMs: 1,
+      maxDelayMs: 2,
+    });
     assertEquals(response.status, 503);
     assertEquals(mock.getCalls(), 2);
   } finally {
@@ -113,17 +110,14 @@ Deno.test("fetchWithRetry returns last failed retryable response after max retri
 });
 
 Deno.test("fetchWithRetry retries fetch errors and succeeds", async () => {
-  const mock = mockFetchSequence([
-    new Error("network down"),
-    new Response("ok", { status: 200 }),
-  ]);
+  const mock = mockFetchSequence([new Error("network down"), new Response("ok", { status: 200 })]);
 
   try {
-    const response = await fetchWithRetry(
-      "https://example.com",
-      undefined,
-      { maxRetries: 2, initialDelayMs: 1, maxDelayMs: 2 },
-    );
+    const response = await fetchWithRetry("https://example.com", undefined, {
+      maxRetries: 2,
+      initialDelayMs: 1,
+      maxDelayMs: 2,
+    });
     assertEquals(response.status, 200);
     assertEquals(mock.getCalls(), 2);
   } finally {
@@ -132,19 +126,16 @@ Deno.test("fetchWithRetry retries fetch errors and succeeds", async () => {
 });
 
 Deno.test("fetchWithRetry throws after repeated fetch errors", async () => {
-  const mock = mockFetchSequence([
-    new Error("boom-1"),
-    new Error("boom-2"),
-  ]);
+  const mock = mockFetchSequence([new Error("boom-1"), new Error("boom-2")]);
 
   try {
     await assertRejects(
       () =>
-        fetchWithRetry(
-          "https://example.com",
-          undefined,
-          { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 2 },
-        ),
+        fetchWithRetry("https://example.com", undefined, {
+          maxRetries: 1,
+          initialDelayMs: 1,
+          maxDelayMs: 2,
+        }),
       Error,
       "boom-2",
     );
@@ -162,12 +153,7 @@ Deno.test("fetchWithRetry wraps non-Error thrown values", async () => {
 
   try {
     await assertRejects(
-      () =>
-        fetchWithRetry(
-          "https://example.com",
-          undefined,
-          { maxRetries: 0 },
-        ),
+      () => fetchWithRetry("https://example.com", undefined, { maxRetries: 0 }),
       Error,
       "string failure",
     );
@@ -176,15 +162,13 @@ Deno.test("fetchWithRetry wraps non-Error thrown values", async () => {
   }
 });
 
-Deno.test("fetchWithRetry throws fallback error when retries are disabled with negative maxRetries", async () => {
-  await assertRejects(
-    () =>
-      fetchWithRetry(
-        "https://example.com",
-        undefined,
-        { maxRetries: -1 },
-      ),
-    Error,
-    "Retry failed with no error captured",
-  );
-});
+Deno.test(
+  "fetchWithRetry throws fallback error when retries are disabled with negative maxRetries",
+  async () => {
+    await assertRejects(
+      () => fetchWithRetry("https://example.com", undefined, { maxRetries: -1 }),
+      Error,
+      "Retry failed with no error captured",
+    );
+  },
+);

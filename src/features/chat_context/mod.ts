@@ -40,9 +40,10 @@ function bIsHttpUrl(url: string): boolean {
 
 function bAttachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
   const raw_content_type = attachment["content_type"];
-  const content_type = typeof raw_content_type === "string"
-    ? raw_content_type.split(";", 1)[0].trim().toLowerCase()
-    : "";
+  const content_type =
+    typeof raw_content_type === "string"
+      ? raw_content_type.split(";", 1)[0].trim().toLowerCase()
+      : "";
   if (content_type && content_type !== "application/octet-stream") {
     return IMAGE_CONTENT_TYPES.has(content_type);
   }
@@ -69,9 +70,12 @@ function aszExtractImageUrls(message: Record<string, unknown>): string[] {
     const attachment = raw_attachment as Record<string, unknown>;
     if (!bAttachmentLooksLikeImage(attachment)) continue;
 
-    const candidate = typeof attachment["url"] === "string"
-      ? attachment["url"]
-      : (typeof attachment["proxy_url"] === "string" ? attachment["proxy_url"] : undefined);
+    const candidate =
+      typeof attachment["url"] === "string"
+        ? attachment["url"]
+        : typeof attachment["proxy_url"] === "string"
+          ? attachment["proxy_url"]
+          : undefined;
     if (!candidate) continue;
 
     const trimmed = candidate.trim();
@@ -93,39 +97,47 @@ function szAuthorName(author: Record<string, unknown>): string {
 }
 
 function oMapReference(message: Record<string, unknown>): DiscordMessageReference {
-  const author = message["author"] && typeof message["author"] === "object"
-    ? message["author"] as Record<string, unknown>
-    : {};
+  const author =
+    message["author"] && typeof message["author"] === "object"
+      ? (message["author"] as Record<string, unknown>)
+      : {};
 
   return {
     id: typeof message["id"] === "string" ? message["id"] : "",
     authorId: typeof author["id"] === "string" ? author["id"] : "",
     authorName: szAuthorName(author),
     content: typeof message["content"] === "string" ? message["content"] : "",
-    timestamp: typeof message["timestamp"] === "string"
-      ? message["timestamp"]
-      : (typeof message["created_at"] === "string" ? message["created_at"] : ""),
+    timestamp:
+      typeof message["timestamp"] === "string"
+        ? message["timestamp"]
+        : typeof message["created_at"] === "string"
+          ? message["created_at"]
+          : "",
     imageUrls: aszExtractImageUrls(message),
   };
 }
 
 export function oMapDiscordMessage(message: Record<string, unknown>): RecentDiscordMessage {
-  const author = message["author"] && typeof message["author"] === "object"
-    ? message["author"] as Record<string, unknown>
-    : {};
+  const author =
+    message["author"] && typeof message["author"] === "object"
+      ? (message["author"] as Record<string, unknown>)
+      : {};
   const referenced = message["referenced_message"];
-  const referenced_message = referenced && typeof referenced === "object"
-    ? oMapReference(referenced as Record<string, unknown>)
-    : undefined;
+  const referenced_message =
+    referenced && typeof referenced === "object"
+      ? oMapReference(referenced as Record<string, unknown>)
+      : undefined;
 
   return {
     ...oMapReference(message),
     authorBot: author["bot"] === true || typeof message["webhook_id"] === "string",
     ...(Array.isArray(message["reactions"]) &&
-        message["reactions"].some((reaction) =>
-          reaction !== null && typeof reaction === "object" &&
-          (reaction.me === true || reaction.me_burst === true)
-        )
+    message["reactions"].some(
+      (reaction) =>
+        reaction !== null &&
+        typeof reaction === "object" &&
+        (reaction.me === true || reaction.me_burst === true),
+    )
       ? { hasOwnReaction: true }
       : {}),
     ...(referenced_message ? { referencedMessage: referenced_message } : {}),
@@ -179,7 +191,10 @@ export function selectActiveConversation(
   }
 
   const max_messages = Math.max(1, Math.trunc(options.maxMessages));
-  return timestamped.slice(session_start).slice(-max_messages).map(({ message }) => message);
+  return timestamped
+    .slice(session_start)
+    .slice(-max_messages)
+    .map(({ message }) => message);
 }
 
 function oReferenceForAi(reference: DiscordMessageReference): Record<string, unknown> {

@@ -6,10 +6,7 @@ import { assertEquals, assertThrows } from "@std/assert";
 import { loadConfig } from "./config.ts";
 
 // Helper to run tests with specific env vars
-function withEnv(
-  envVars: Record<string, string>,
-  fn: () => void,
-) {
+function withEnv(envVars: Record<string, string>, fn: () => void) {
   // Save original values
   const originalValues: Record<string, string | undefined> = {};
   const allKeys = new Set([
@@ -76,11 +73,7 @@ function withEnv(
 
 Deno.test("loadConfig throws when DISCORD_TOKEN is missing", () => {
   withEnv({ CHANNEL_ID: "123" }, () => {
-    assertThrows(
-      () => loadConfig(),
-      Error,
-      "Missing required environment variable: DISCORD_TOKEN",
-    );
+    assertThrows(() => loadConfig(), Error, "Missing required environment variable: DISCORD_TOKEN");
   });
 });
 
@@ -262,16 +255,19 @@ Deno.test("loadConfig returns complete config with all values", () => {
 });
 
 Deno.test("Discord actions can be disabled or restricted to selected servers", () => {
-  withEnv({
-    DISCORD_TOKEN: "token",
-    CHANNEL_ID: "123",
-    DISCORD_ACTIONS_ENABLED: "false",
-    DISCORD_ACTIONS_GUILD_IDS: " sandbox, another, ",
-  }, () => {
-    const config = loadConfig();
-    assertEquals(config.discordActionsEnabled, false);
-    assertEquals(config.discordActionsGuildIds, ["sandbox", "another"]);
-  });
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "123",
+      DISCORD_ACTIONS_ENABLED: "false",
+      DISCORD_ACTIONS_GUILD_IDS: " sandbox, another, ",
+    },
+    () => {
+      const config = loadConfig();
+      assertEquals(config.discordActionsEnabled, false);
+      assertEquals(config.discordActionsGuildIds, ["sandbox", "another"]);
+    },
+  );
 });
 
 Deno.test("loadConfig uses AI defaults when not set", () => {
@@ -432,27 +428,36 @@ Deno.test("HTTP administration is disabled by default and accepts an explicit to
   });
 });
 
-Deno.test("usage billing configuration is separate from the chat key and trims blank values", () => {
-  withEnv({
-    DISCORD_TOKEN: "token",
-    CHANNEL_ID: "channel",
-    OPENAI_API_KEY: "chat-key",
-    OPENAI_ADMIN_KEY: " admin-key ",
-    USAGE_OPENAI_PROJECT_ID: " proj-test ",
-  }, () => {
-    const config = loadConfig();
-    assertEquals(config.openaiAdminKey, "admin-key");
-    assertEquals(config.usageOpenaiProjectId, "proj-test");
-    assertEquals(config.openaiApiKey, "chat-key");
-  });
-  withEnv({
-    DISCORD_TOKEN: "token",
-    CHANNEL_ID: "channel",
-    OPENAI_ADMIN_KEY: " ",
-    USAGE_OPENAI_PROJECT_ID: " ",
-  }, () => {
-    const config = loadConfig();
-    assertEquals(config.openaiAdminKey, undefined);
-    assertEquals(config.usageOpenaiProjectId, undefined);
-  });
-});
+Deno.test(
+  "usage billing configuration is separate from the chat key and trims blank values",
+  () => {
+    withEnv(
+      {
+        DISCORD_TOKEN: "token",
+        CHANNEL_ID: "channel",
+        OPENAI_API_KEY: "chat-key",
+        OPENAI_ADMIN_KEY: " admin-key ",
+        USAGE_OPENAI_PROJECT_ID: " proj-test ",
+      },
+      () => {
+        const config = loadConfig();
+        assertEquals(config.openaiAdminKey, "admin-key");
+        assertEquals(config.usageOpenaiProjectId, "proj-test");
+        assertEquals(config.openaiApiKey, "chat-key");
+      },
+    );
+    withEnv(
+      {
+        DISCORD_TOKEN: "token",
+        CHANNEL_ID: "channel",
+        OPENAI_ADMIN_KEY: " ",
+        USAGE_OPENAI_PROJECT_ID: " ",
+      },
+      () => {
+        const config = loadConfig();
+        assertEquals(config.openaiAdminKey, undefined);
+        assertEquals(config.usageOpenaiProjectId, undefined);
+      },
+    );
+  },
+);

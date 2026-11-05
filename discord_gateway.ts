@@ -54,27 +54,32 @@ export function startGateway(
     if (heartbeat_handle) clearInterval(heartbeat_handle);
 
     const jitter = Math.random();
-    setTimeout(() => {
-      sendHeartbeat();
-
-      heartbeat_handle = setInterval(() => {
+    setTimeout(
+      () => {
         sendHeartbeat();
-      }, heartbeat_interval_ms) as unknown as number;
-    }, Math.floor(heartbeat_interval_ms * jitter));
+
+        heartbeat_handle = setInterval(() => {
+          sendHeartbeat();
+        }, heartbeat_interval_ms) as unknown as number;
+      },
+      Math.floor(heartbeat_interval_ms * jitter),
+    );
   }
 
   function sendOnlinePresence(): void {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    ws.send(JSON.stringify({
-      op: 3,
-      d: {
-        since: null,
-        activities: [],
-        status: "online",
-        afk: false,
-      },
-    }));
+    ws.send(
+      JSON.stringify({
+        op: 3,
+        d: {
+          since: null,
+          activities: [],
+          status: "online",
+          afk: false,
+        },
+      }),
+    );
   }
 
   function vConnect(): void {

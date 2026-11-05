@@ -46,8 +46,9 @@ function nTimestampMs(timestamp: string): number | null {
 }
 
 function bIsHumanMessage(message: RecentDiscordMessage, botUserId: string): boolean {
-  return Boolean(message.id && message.authorId) &&
-    !message.authorBot && message.authorId !== botUserId;
+  return (
+    Boolean(message.id && message.authorId) && !message.authorBot && message.authorId !== botUserId
+  );
 }
 
 export function decideAutonomousChatReply(
@@ -74,9 +75,11 @@ export function decideAutonomousChatReply(
   const min_human_messages = Math.max(1, options.minHumanMessages);
   const recent_human_messages = timestamped.filter(({ message, timestampMs }) => {
     const age_ms = options.nowMs - timestampMs;
-    return age_ms >= 0 &&
+    return (
+      age_ms >= 0 &&
       age_ms <= options.activityWindowMs &&
-      bIsHumanMessage(message, options.botUserId);
+      bIsHumanMessage(message, options.botUserId)
+    );
   });
 
   if (recent_human_messages.length < min_human_messages) {
@@ -109,10 +112,13 @@ export function decideAutonomousChatReply(
       return { shouldReply: false, reason: "participation cooldown active", contextMessages: [] };
     }
     if (
-      !isNewerHumanMessage({
-        latestHumanMessageId: latest_human.message.id,
-        latestHumanTimestampMs: latest_human.timestampMs,
-      }, previous)
+      !isNewerHumanMessage(
+        {
+          latestHumanMessageId: latest_human.message.id,
+          latestHumanTimestampMs: latest_human.timestampMs,
+        },
+        previous,
+      )
     ) {
       return { shouldReply: false, reason: "conversation already considered", contextMessages: [] };
     }
@@ -124,9 +130,9 @@ export function decideAutonomousChatReply(
       return { shouldReply: false, reason: "cooldown active", contextMessages: [] };
     }
 
-    const has_human_after_haru = timestamped.some(({ message, timestampMs }) =>
-      timestampMs > last_haru_message.timestampMs &&
-      bIsHumanMessage(message, options.botUserId)
+    const has_human_after_haru = timestamped.some(
+      ({ message, timestampMs }) =>
+        timestampMs > last_haru_message.timestampMs && bIsHumanMessage(message, options.botUserId),
     );
 
     if (!has_human_after_haru) {
@@ -155,18 +161,25 @@ export function decideAutonomousChatReply(
       turnId: turn.id,
       turnMessageIds: turn.messages.map((m) => m.id),
       reactionAnchor: anchor_ids.has(message.id),
-    }))
+    })),
   );
   const context_ids = new Set(context_messages.map((message) => message.id));
   const reaction_message_ids = recent_human_messages
-    .filter(({ message, timestampMs }) =>
-      Boolean(message.id) && anchor_ids.has(message.id) && context_ids.has(message.id) &&
-      !message.hasOwnReaction &&
-      (!previous || isNewerHumanMessage({
-        latestHumanMessageId: message.id,
-        latestHumanTimestampMs: timestampMs,
-      }, previous)) &&
-      (!last_haru_message || timestampMs > last_haru_message.timestampMs)
+    .filter(
+      ({ message, timestampMs }) =>
+        Boolean(message.id) &&
+        anchor_ids.has(message.id) &&
+        context_ids.has(message.id) &&
+        !message.hasOwnReaction &&
+        (!previous ||
+          isNewerHumanMessage(
+            {
+              latestHumanMessageId: message.id,
+              latestHumanTimestampMs: timestampMs,
+            },
+            previous,
+          )) &&
+        (!last_haru_message || timestampMs > last_haru_message.timestampMs),
     )
     .map(({ message }) => message.id);
 

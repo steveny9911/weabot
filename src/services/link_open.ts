@@ -125,10 +125,11 @@ async function aReadBodyWithLimit(
   max_bytes: number,
   signal: AbortSignal,
 ): Promise<
-  { ok: true; text: string; bytes: number } | {
-    ok: false;
-    error: "response_too_large" | "fetch_failed";
-  }
+  | { ok: true; text: string; bytes: number }
+  | {
+      ok: false;
+      error: "response_too_large" | "fetch_failed";
+    }
 > {
   const reader = response.body?.getReader();
   if (!reader) return { ok: false, error: "fetch_failed" };
@@ -282,9 +283,9 @@ export function createLinkOpenService(
             const excerpt = szExtractTextExcerpt(body_result.text, MAX_EXCERPT_CHARS);
 
             console.log(
-              `[LINK] fetched: domain=${
-                szNormalizeHost(current.hostname)
-              } bytes=${body_result.bytes} redirects=${redirects}`,
+              `[LINK] fetched: domain=${szNormalizeHost(
+                current.hostname,
+              )} bytes=${body_result.bytes} redirects=${redirects}`,
             );
             return {
               ok: true,

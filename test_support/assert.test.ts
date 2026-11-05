@@ -3,7 +3,10 @@ import { assert, rejects, throws } from "./assert.ts";
 import { realFetch } from "./setup.ts";
 
 class NotFoundError extends Error {
-  constructor(message: string, readonly status = 404) {
+  constructor(
+    message: string,
+    readonly status = 404,
+  ) {
     super(message);
     this.name = "NotFoundError";
   }
@@ -64,9 +67,13 @@ describe("rejects", () => {
 
 describe("throws", () => {
   test("returns the typed error when class and message match", () => {
-    const error = throws(() => {
-      throw new NotFoundError("user missing");
-    }, NotFoundError, "missing");
+    const error = throws(
+      () => {
+        throw new NotFoundError("user missing");
+      },
+      NotFoundError,
+      "missing",
+    );
     expect(error.status).toBe(404);
   });
 

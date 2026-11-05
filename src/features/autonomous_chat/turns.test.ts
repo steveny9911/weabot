@@ -31,18 +31,24 @@ const options = {
   random: () => 0,
   settleMs: 8000,
 };
-Deno.test("incident split joke allows the punchline, not connective/setup/trailing laughter", () => {
-  const messages = [
-    message("1", "Starbucks?"),
-    message("2", "More like", 1733),
-    message("3", "starfucks", 3252),
-    message("4", "xdd", 11585),
-  ];
-  const decision = decideAutonomousChatReply([...messages].reverse(), options);
-  assertEquals(decision.reactionMessageIds, ["3"]);
-  assertEquals(decision.latestHumanMessage?.id, "4");
-  assertEquals(decision.contextMessages.map((m) => m.turnId), ["1", "1", "1", "1"]);
-});
+Deno.test(
+  "incident split joke allows the punchline, not connective/setup/trailing laughter",
+  () => {
+    const messages = [
+      message("1", "Starbucks?"),
+      message("2", "More like", 1733),
+      message("3", "starfucks", 3252),
+      message("4", "xdd", 11585),
+    ];
+    const decision = decideAutonomousChatReply([...messages].reverse(), options);
+    assertEquals(decision.reactionMessageIds, ["3"]);
+    assertEquals(decision.latestHumanMessage?.id, "4");
+    assertEquals(
+      decision.contextMessages.map((m) => m.turnId),
+      ["1", "1", "1", "1"],
+    );
+  },
+);
 Deno.test("ongoing bursts and incomplete turns do not consume the participation watermark", () => {
   assertEquals(decideAutonomousChatReply([message("1", "More like")], options).shouldReply, false);
   assertEquals(
@@ -67,12 +73,10 @@ Deno.test("interleaved authors and changed reply references retain distinct turn
     ...message("5", "Unrelated reply", 4000),
     referencedMessage: message("different", "Different topic"),
   };
-  assertEquals(conversationTurns([a, b, c, d, e]).map((t) => t.messages.map((m) => m.id)), [
-    ["1"],
-    ["2"],
-    ["3", "4"],
-    ["5"],
-  ]);
+  assertEquals(
+    conversationTurns([a, b, c, d, e]).map((t) => t.messages.map((m) => m.id)),
+    [["1"], ["2"], ["3", "4"], ["5"]],
+  );
 });
 Deno.test("old reply references provide context without becoming reaction targets", () => {
   const current = {

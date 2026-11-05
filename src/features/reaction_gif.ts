@@ -17,9 +17,7 @@ export function bHasGreetingTrigger(text: string): boolean {
   return GREETING_TRIGGER_RE.test(text);
 }
 
-export function szPickRandomGreetingGif(
-  random: () => number = Math.random,
-): string {
+export function szPickRandomGreetingGif(random: () => number = Math.random): string {
   const pool_size = aszHaruGreetingGifPool.length;
   if (pool_size === 0) return "";
 

@@ -27,8 +27,11 @@ export async function readReactionContext(
   }
   const channel = await get(`/channels/${encodeURIComponent(channelId)}`);
   if (
-    !channel || typeof channel !== "object" || !("guild_id" in channel) ||
-    typeof channel.guild_id !== "string" || !/^\d+$/.test(channel.guild_id)
+    !channel ||
+    typeof channel !== "object" ||
+    !("guild_id" in channel) ||
+    typeof channel.guild_id !== "string" ||
+    !/^\d+$/.test(channel.guild_id)
   ) {
     throw new Error("Expected a guild reaction channel");
   }
@@ -47,8 +50,12 @@ export async function readReactionContext(
   const emojis: GuildEmoji[] = [];
   for (const e of rawEmojis) {
     if (
-      !e || typeof e !== "object" || typeof e.id !== "string" || !/^\d+$/.test(e.id) ||
-      typeof e.name !== "string" || !Array.isArray(e.roles) ||
+      !e ||
+      typeof e !== "object" ||
+      typeof e.id !== "string" ||
+      !/^\d+$/.test(e.id) ||
+      typeof e.name !== "string" ||
+      !Array.isArray(e.roles) ||
       !e.roles.every((role: unknown) => typeof role === "string") ||
       typeof e.available !== "boolean"
     ) {

@@ -52,27 +52,30 @@ Deno.test("open times out stalled and trickling HTTP/TLS bodies and closes socke
       await t.step(`${tls ? "HTTPS" : "HTTP"} ${trickle ? "trickle" : "stall"}`, async () => {
         let interval: ReturnType<typeof setInterval> | undefined;
         const closed = Promise.withResolvers<void>();
-        const server = serveFixture({
-          hostname: "127.0.0.1",
-          port: 0,
-          ...(tls ? { cert, key } : {}),
-          onListen() {},
-        }, () =>
-          new Response(
-            new ReadableStream<Uint8Array>({
-              start(controller) {
-                controller.enqueue(new TextEncoder().encode("<html>headers received"));
-                if (trickle) {
-                  interval = setInterval(() => controller.enqueue(new Uint8Array([32])), 5);
-                }
-              },
-              cancel() {
-                clearInterval(interval);
-                closed.resolve();
-              },
-            }),
-            { headers: { "content-type": "text/html" } },
-          ));
+        const server = serveFixture(
+          {
+            hostname: "127.0.0.1",
+            port: 0,
+            ...(tls ? { cert, key } : {}),
+            onListen() {},
+          },
+          () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode("<html>headers received"));
+                  if (trickle) {
+                    interval = setInterval(() => controller.enqueue(new Uint8Array([32])), 5);
+                  }
+                },
+                cancel() {
+                  clearInterval(interval);
+                  closed.resolve();
+                },
+              }),
+              { headers: { "content-type": "text/html" } },
+            ),
+        );
         try {
           const start = performance.now();
           assertEquals(
@@ -102,9 +105,7 @@ Deno.test("open closes live rejected and oversized response sockets", async (t) 
       const server = serveFixture({ hostname: "127.0.0.1", port: 0, onListen() {} }, () => {
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
-            controller.enqueue(
-              new Uint8Array(reason === "stream-limit" ? 1024 * 1024 + 1 : 16),
-            );
+            controller.enqueue(new Uint8Array(reason === "stream-limit" ? 1024 * 1024 + 1 : 16));
           },
           cancel() {
             closed.resolve();
@@ -122,11 +123,12 @@ Deno.test("open closes live rejected and oversized response sockets", async (t) 
           await fixtureService().open(`http://public.example:${server.addr.port}/reject`),
           {
             ok: false,
-            error: reason === "status"
-              ? "fetch_failed"
-              : reason === "content-type"
-              ? "unsupported_content_type"
-              : "response_too_large",
+            error:
+              reason === "status"
+                ? "fetch_failed"
+                : reason === "content-type"
+                  ? "unsupported_content_type"
+                  : "response_too_large",
           },
         );
         await assertClosed(closed.promise);
@@ -199,55 +201,54 @@ Deno.test("open handles malformed compressed bodies as structured fetch failures
   }
 });
 
-Deno.test("open bounds decompressed bytes and closes a compressed streaming response", async (t) => {
-  for (
-    const [encoding, compressed] of [
+Deno.test(
+  "open bounds decompressed bytes and closes a compressed streaming response",
+  async (t) => {
+    for (const [encoding, compressed] of [
       ["gzip", gzipSync("x".repeat(1024 * 1024 + 1))],
       ["deflate", deflateSync("x".repeat(1024 * 1024 + 1))],
       ["br", brotliCompressSync("x".repeat(1024 * 1024 + 1))],
-    ] as const
-  ) {
-    await t.step(encoding, async () => {
-      const closed = Promise.withResolvers<void>();
-      const server = serveFixture(
-        { hostname: "127.0.0.1", port: 0, onListen() {} },
-        () =>
-          new Response(
-            new ReadableStream<Uint8Array>({
-              start(controller) {
-                controller.enqueue(new Uint8Array(compressed));
-              },
-              cancel() {
-                closed.resolve();
-              },
-            }),
-            { headers: { "content-type": "text/html", "content-encoding": encoding } },
-          ),
-      );
-      try {
-        assertEquals(
-          await fixtureService().open(`http://public.example:${server.addr.port}/large`),
-          {
-            ok: false,
-            error: "response_too_large",
-          },
+    ] as const) {
+      await t.step(encoding, async () => {
+        const closed = Promise.withResolvers<void>();
+        const server = serveFixture(
+          { hostname: "127.0.0.1", port: 0, onListen() {} },
+          () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new Uint8Array(compressed));
+                },
+                cancel() {
+                  closed.resolve();
+                },
+              }),
+              { headers: { "content-type": "text/html", "content-encoding": encoding } },
+            ),
         );
-        await assertClosed(closed.promise);
-      } finally {
-        await server.shutdown();
-      }
-    });
-  }
-});
+        try {
+          assertEquals(
+            await fixtureService().open(`http://public.example:${server.addr.port}/large`),
+            {
+              ok: false,
+              error: "response_too_large",
+            },
+          );
+          await assertClosed(closed.promise);
+        } finally {
+          await server.shutdown();
+        }
+      });
+    }
+  },
+);
 
 Deno.test("open times out incomplete compressed streams and closes their sockets", async (t) => {
-  for (
-    const [encoding, compressed] of [
-      ["gzip", gzipSync("<html>partial compressed body</html>")],
-      ["deflate", deflateSync("<html>partial compressed body</html>")],
-      ["br", brotliCompressSync("<html>partial compressed body</html>")],
-    ] as const
-  ) {
+  for (const [encoding, compressed] of [
+    ["gzip", gzipSync("<html>partial compressed body</html>")],
+    ["deflate", deflateSync("<html>partial compressed body</html>")],
+    ["br", brotliCompressSync("<html>partial compressed body</html>")],
+  ] as const) {
     await t.step(encoding, async () => {
       const closed = Promise.withResolvers<void>();
       const server = serveFixture(
@@ -290,9 +291,8 @@ Deno.test("open returns structured failure after a socket closes mid-body", asyn
       const server = (async () => {
         using connection = await listener.accept();
         await connection.read(new Uint8Array(4096));
-        const headers = framing === "content-length"
-          ? "Content-Length: 100"
-          : "Transfer-Encoding: chunked";
+        const headers =
+          framing === "content-length" ? "Content-Length: 100" : "Transfer-Encoding: chunked";
         const body = framing === "content-length" ? "<html>truncated" : "ff\r\n<html>truncated";
         const response = new TextEncoder().encode(
           `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n${headers}\r\nConnection: close\r\n\r\n${body}`,
@@ -318,36 +318,40 @@ Deno.test("open returns structured failure after a socket closes mid-body", asyn
   }
 });
 
-Deno.test("open rejects oversized Content-Length before downloading the remaining body", async () => {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  let connection: Deno.Conn | undefined;
-  const server = (async () => {
-    connection = await listener.accept();
+Deno.test(
+  "open rejects oversized Content-Length before downloading the remaining body",
+  async () => {
+    const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+    let connection: Deno.Conn | undefined;
+    const server = (async () => {
+      connection = await listener.accept();
+      try {
+        await connection.read(new Uint8Array(4096));
+        const response = new TextEncoder().encode(
+          "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 1048577\r\nConnection: close\r\n\r\n<html>beginning",
+        );
+        let offset = 0;
+        while (offset < response.length)
+          offset += await connection.write(response.subarray(offset));
+        // The client must close without waiting for the advertised body length.
+        assertEquals(await connection.read(new Uint8Array(4096)), null);
+      } finally {
+        connection.close();
+        connection = undefined;
+      }
+    })();
     try {
-      await connection.read(new Uint8Array(4096));
-      const response = new TextEncoder().encode(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 1048577\r\nConnection: close\r\n\r\n<html>beginning",
+      assertEquals(
+        await fixtureService().open(`http://public.example:${listener.addr.port}/declared-large`),
+        {
+          ok: false,
+          error: "response_too_large",
+        },
       );
-      let offset = 0;
-      while (offset < response.length) offset += await connection.write(response.subarray(offset));
-      // The client must close without waiting for the advertised body length.
-      assertEquals(await connection.read(new Uint8Array(4096)), null);
+      await assertClosed(server);
     } finally {
-      connection.close();
-      connection = undefined;
+      connection?.close();
+      listener.close();
     }
-  })();
-  try {
-    assertEquals(
-      await fixtureService().open(`http://public.example:${listener.addr.port}/declared-large`),
-      {
-        ok: false,
-        error: "response_too_large",
-      },
-    );
-    await assertClosed(server);
-  } finally {
-    connection?.close();
-    listener.close();
-  }
-});
+  },
+);

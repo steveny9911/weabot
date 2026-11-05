@@ -76,10 +76,7 @@ export interface StorageService {
   ): Promise<void>;
 }
 
-export type ContextStorageService = Pick<
-  StorageService,
-  "setContextReset" | "getContextReset"
->;
+export type ContextStorageService = Pick<StorageService, "setContextReset" | "getContextReset">;
 
 const MAX_PARTICIPATION_COMMIT_ATTEMPTS = 10;
 
@@ -92,10 +89,8 @@ export function isNewerHumanMessage(
   if (candidate.latestHumanTimestampMs !== previous.latestHumanTimestampMs) {
     return candidate.latestHumanTimestampMs > previous.latestHumanTimestampMs;
   }
-  if (
-    !/^\d+$/.test(candidate.latestHumanMessageId) ||
-    !/^\d+$/.test(previous.latestHumanMessageId)
-  ) return false;
+  if (!/^\d+$/.test(candidate.latestHumanMessageId) || !/^\d+$/.test(previous.latestHumanMessageId))
+    return false;
   return BigInt(candidate.latestHumanMessageId) > BigInt(previous.latestHumanMessageId);
 }
 
@@ -122,7 +117,8 @@ export function createStorageService(kv: Deno.Kv): StorageService {
       };
 
       // Keep both indexes consistent. Stable keys make collection retries idempotent.
-      const result = await kv.atomic()
+      const result = await kv
+        .atomic()
         .set(["votes", channelId, date, userId], record)
         .set(["user_votes", channelId, userId, date], record)
         .commit();
@@ -299,11 +295,16 @@ export function createStorageService(kv: Deno.Kv): StorageService {
 
     async claimAutonomousParticipation(record, cooldownMs) {
       if (
-        !record.channelId || !record.latestHumanMessageId ||
-        !Number.isSafeInteger(record.attemptedAt) || record.attemptedAt < 0 ||
-        !Number.isSafeInteger(record.latestHumanTimestampMs) || record.latestHumanTimestampMs < 0 ||
-        !Number.isFinite(cooldownMs) || cooldownMs < 0
-      ) throw new RangeError("Invalid autonomous participation attempt");
+        !record.channelId ||
+        !record.latestHumanMessageId ||
+        !Number.isSafeInteger(record.attemptedAt) ||
+        record.attemptedAt < 0 ||
+        !Number.isSafeInteger(record.latestHumanTimestampMs) ||
+        record.latestHumanTimestampMs < 0 ||
+        !Number.isFinite(cooldownMs) ||
+        cooldownMs < 0
+      )
+        throw new RangeError("Invalid autonomous participation attempt");
 
       const key = ["autonomous_participation", record.channelId];
       for (let attempt = 0; attempt < MAX_PARTICIPATION_COMMIT_ATTEMPTS; attempt++) {
@@ -312,10 +313,12 @@ export function createStorageService(kv: Deno.Kv): StorageService {
           entry.value &&
           (!isNewerHumanMessage(record, entry.value) ||
             record.attemptedAt - entry.value.attemptedAt < cooldownMs)
-        ) return false;
-        const preserved = entry.value?.lastReactionEmoji && !record.lastReactionEmoji
-          ? { ...record, lastReactionEmoji: entry.value.lastReactionEmoji }
-          : record;
+        )
+          return false;
+        const preserved =
+          entry.value?.lastReactionEmoji && !record.lastReactionEmoji
+            ? { ...record, lastReactionEmoji: entry.value.lastReactionEmoji }
+            : record;
         const result = await kv.atomic().check(entry).set(key, preserved).commit();
         if (result.ok) return true;
       }
@@ -339,13 +342,17 @@ export function createStorageService(kv: Deno.Kv): StorageService {
         if (
           attemptedAt === entry.value.attemptedAt &&
           (!reactionEmoji || reactionEmoji === entry.value.lastReactionEmoji)
-        ) return;
-        const result = await kv.atomic().check(entry)
+        )
+          return;
+        const result = await kv
+          .atomic()
+          .check(entry)
           .set(key, {
             ...entry.value,
             attemptedAt,
             ...(reactionEmoji ? { lastReactionEmoji: reactionEmoji } : {}),
-          }).commit();
+          })
+          .commit();
         if (result.ok) return;
       }
       throw new Error("Autonomous participation completion failed after repeated conflicts");

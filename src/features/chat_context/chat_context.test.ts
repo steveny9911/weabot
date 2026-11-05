@@ -41,7 +41,10 @@ Deno.test("selectActiveConversation keeps a sustained conversation up to its cap
     { maxMessages: 4, inactivityGapMs: 20 * 60_000 },
   );
 
-  assertEquals(selected.map(({ id }) => id), ["m2", "m3", "m4", "m5"]);
+  assertEquals(
+    selected.map(({ id }) => id),
+    ["m2", "m3", "m4", "m5"],
+  );
 });
 
 Deno.test("selectActiveConversation starts over after a meaningful inactivity gap", () => {
@@ -50,7 +53,10 @@ Deno.test("selectActiveConversation starts over after a meaningful inactivity ga
     { maxMessages: 40, inactivityGapMs: 20 * 60_000 },
   );
 
-  assertEquals(selected.map(({ id }) => id), ["new-1", "new-2"]);
+  assertEquals(
+    selected.map(({ id }) => id),
+    ["new-1", "new-2"],
+  );
 });
 
 Deno.test("selectActiveConversation excludes messages at or before reset cutoff", () => {
@@ -63,7 +69,10 @@ Deno.test("selectActiveConversation excludes messages at or before reset cutoff"
     },
   );
 
-  assertEquals(selected.map(({ id }) => id), ["new"]);
+  assertEquals(
+    selected.map(({ id }) => id),
+    ["new"],
+  );
 });
 
 Deno.test("Discord reply mapping carries an explicit older reference into AI context", () => {
@@ -89,62 +98,68 @@ Deno.test("Discord reply mapping carries an explicit older reference into AI con
   });
 });
 
-Deno.test("video and other non-image attachments stay out of direct and replied-to image context", () => {
-  const attachments = [
-    { filename: "clip.mov", content_type: "video/quicktime" },
-    { filename: "misleading.png", content_type: "video/mp4" },
-    { filename: "clip.mp4" },
-    { filename: "unknown.bin" },
-    { filename: "diagram.svg", content_type: "image/svg+xml" },
-    { filename: "scan.tiff", content_type: "image/tiff" },
-    { filename: "document.pdf", content_type: "application/pdf" },
-    {},
-  ].map((metadata) => ({
-    url: "https://cdn.example.com/clip.mov?signature=example",
-    width: 640,
-    height: 360,
-    ...metadata,
-  }));
-  const mapped = oMapDiscordMessage({
-    content: "What about this?",
-    attachments,
-    referenced_message: { content: "the clip", attachments },
-  });
+Deno.test(
+  "video and other non-image attachments stay out of direct and replied-to image context",
+  () => {
+    const attachments = [
+      { filename: "clip.mov", content_type: "video/quicktime" },
+      { filename: "misleading.png", content_type: "video/mp4" },
+      { filename: "clip.mp4" },
+      { filename: "unknown.bin" },
+      { filename: "diagram.svg", content_type: "image/svg+xml" },
+      { filename: "scan.tiff", content_type: "image/tiff" },
+      { filename: "document.pdf", content_type: "application/pdf" },
+      {},
+    ].map((metadata) => ({
+      url: "https://cdn.example.com/clip.mov?signature=example",
+      width: 640,
+      height: 360,
+      ...metadata,
+    }));
+    const mapped = oMapDiscordMessage({
+      content: "What about this?",
+      attachments,
+      referenced_message: { content: "the clip", attachments },
+    });
 
-  assertEquals(mapped.imageUrls, []);
-  assertEquals(mapped.referencedMessage?.imageUrls, []);
-  assertEquals(oToAiContextMessage(mapped).repliedTo, {
-    id: "",
-    author: "unknown",
-    content: "the clip",
-    imageUrls: [],
-    timestamp: null,
-  });
-});
+    assertEquals(mapped.imageUrls, []);
+    assertEquals(mapped.referencedMessage?.imageUrls, []);
+    assertEquals(oToAiContextMessage(mapped).repliedTo, {
+      id: "",
+      author: "unknown",
+      content: "the clip",
+      imageUrls: [],
+      timestamp: null,
+    });
+  },
+);
 
-Deno.test("supported images retain MIME, filename, and URL fallbacks without dimension guesses", () => {
-  const mapped = oMapDiscordMessage({
-    attachments: [
-      { url: "https://cdn.example.com/opaque", content_type: "image/png" },
-      { url: "https://cdn.example.com/photo.JPG", filename: "photo.JPG" },
-      {
-        url: "https://cdn.example.com/photo.webp",
-        filename: "photo.webp",
-        content_type: "application/octet-stream",
-      },
-      { proxy_url: "https://cdn.example.com/photo.jpeg?signature=example" },
-      { url: "https://cdn.example.com/still.gif", content_type: "image/gif" },
-      { url: "https://cdn.example.com/normalized", content_type: " IMAGE/JPEG; charset=binary " },
-      { url: "not-a-url", width: 100, height: 100 },
-    ],
-  });
+Deno.test(
+  "supported images retain MIME, filename, and URL fallbacks without dimension guesses",
+  () => {
+    const mapped = oMapDiscordMessage({
+      attachments: [
+        { url: "https://cdn.example.com/opaque", content_type: "image/png" },
+        { url: "https://cdn.example.com/photo.JPG", filename: "photo.JPG" },
+        {
+          url: "https://cdn.example.com/photo.webp",
+          filename: "photo.webp",
+          content_type: "application/octet-stream",
+        },
+        { proxy_url: "https://cdn.example.com/photo.jpeg?signature=example" },
+        { url: "https://cdn.example.com/still.gif", content_type: "image/gif" },
+        { url: "https://cdn.example.com/normalized", content_type: " IMAGE/JPEG; charset=binary " },
+        { url: "not-a-url", width: 100, height: 100 },
+      ],
+    });
 
-  assertEquals(mapped.imageUrls, [
-    "https://cdn.example.com/opaque",
-    "https://cdn.example.com/photo.JPG",
-    "https://cdn.example.com/photo.webp",
-    "https://cdn.example.com/photo.jpeg?signature=example",
-    "https://cdn.example.com/still.gif",
-    "https://cdn.example.com/normalized",
-  ]);
-});
+    assertEquals(mapped.imageUrls, [
+      "https://cdn.example.com/opaque",
+      "https://cdn.example.com/photo.JPG",
+      "https://cdn.example.com/photo.webp",
+      "https://cdn.example.com/photo.jpeg?signature=example",
+      "https://cdn.example.com/still.gif",
+      "https://cdn.example.com/normalized",
+    ]);
+  },
+);

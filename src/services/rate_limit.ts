@@ -13,12 +13,8 @@ export interface RateLimitResult {
   resetInMs: number;
 }
 
-export type RequestAdmission =
-  & RateLimitResult
-  & (
-    | { allowed: true }
-    | { allowed: false; reason: "user_limit" | "daily_budget" }
-  );
+export type RequestAdmission = RateLimitResult &
+  ({ allowed: true } | { allowed: false; reason: "user_limit" | "daily_budget" });
 
 export interface BudgetResult {
   allowed: boolean;
@@ -55,7 +51,7 @@ async function retryConflict(attempt: number): Promise<void> {
     throw new Error("AI usage transaction failed after repeated conflicts");
   }
   await new Promise((resolve) =>
-    setTimeout(resolve, 1 + Math.random() * Math.min(32, 2 ** Math.min(attempt, 5)))
+    setTimeout(resolve, 1 + Math.random() * Math.min(32, 2 ** Math.min(attempt, 5))),
   );
 }
 
@@ -79,7 +75,7 @@ export function createRateLimitService(
     enforceBudget: boolean,
     enforceUserLimit: boolean,
   ): Promise<RequestAdmission> {
-    for (let attempt = 1;; attempt++) {
+    for (let attempt = 1; ; attempt++) {
       const current = bucket();
       const userKey = ["ai_usage", "user", userId, current.minute];
       const requestsKey = ["ai_usage", "daily_requests", current.date];
@@ -106,7 +102,9 @@ export function createRateLimitService(
       if (enforceBudget && (tokens.value ?? 0) >= config.aiDailyTokenBudget) {
         return { ...result, allowed: false, reason: "daily_budget" };
       }
-      const transaction = kv.atomic().check(user, requests)
+      const transaction = kv
+        .atomic()
+        .check(user, requests)
         .set(userKey, count + 1, { expireIn: MINUTE_TTL_MS })
         .set(requestsKey, (requests.value ?? 0) + 1, { expireIn: DAILY_TTL_MS });
       // If completed usage changed during admission, retry the budget check.
@@ -153,12 +151,15 @@ export function createRateLimitService(
       }
       // Pin the recording day before retries; one update cannot cross buckets.
       const key = ["ai_usage", "daily_tokens", bucket().date];
-      for (let attempt = 1;; attempt++) {
+      for (let attempt = 1; ; attempt++) {
         const entry = await kv.get<number>(key);
         const total = (entry.value ?? 0) + tokens;
         if (!Number.isSafeInteger(total)) throw new RangeError("AI token counter overflow");
-        const result = await kv.atomic().check(entry)
-          .set(key, total, { expireIn: DAILY_TTL_MS }).commit();
+        const result = await kv
+          .atomic()
+          .check(entry)
+          .set(key, total, { expireIn: DAILY_TTL_MS })
+          .commit();
         if (result.ok) return;
         await retryConflict(attempt);
       }

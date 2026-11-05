@@ -48,7 +48,11 @@ function testGroup(label: string, expected: Expected, baseline: Map<string, numb
   const report = join(dir, `${label}.xml`);
   const problems: string[] = [];
   const exitCode = run([
-    "bun", "test", "--isolate", "--reporter=junit", `--reporter-outfile=${report}`,
+    "bun",
+    "test",
+    "--isolate",
+    "--reporter=junit",
+    `--reporter-outfile=${report}`,
     ...files.map((file) => `./${file}`),
   ]);
   if (exitCode !== 0) problems.push(`${label}: bun test exited with ${exitCode}`);
@@ -84,5 +88,7 @@ if (import.meta.main) {
     console.error(`\nMigration gate FAILED:\n- ${problems.join("\n- ")}`);
     process.exit(1);
   }
-  console.log(`\nMigration gate passed: ${count(ported.unit)} unit and ${count(ported.transport)} transport files.`);
+  console.log(
+    `\nMigration gate passed: ${count(ported.unit)} unit and ${count(ported.transport)} transport files.`,
+  );
 }
