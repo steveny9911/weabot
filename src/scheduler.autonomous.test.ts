@@ -1,8 +1,11 @@
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
+import { asFetch } from "../test_support/fetch.ts";
+import { assert } from "../test_support/assert.ts";
 import type { AiResult, AiService } from "../ai_service.ts";
 import type { AppConfig } from "./config.ts";
 import type { RecentDiscordMessage } from "./features/chat_context/mod.ts";
-import { registerCronJobs } from "./scheduler.ts";
+import { type CronRegistrar, registerCronJobs } from "./scheduler.ts";
+import { openDatabase } from "./db/database.ts";
 import { createRateLimitService } from "./services/rate_limit.ts";
 import { createStorageService } from "./services/storage.ts";
 
@@ -91,19 +94,15 @@ async function withAutonomousJob(
   test: (fixture: Fixture) => Promise<void>,
   options: FixtureOptions = {},
 ) {
-  const kv = await Deno.openKv(":memory:");
-  const originalCron = Deno.cron;
+  const kv = openDatabase(":memory:");
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
   const originalRandom = Math.random;
   Math.random = () => 0;
   let now = Date.parse("2026-09-05T12:34:00Z");
-  const jobs = new Map<string, () => Promise<void>>();
-  Deno.cron = ((name, _schedule, handler) => {
-    jobs.set(name, handler as () => Promise<void>);
-    return Promise.resolve();
-  }) as typeof Deno.cron;
-  globalThis.fetch = () => Promise.resolve(Response.json({ id: "bot" }));
+  const jobs = new Map<string, () => Promise<void> | void>();
+  const cron: CronRegistrar = (name, _schedule, handler) => jobs.set(name, handler);
+  globalThis.fetch = asFetch(() => Promise.resolve(Response.json({ id: "bot" })));
   Date.now = () => now;
   try {
     const settings = { ...config(), ...options.settings };
@@ -127,6 +126,7 @@ async function withAutonomousJob(
     let run: () => Promise<void>;
     const restart = () => {
       registerCronJobs(
+        cron,
         settings,
         {
           ...(options.getReactionContext ? { getReactionContext: options.getReactionContext } : {}),
@@ -167,7 +167,7 @@ async function withAutonomousJob(
       );
       const job = jobs.get("Autonomous Chat");
       assert(job);
-      run = job;
+      run = async () => await job();
     };
     restart();
     await test({
@@ -183,7 +183,6 @@ async function withAutonomousJob(
       reactions,
     });
   } finally {
-    Deno.cron = originalCron;
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
     Math.random = originalRandom;
@@ -191,66 +190,56 @@ async function withAutonomousJob(
   }
 }
 
-Deno.test(
-  "autonomous chat counts successful usage and blocks fresh activity at the soft budget",
-  () =>
-    withAutonomousJob(reply, async (fixture) => {
-      await fixture.rateLimit.recordTokenUsage(99);
-      await fixture.run();
-      fixture.advance(60_001);
-      fixture.messages.set("channel", [fixture.humanMessage("next-message")]);
-      await fixture.run();
-      assertEquals(fixture.generations.length, 1);
-      assertEquals(fixture.posts, ["Lovely day!"]);
-      assertEquals(await fixture.rateLimit.getUsageStats(), {
-        dailyTokensUsed: 109,
-        dailyTokenBudget: 100,
-        requestsToday: 1,
-      });
-    }),
-);
+test("autonomous chat counts successful usage and blocks fresh activity at the soft budget", () =>
+  withAutonomousJob(reply, async (fixture) => {
+    await fixture.rateLimit.recordTokenUsage(99);
+    await fixture.run();
+    fixture.advance(60_001);
+    fixture.messages.set("channel", [fixture.humanMessage("next-message")]);
+    await fixture.run();
+    expect(fixture.generations.length).toStrictEqual(1);
+    expect(fixture.posts).toStrictEqual(["Lovely day!"]);
+    expect(await fixture.rateLimit.getUsageStats()).toStrictEqual({
+      dailyTokensUsed: 109,
+      dailyTokenBudget: 100,
+      requestsToday: 1,
+    });
+  }));
 
-Deno.test(
-  "autonomous chat records failed generation tokens and does not reconsider its batch",
-  () =>
-    withAutonomousJob(
-      { ok: false, error: "generation failed", tokensUsed: 10 },
-      async (fixture) => {
-        await fixture.run();
-        fixture.advance(60_001);
-        fixture.restart();
-        await fixture.run();
-        assertEquals(fixture.generations.length, 1);
-        assertEquals(fixture.posts, []);
-        assertEquals(fixture.reactions, []);
-        assertEquals(await fixture.rateLimit.getUsageStats(), {
-          dailyTokensUsed: 10,
-          dailyTokenBudget: 100,
-          requestsToday: 1,
-        });
-      },
-    ),
-);
+test("autonomous chat records failed generation tokens and does not reconsider its batch", () =>
+  withAutonomousJob({ ok: false, error: "generation failed", tokensUsed: 10 }, async (fixture) => {
+    await fixture.run();
+    fixture.advance(60_001);
+    fixture.restart();
+    await fixture.run();
+    expect(fixture.generations.length).toStrictEqual(1);
+    expect(fixture.posts).toStrictEqual([]);
+    expect(fixture.reactions).toStrictEqual([]);
+    expect(await fixture.rateLimit.getUsageStats()).toStrictEqual({
+      dailyTokensUsed: 10,
+      dailyTokenBudget: 100,
+      requestsToday: 1,
+    });
+  }));
 
-Deno.test("autonomous failed generation tokens block fresh activity at the soft budget", () =>
+test("autonomous failed generation tokens block fresh activity at the soft budget", () =>
   withAutonomousJob({ ok: false, error: "generation failed", tokensUsed: 10 }, async (fixture) => {
     await fixture.rateLimit.recordTokenUsage(99);
     await fixture.run();
     fixture.advance(60_001);
     fixture.messages.set("channel", [fixture.humanMessage("next-message")]);
     await fixture.run();
-    assertEquals(fixture.generations.length, 1);
-    assertEquals(fixture.posts, []);
-    assertEquals(fixture.reactions, []);
-    assertEquals(await fixture.rateLimit.getUsageStats(), {
+    expect(fixture.generations.length).toStrictEqual(1);
+    expect(fixture.posts).toStrictEqual([]);
+    expect(fixture.reactions).toStrictEqual([]);
+    expect(await fixture.rateLimit.getUsageStats()).toStrictEqual({
       dailyTokensUsed: 109,
       dailyTokenBudget: 100,
       requestsToday: 1,
     });
-  }),
-);
+  }));
 
-Deno.test("autonomous chat preserves its exemption from the human per-minute limit", () =>
+test("autonomous chat preserves its exemption from the human per-minute limit", () =>
   withAutonomousJob(
     reply,
     async (fixture) => {
@@ -259,81 +248,74 @@ Deno.test("autonomous chat preserves its exemption from the human per-minute lim
       fixture.advance(1000);
       fixture.messages.set("channel", [fixture.humanMessage("next-message", 0)]);
       await fixture.run();
-      assertEquals(fixture.generations.length, 2);
-      assertEquals(fixture.posts, ["Lovely day!", "Lovely day!"]);
-      assertEquals(await fixture.rateLimit.getUsageStats(), {
+      expect(fixture.generations.length).toStrictEqual(2);
+      expect(fixture.posts).toStrictEqual(["Lovely day!", "Lovely day!"]);
+      expect(await fixture.rateLimit.getUsageStats()).toStrictEqual({
         dailyTokensUsed: 20,
         dailyTokenBudget: 100,
         requestsToday: 2,
       });
     },
     { settings: { autonomousChatCooldownMinutes: 0.001 } },
-  ),
-);
+  ));
 
-Deno.test(
-  "autonomous chat skips generation and request counting when budget is already exhausted",
-  () =>
-    withAutonomousJob(reply, async (fixture) => {
-      await fixture.rateLimit.recordTokenUsage(100);
-      await fixture.run();
-      assertEquals(fixture.generations.length, 0);
-      assertEquals(fixture.posts, []);
-      assertEquals(fixture.reactions, []);
-      assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 0);
-      assertEquals(await fixture.storage.getAutonomousParticipation("channel"), null);
-    }),
-);
+test("autonomous chat skips generation and request counting when budget is already exhausted", () =>
+  withAutonomousJob(reply, async (fixture) => {
+    await fixture.rateLimit.recordTokenUsage(100);
+    await fixture.run();
+    expect(fixture.generations.length).toStrictEqual(0);
+    expect(fixture.posts).toStrictEqual([]);
+    expect(fixture.reactions).toStrictEqual([]);
+    expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(0);
+    expect(await fixture.storage.getAutonomousParticipation("channel")).toStrictEqual(null);
+  }));
 
-Deno.test("autonomous reaction sends one emoji without text and survives scheduler restarts", () =>
+test("autonomous reaction sends one emoji without text and survives scheduler restarts", () =>
   withAutonomousJob(react, async (fixture) => {
     await fixture.run();
     const options = fixture.generations[0].options;
     assert(options && "mode" in options);
-    assertEquals(options.mode, "autonomous");
-    assertEquals(options.allowedMessageIds, ["message"]);
+    expect(options.mode).toStrictEqual("autonomous");
+    expect(options.allowedMessageIds).toStrictEqual(["message"]);
     assert(options.instructions.includes("Haru"));
     fixture.advance(60_001);
     await fixture.run();
     fixture.restart();
     await fixture.run();
-    assertEquals(fixture.generations.length, 1);
-    assertEquals(fixture.posts, []);
-    assertEquals(fixture.reactions, [{ channelId: "channel", messageId: "message", emoji: "😂" }]);
-    assertEquals(await fixture.rateLimit.getUsageStats(), {
+    expect(fixture.generations.length).toStrictEqual(1);
+    expect(fixture.posts).toStrictEqual([]);
+    expect(fixture.reactions).toStrictEqual([
+      { channelId: "channel", messageId: "message", emoji: "😂" },
+    ]);
+    expect(await fixture.rateLimit.getUsageStats()).toStrictEqual({
       dailyTokensUsed: 10,
       dailyTokenBudget: 100,
       requestsToday: 1,
     });
-  }),
-);
+  }));
 
-Deno.test("autonomous silence emits no text or reaction and consumes the activity once", () =>
+test("autonomous silence emits no text or reaction and consumes the activity once", () =>
   withAutonomousJob(silent, async (fixture) => {
     await fixture.run();
     fixture.advance(60_001);
     fixture.restart();
     await fixture.run();
-    assertEquals(fixture.generations.length, 1);
-    assertEquals(fixture.posts, []);
-    assertEquals(fixture.reactions, []);
-    assertEquals((await fixture.rateLimit.getUsageStats()).dailyTokensUsed, 10);
-    assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 1);
-  }),
-);
+    expect(fixture.generations.length).toStrictEqual(1);
+    expect(fixture.posts).toStrictEqual([]);
+    expect(fixture.reactions).toStrictEqual([]);
+    expect((await fixture.rateLimit.getUsageStats()).dailyTokensUsed).toStrictEqual(10);
+    expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
+  }));
 
-Deno.test(
-  "autonomous chat does not use legacy text as fallback for a missing participation decision",
-  () =>
-    withAutonomousJob(
-      { ok: true, text: "Needless fallback text", tokensUsed: 10 },
-      async (fixture) => {
-        await fixture.run();
-        assertEquals(fixture.posts, []);
-        assertEquals(fixture.reactions, []);
-      },
-    ),
-);
+test("autonomous chat does not use legacy text as fallback for a missing participation decision", () =>
+  withAutonomousJob(
+    { ok: true, text: "Needless fallback text", tokensUsed: 10 },
+    async (fixture) => {
+      await fixture.run();
+      expect(fixture.posts).toStrictEqual([]);
+      expect(fixture.reactions).toStrictEqual([]);
+    },
+  ));
 
 for (const failure of [
   { name: "missing permissions", status: 403, code: 50013 },
@@ -343,7 +325,7 @@ for (const failure of [
   { name: "server error", status: 503, code: 0 },
   { name: "ambiguous network error" },
 ]) {
-  Deno.test(`autonomous reaction handles ${failure.name} without retries or fallback text`, () =>
+  test(`autonomous reaction handles ${failure.name} without retries or fallback text`, () =>
     withAutonomousJob(
       react,
       async (fixture) => {
@@ -351,11 +333,11 @@ for (const failure of [
         fixture.advance(60_001);
         fixture.restart();
         await fixture.run();
-        assertEquals(fixture.generations.length, 1);
-        assertEquals(fixture.reactions.length, 1);
-        assertEquals(fixture.posts, []);
-        assertEquals((await fixture.rateLimit.getUsageStats()).dailyTokensUsed, 10);
-        assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 1);
+        expect(fixture.generations.length).toStrictEqual(1);
+        expect(fixture.reactions.length).toStrictEqual(1);
+        expect(fixture.posts).toStrictEqual([]);
+        expect((await fixture.rateLimit.getUsageStats()).dailyTokensUsed).toStrictEqual(10);
+        expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
       },
       {
         reaction: () =>
@@ -370,33 +352,28 @@ for (const failure of [
               )
             : Promise.reject(new TypeError("network connection lost")),
       },
-    ),
-  );
+    ));
 }
 
-Deno.test(
-  "autonomous participation skips fresh humans during cooldown then permits new activity",
-  () =>
-    withAutonomousJob(silent, async (fixture) => {
-      await fixture.run();
-      fixture.advance(30_000);
-      fixture.messages.set("channel", [fixture.humanMessage("new-message")]);
-      await fixture.run();
-      assertEquals(fixture.generations.length, 1);
-      assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 1);
-      fixture.advance(30_001);
-      await fixture.run();
-      assertEquals(fixture.generations.length, 2);
-      assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 2);
-      assertEquals(
-        (await fixture.storage.getAutonomousParticipation("channel"))?.latestHumanMessageId,
-        "new-message",
-      );
-    }),
-);
+test("autonomous participation skips fresh humans during cooldown then permits new activity", () =>
+  withAutonomousJob(silent, async (fixture) => {
+    await fixture.run();
+    fixture.advance(30_000);
+    fixture.messages.set("channel", [fixture.humanMessage("new-message")]);
+    await fixture.run();
+    expect(fixture.generations.length).toStrictEqual(1);
+    expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
+    fixture.advance(30_001);
+    await fixture.run();
+    expect(fixture.generations.length).toStrictEqual(2);
+    expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(2);
+    expect(
+      (await fixture.storage.getAutonomousParticipation("channel"))?.latestHumanMessageId,
+    ).toStrictEqual("new-message");
+  }));
 
 for (const target of ["self-message", "bot-message", "already-reacted", "unknown-message"]) {
-  Deno.test(`autonomous chat refuses reaction target ${target}`, () =>
+  test(`autonomous chat refuses reaction target ${target}`, () =>
     withAutonomousJob(
       {
         ok: true,
@@ -414,38 +391,36 @@ for (const target of ["self-message", "bot-message", "already-reacted", "unknown
         await fixture.run();
         const options = fixture.generations[0].options;
         assert(options && "mode" in options);
-        assertEquals(options.allowedMessageIds, ["message"]);
-        assertEquals(fixture.posts, []);
-        assertEquals(fixture.reactions, []);
+        expect(options.allowedMessageIds).toStrictEqual(["message"]);
+        expect(fixture.posts).toStrictEqual([]);
+        expect(fixture.reactions).toStrictEqual([]);
       },
-    ),
-  );
+    ));
 }
 
-Deno.test("autonomous chat never generates from only bots or its own messages", () =>
+test("autonomous chat never generates from only bots or its own messages", () =>
   withAutonomousJob(reply, async (fixture) => {
     fixture.messages.set("channel", [
       { ...fixture.humanMessage("self-message"), authorId: "bot", authorBot: false },
       { ...fixture.humanMessage("bot-message"), authorId: "other-bot", authorBot: true },
     ]);
     await fixture.run();
-    assertEquals(fixture.generations.length, 0);
-    assertEquals(fixture.posts, []);
-    assertEquals(fixture.reactions, []);
-    assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 0);
-  }),
-);
+    expect(fixture.generations.length).toStrictEqual(0);
+    expect(fixture.posts).toStrictEqual([]);
+    expect(fixture.reactions).toStrictEqual([]);
+    expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(0);
+  }));
 
-Deno.test("autonomous channel read failure does not block participation in the next channel", () =>
+test("autonomous channel read failure does not block participation in the next channel", () =>
   withAutonomousJob(
     react,
     async (fixture) => {
       await fixture.run();
-      assertEquals(fixture.generations.length, 1);
-      assertEquals(fixture.reactions, [
+      expect(fixture.generations.length).toStrictEqual(1);
+      expect(fixture.reactions).toStrictEqual([
         { channelId: "working", messageId: "message", emoji: "😂" },
       ]);
-      assertEquals(fixture.posts, []);
+      expect(fixture.posts).toStrictEqual([]);
     },
     {
       settings: { autonomousChatChannelIds: ["unavailable", "working"] },
@@ -464,20 +439,19 @@ Deno.test("autonomous channel read failure does not block participation in the n
               },
             ]),
     },
-  ),
-);
+  ));
 
-Deno.test("autonomous failed reaction does not block the next channel", () =>
+test("autonomous failed reaction does not block the next channel", () =>
   withAutonomousJob(
     react,
     async (fixture) => {
       await fixture.run();
-      assertEquals(fixture.generations.length, 2);
-      assertEquals(
-        fixture.reactions.map((reaction) => reaction.channelId),
-        ["unavailable", "working"],
-      );
-      assertEquals(fixture.posts, []);
+      expect(fixture.generations.length).toStrictEqual(2);
+      expect(fixture.reactions.map((reaction) => reaction.channelId)).toStrictEqual([
+        "unavailable",
+        "working",
+      ]);
+      expect(fixture.posts).toStrictEqual([]);
     },
     {
       settings: { autonomousChatChannelIds: ["unavailable", "working"] },
@@ -486,10 +460,9 @@ Deno.test("autonomous failed reaction does not block the next channel", () =>
           ? Promise.reject(new TypeError("network connection lost"))
           : Promise.resolve(new Response(null, { status: 204 })),
     },
-  ),
-);
+  ));
 
-Deno.test("autonomous chat skips an overlapping scheduled run", async () => {
+test("autonomous chat skips an overlapping scheduled run", async () => {
   let finish!: (result: AiResult) => void;
   let started!: () => void;
   const entered = new Promise<void>((resolve) => (started = resolve));
@@ -503,19 +476,19 @@ Deno.test("autonomous chat skips an overlapping scheduled run", async () => {
       await entered;
       try {
         await fixture.run();
-        assertEquals(fixture.generations.length, 1);
-        assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 1);
+        expect(fixture.generations.length).toStrictEqual(1);
+        expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
       } finally {
         finish(react);
         await firstRun;
       }
-      assertEquals(fixture.reactions.length, 1);
-      assertEquals(fixture.posts, []);
+      expect(fixture.reactions.length).toStrictEqual(1);
+      expect(fixture.posts).toStrictEqual([]);
     },
   );
 });
 
-Deno.test("autonomous reaction cooldown starts after slow generation finishes", async () => {
+test("autonomous reaction cooldown starts after slow generation finishes", async () => {
   let advance!: Fixture["advance"];
   let firstGeneration = true;
   await withAutonomousJob(
@@ -532,32 +505,31 @@ Deno.test("autonomous reaction cooldown starts after slow generation finishes", 
       advance = fixture.advance;
       const startedAt = Date.now();
       await fixture.run();
-      assertEquals(fixture.reactions.length, 1);
+      expect(fixture.reactions.length).toStrictEqual(1);
 
       // The next scheduled minute is only one second after the reaction finished.
       fixture.advance(1000);
       fixture.messages.set("channel", [fixture.humanMessage("next-message", 0)]);
       fixture.restart();
       await fixture.run();
-      assertEquals(fixture.generations.length, 1);
-      assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 1);
-      assertEquals(
+      expect(fixture.generations.length).toStrictEqual(1);
+      expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
+      expect(
         (await fixture.storage.getAutonomousParticipation("channel"))?.attemptedAt,
-        startedAt + 59_000,
-      );
+      ).toStrictEqual(startedAt + 59_000);
 
       fixture.advance(59_000);
       await fixture.run();
-      assertEquals(fixture.generations.length, 2);
-      assertEquals(fixture.reactions.length, 1);
-      assertEquals(fixture.posts, []);
-      assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 2);
-      assertEquals((await fixture.rateLimit.getUsageStats()).dailyTokensUsed, 20);
+      expect(fixture.generations.length).toStrictEqual(2);
+      expect(fixture.reactions.length).toStrictEqual(1);
+      expect(fixture.posts).toStrictEqual([]);
+      expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(2);
+      expect((await fixture.rateLimit.getUsageStats()).dailyTokensUsed).toStrictEqual(20);
     },
   );
 });
 
-Deno.test("autonomous reaction cooldown starts after slow Discord delivery finishes", async () => {
+test("autonomous reaction cooldown starts after slow Discord delivery finishes", async () => {
   let advance!: Fixture["advance"];
   let firstDelivery = true;
   await withAutonomousJob(
@@ -577,22 +549,22 @@ Deno.test("autonomous reaction cooldown starts after slow Discord delivery finis
     async (fixture) => {
       advance = fixture.advance;
       await fixture.run();
-      assertEquals(fixture.reactions.length, 1);
+      expect(fixture.reactions.length).toStrictEqual(1);
       fixture.advance(1000);
       fixture.messages.set("channel", [fixture.humanMessage("next-message", 0)]);
       fixture.restart();
       await fixture.run();
-      assertEquals(fixture.generations.length, 1);
-      assertEquals((await fixture.rateLimit.getUsageStats()).requestsToday, 1);
+      expect(fixture.generations.length).toStrictEqual(1);
+      expect((await fixture.rateLimit.getUsageStats()).requestsToday).toStrictEqual(1);
 
       fixture.advance(59_000);
       await fixture.run();
-      assertEquals(fixture.generations.length, 2);
-      assertEquals(
-        fixture.reactions.map(({ messageId }) => messageId),
-        ["message", "next-message"],
-      );
-      assertEquals(fixture.posts, []);
+      expect(fixture.generations.length).toStrictEqual(2);
+      expect(fixture.reactions.map(({ messageId }) => messageId)).toStrictEqual([
+        "message",
+        "next-message",
+      ]);
+      expect(fixture.posts).toStrictEqual([]);
     },
     {
       reaction: async () => {
@@ -607,13 +579,13 @@ Deno.test("autonomous reaction cooldown starts after slow Discord delivery finis
   );
 });
 
-Deno.test("missing channel reaction permission prevents a write", () =>
+test("missing channel reaction permission prevents a write", () =>
   withAutonomousJob(
     react,
     async (f) => {
       await f.run();
-      assertEquals(f.reactions, []);
-      assertEquals(f.posts, []);
+      expect(f.reactions).toStrictEqual([]);
+      expect(f.posts).toStrictEqual([]);
     },
     {
       getReactionContext: (channelId) =>
@@ -625,9 +597,8 @@ Deno.test("missing channel reaction permission prevents a write", () =>
           emojis: [],
         }),
     },
-  ),
-);
-Deno.test("a deleted or edited target is rejected immediately before delivery", async () => {
+  ));
+test("a deleted or edited target is rejected immediately before delivery", async () => {
   for (const changed of [
     null,
     {
@@ -644,23 +615,23 @@ Deno.test("a deleted or edited target is rejected immediately before delivery", 
       react,
       async (f) => {
         await f.run();
-        assertEquals(f.reactions, []);
-        assertEquals(f.posts, []);
+        expect(f.reactions).toStrictEqual([]);
+        expect(f.posts).toStrictEqual([]);
       },
       { getMessage: () => Promise.resolve(changed) },
     );
   }
 });
-Deno.test("new human activity arriving during generation cancels the stale reaction", () =>
+test("new human activity arriving during generation cancels the stale reaction", () =>
   withAutonomousJob(
     ({ messages }) => {
-      assertEquals(messages.length, 1);
+      expect(messages.length).toStrictEqual(1);
       return Promise.resolve(react);
     },
     async (f) => {
       // Change the second read, not the initial snapshot.
       await f.run();
-      assertEquals(f.reactions, []);
+      expect(f.reactions).toStrictEqual([]);
     },
     {
       getRecentMessages: (() => {
@@ -679,9 +650,8 @@ Deno.test("new human activity arriving during generation cancels the stale react
           ]);
       })(),
     },
-  ),
-);
-Deno.test("loss of emoji availability after generation prevents delivery", () => {
+  ));
+test("loss of emoji availability after generation prevents delivery", () => {
   let reads = 0;
   return withAutonomousJob(
     ({ options }) => {
@@ -702,7 +672,7 @@ Deno.test("loss of emoji availability after generation prevents delivery", () =>
     },
     async (f) => {
       await f.run();
-      assertEquals(f.reactions, []);
+      expect(f.reactions).toStrictEqual([]);
     },
     {
       getReactionContext: (channelId) =>
@@ -724,7 +694,7 @@ Deno.test("loss of emoji availability after generation prevents delivery", () =>
   );
 });
 
-Deno.test("a context reset during generation cancels a reaction", () => {
+test("a context reset during generation cancels a reaction", () => {
   let fixture: Fixture;
   return withAutonomousJob(
     async () => {
@@ -738,8 +708,8 @@ Deno.test("a context reset during generation cancels a reaction", () => {
     async (f) => {
       fixture = f;
       await f.run();
-      assertEquals(f.reactions, []);
-      assertEquals(f.posts, []);
+      expect(f.reactions).toStrictEqual([]);
+      expect(f.posts).toStrictEqual([]);
     },
   );
 });

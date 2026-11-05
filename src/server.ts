@@ -85,7 +85,7 @@ export function createRequestHandler(
 
           if (response.ok) {
             // Parse response to get message ID and save for collection
-            const messageData = await response.json();
+            const messageData = (await response.json()) as { id: string };
             const messageId = messageData.id;
 
             const pollRecord: PollRecord = {
@@ -125,8 +125,9 @@ export function createRequestHandler(
 
       try {
         const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
+        const startDate = new Date(endDate);
+        // UTC calendar days, so the window is the same in any process time zone.
+        startDate.setUTCDate(startDate.getUTCDate() - days);
 
         const results: string[] = [];
         let successCount = 0;
@@ -271,8 +272,9 @@ export function createRequestHandler(
 
       try {
         const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
+        const startDate = new Date(endDate);
+        // UTC calendar days, so the window is the same in any process time zone.
+        startDate.setUTCDate(startDate.getUTCDate() - days);
 
         const stats = await storage.getStats(
           channelId,
@@ -481,6 +483,12 @@ AI & MONITORING
   };
 }
 
+/** Logs an error thrown by a handler and returns a plain 500 without details. */
+export function serverError(error: Error): Response {
+  console.error("[SERVER] Request failed:", error);
+  return new Response("Internal Server Error", { status: 500 });
+}
+
 /** Start the production HTTP server with the same policy used by handler tests. */
 export function createServer(
   config: AppConfig,
@@ -488,6 +496,14 @@ export function createServer(
   storage: StorageService,
   dateFormatter: Intl.DateTimeFormat,
   rateLimit?: RateLimitService,
+  port = 8000,
 ) {
-  return Deno.serve(createRequestHandler(config, discord, storage, dateFormatter, rateLimit));
+  return Bun.serve({
+    port,
+    development: false,
+    // Admin routes such as /trigger_poll can run longer than Bun's 10 s default.
+    idleTimeout: 120,
+    fetch: createRequestHandler(config, discord, storage, dateFormatter, rateLimit),
+    error: serverError,
+  });
 }

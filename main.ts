@@ -2,14 +2,20 @@ import { createUsageService } from "./src/services/usage.ts";
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/services/discord.ts";
 import { createDiscordEventsClient } from "./src/services/discord_events.ts";
-import { createDiscordActionService } from "./src/features/discord_actions/mod.ts";
+import {
+  createDiscordActionService,
+  type PendingRequest,
+} from "./src/features/discord_actions/mod.ts";
+import { TurnStore } from "./src/features/discord_actions/state.ts";
+import { DEFAULT_DATABASE_PATH, openDatabase } from "./src/db/database.ts";
+import { deleteOldAiUsage } from "./src/db/maintenance.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
 import { createWebSearchService } from "./src/services/web_search.ts";
 import { createLinkOpenService } from "./src/services/link_open.ts";
 import { createAiService } from "./ai_service.ts";
 import { createServer } from "./src/server.ts";
-import { registerCronJobs } from "./src/scheduler.ts";
+import { bunCron, registerCronJobs } from "./src/scheduler.ts";
 import { startGateway } from "./discord_gateway.ts";
 import type { BotDependencies } from "./bot_actions.ts";
 
@@ -17,17 +23,17 @@ import type { BotDependencies } from "./bot_actions.ts";
 // Throws immediately if required env vars are missing (Fail Fast pattern)
 const config = loadConfig();
 
-// Production can pin the database to a persistent volume while local development
-// continues to use Deno's default per-project location.
-const kv_path = Deno.env.get("DENO_KV_PATH");
-const kv = await Deno.openKv(kv_path || undefined);
-const storage = createStorageService(kv);
+// One SQLite database for the whole process. Production sets HARU_DB_PATH to a persistent volume.
+const db_path = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
+const db = openDatabase(db_path);
+const storage = createStorageService(db);
+const action_turns = new TurnStore<PendingRequest>();
 
 // Create the Discord API client
 const discord = createDiscordClient(config.discordToken);
 
 // Create AI-related services
-const rate_limit = createRateLimitService(kv, config);
+const rate_limit = createRateLimitService(db, config);
 const ai_service = createAiService(config);
 const web_search = createWebSearchService(config);
 const link_open = createLinkOpenService(config);
@@ -43,8 +49,10 @@ const bot_deps: BotDependencies = {
   webSearchService: web_search,
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
-    kv,
+    db,
     config.timeZone,
+    undefined,
+    action_turns,
   ),
 };
 
@@ -58,12 +66,17 @@ const date_formatter = new Intl.DateTimeFormat("en-US", {
 
 // --- Register Services ---
 startGateway(config, bot_deps);
-registerCronJobs(config, discord, storage, date_formatter, ai_service, rate_limit);
+registerCronJobs(bunCron, config, discord, storage, date_formatter, ai_service, rate_limit, () => {
+  const deleted = deleteOldAiUsage(db, Date.now());
+  const expired = action_turns.sweep();
+  console.log(`[MAINTENANCE] Removed ${deleted} old AI usage day(s), ${expired} expired turn(s)`);
+});
 createServer(config, discord, storage, date_formatter, rate_limit);
 
 // --- Startup Logging ---
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);
+console.log(`   Database: ${db_path}`);
 console.log(`   Timezone: ${config.timeZone}`);
 console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");

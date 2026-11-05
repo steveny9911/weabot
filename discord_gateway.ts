@@ -116,9 +116,9 @@ export function startGateway(
               token: config.discordToken,
               intents,
               properties: {
-                os: "deno",
-                browser: "deno",
-                device: "deno",
+                os: "bun",
+                browser: "bun",
+                device: "bun",
               },
               presence: {
                 since: null,

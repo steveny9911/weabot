@@ -12,8 +12,8 @@ Status: **ready to implement**. Base: `master` at `59535bf`. This revision appli
 
 **Everything the bot does on Bun must behave the same as it did on Deno before the migration.** Deno
 itself is being removed, so Deno runtime concerns (permission flags, Deno-only workarounds, keeping
-Deno able to run the bot) get no effort. The Deno test job keeps running only as the behavior
-reference for code that has not been ported yet. Any Bun-side behavior difference is either fixed or
+Deno able to run the bot) get no effort. The Deno test job ran only as the behavior reference for
+code not yet ported, and was removed in slice 3. Any Bun-side behavior difference is either fixed or
 listed under [Behavior changes](#behavior-changes) as an explicit decision.
 
 ## Decisions
@@ -69,8 +69,8 @@ Side effects of the new runtime, all safe because every address is validated bef
 - **`/etc/hosts`.** Lookups read `/etc/hosts`. A name defined only there that points to a private
   address now reports `blocked_host` instead of `fetch_failed`.
 
-Fixed bug: weekly stats no longer drop or duplicate a day across a DST change when the process runs
-in a non-UTC time zone.
+Fixed bug: weekly stats (the Sunday job, `/stats` and `/trigger_stats`) no longer drop or duplicate
+a day across a DST change when the process runs in a non-UTC time zone.
 
 ## What changes, by file
 
@@ -83,7 +83,7 @@ in a non-UTC time zone.
 | `src/services/public_fetch.ts`                           | `Bun.dns.lookup`; Bun `fetch` pinning with `proxy: false`; `DecompressionStream`; undici removed                                                      | 2     |
 | `src/db/*` (new)                                         | Database, migrations, queries                                                                                                                         | 3     |
 | `src/services/storage.ts`, `src/services/rate_limit.ts`  | SQLite plus in-memory minute counter                                                                                                                  | 3     |
-| `src/features/discord_actions/mod.ts` and new `state.ts` | In-memory turns, pending clarifications and per-guild lock; SQLite operation records and event guards                                                 | 3     |
+| `src/features/discord_actions/mod.ts` and new `state.ts` | In-memory turns and pending clarifications; SQLite operation records and event guards                                                                 | 3     |
 | `src/scheduler.ts`                                       | Injected cron registrar; UTC date arithmetic; maintenance job                                                                                         | 3     |
 | `src/server.ts`                                          | `Bun.serve`                                                                                                                                           | 3     |
 | `main.ts`                                                | Open the database, start everything                                                                                                                   | 3     |
@@ -116,7 +116,9 @@ in a non-UTC time zone.
   `.immediate()`, so they also behave correctly if a second connection ever exists.
 - **Never `await` inside a transaction.** Network calls happen between transactions.
 - **Where a sequence must span an `await`** (checking Discord for an existing event before claiming
-  a guard), it runs under an in-memory per-guild lock rather than version checks.
+  a guard), the claim transaction re-checks what was read before the `await`, as Deno KV's `check()`
+  did. A guard is deleted only if it still has the state, result and time that were read. (Replaces
+  the earlier plan for a per-guild lock; see the slice 3 log.)
 - **Discord IDs are `TEXT`.** Times are `INTEGER` milliseconds since the epoch (UTC). Calendar dates
   are `TEXT` `YYYY-MM-DD`.
 - **Counters cannot exceed JavaScript's safe integer range** (enforced by `CHECK`).
@@ -204,18 +206,17 @@ CREATE TABLE discord_event_guards (
 
 ### In-memory state
 
-`src/features/discord_actions/state.ts` holds three pieces of state.
-
-**Turns.** A map from `(guild, channel, user)` to:
+`src/features/discord_actions/state.ts` (`TurnStore`) holds two maps keyed by
+`(guild, channel, user)`, mirroring the two Deno KV keys they replace:
 
 ```ts
-interface TurnState {
-  token: string; // crypto.randomUUID(), replaced on every new turn and on clear
+interface Turn {
+  token: string; // crypto.randomUUID(), replaced on every turn write (works like a versionstamp)
   messageId: string;
-  isReset: boolean;
-  expiresAt: number; // 20 minutes after the last turn write
-  pending?: { request: PendingRequest; expiresAt: number }; // 20 minutes after ask()
+  reset?: boolean;
 }
+// turns:   Turn,           expires 20 minutes after the last turn write
+// pending: PendingRequest, expires 20 minutes after ask()
 ```
 
 The rules, the same as today:
@@ -232,30 +233,26 @@ The rules, the same as today:
 - **`finishPending()`:** drops `pending` only if the token still matches.
 - **Expiry:** expired entries are ignored on read and removed by the maintenance job.
 
-**Per-guild lock.** A small async mutex keyed by guild ID. Event actions (create and cancel) run
-their whole "check guard, check Discord, claim, perform, record" sequence under it, so the
-read-await-write in today's `once()` cannot race.
-
 **Per-minute AI counter.** In `src/services/rate_limit.ts`, a map from `user` to
 `{ minute, count }`. Old minutes are replaced on access.
 
 ### How each operation maps
 
-| Operation                                                       | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `recordVote`                                                    | Upsert into `votes` on `(channel_id, vote_date, user_id)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `getUserHistory`                                                | `… WHERE channel_id = ? AND user_id = ? ORDER BY vote_date DESC LIMIT ?`                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `getVotesForDate`                                               | `… WHERE channel_id = ? AND vote_date = ? ORDER BY user_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `getStats`                                                      | `GROUP BY vote_date, mood` over the range. Empty days are filled in code, stepping with `setUTCDate`.                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `getConsecutiveGlueCount`                                       | Same JavaScript streak logic over the latest 30 votes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `getUsersAtRisk`                                                | `SELECT DISTINCT user_id … ORDER BY user_id`, then the streak logic per user.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `savePendingPoll`                                               | Upsert on `message_id`, resetting `collected_at` (today's `kv.set` overwrote the record).                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `getExpiredPolls`, `getAllPendingPolls`                         | `WHERE collected_at IS NULL [AND expires_at <= ?] ORDER BY message_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `markPollCollected`                                             | `UPDATE … SET collected_at = ?`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `claimAutonomousParticipation`, `finishAutonomousParticipation` | One immediate transaction: read, apply `isNewerHumanMessage` and the cooldown, upsert. The last reaction emoji is kept unless a new one is given.                                                                                                                                                                                                                                                                                                                                                                                   |
-| `admitRequest`                                                  | Synchronously, with no `await` in between: check the in-memory minute count, read today's tokens, check both limits, then increment the minute count and `ai_daily_usage.requests`.                                                                                                                                                                                                                                                                                                                                                 |
-| `recordTokenUsage`                                              | `INSERT … ON CONFLICT (usage_date) DO UPDATE SET tokens = tokens + ?`. A `CHECK` failure becomes today's `RangeError`.                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Discord action `once`                                           | Under the per-guild lock for guarded event actions: (1) if an operation row exists, return its result; (2) if a `done` guard points to an event that is no longer active on Discord, delete the guard; (3) in one transaction, check the session's token, insert the `pending` operation and the `pending` guard; (4) perform the Discord call; (5) in one transaction, mark the operation `done`, and mark the guard `done` if `result.ok \|\| result.uncertain`, otherwise delete it. If step 5 fails, the claim stays, as today. |
+| Operation                                                       | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordVote`                                                    | Upsert into `votes` on `(channel_id, vote_date, user_id)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `getUserHistory`                                                | `… WHERE channel_id = ? AND user_id = ? ORDER BY vote_date DESC LIMIT ?`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `getVotesForDate`                                               | `… WHERE channel_id = ? AND vote_date = ? ORDER BY user_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `getStats`                                                      | `GROUP BY vote_date, mood` over the range. Empty days are filled in code, stepping with `setUTCDate`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `getConsecutiveGlueCount`                                       | Same JavaScript streak logic over the latest 30 votes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `getUsersAtRisk`                                                | `SELECT DISTINCT user_id … ORDER BY user_id`, then the streak logic per user.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `savePendingPoll`                                               | Upsert on `message_id`, resetting `collected_at` (today's `kv.set` overwrote the record).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `getExpiredPolls`, `getAllPendingPolls`                         | `WHERE collected_at IS NULL [AND expires_at <= ?] ORDER BY message_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `markPollCollected`                                             | `UPDATE … SET collected_at = ?`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `claimAutonomousParticipation`, `finishAutonomousParticipation` | One immediate transaction: read, apply `isNewerHumanMessage` and the cooldown, upsert. The last reaction emoji is kept unless a new one is given.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `admitRequest`                                                  | Synchronously, with no `await` in between: check the in-memory minute count, read today's tokens, check both limits, then increment the minute count and `ai_daily_usage.requests`.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `recordTokenUsage`                                              | `INSERT … ON CONFLICT (usage_date) DO UPDATE SET tokens = tokens + ?`. A `CHECK` failure becomes today's `RangeError`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Discord action `once`                                           | (1) If an operation row exists, return its result; (2) if a `done` guard points to an event that is no longer active on Discord, delete the guard only if it is unchanged since it was read (otherwise "the matching event changed"); (3) in one transaction, check the session's token and that neither the operation nor the guard exists, then insert both as `pending`; (4) perform the Discord call; (5) in one transaction, mark the operation `done`, and mark the guard `done` if `result.ok \|\| result.uncertain`, otherwise delete it. If step 5 fails, the claim stays, as today. |
 
 ### Retention
 
@@ -273,7 +270,7 @@ src/db/
   ai_usage.ts          ai_daily_usage
   discord_actions.ts   operations and event guards
   maintenance.ts       retention deletes
-src/features/discord_actions/state.ts   turns, pending clarifications, per-guild lock
+src/features/discord_actions/state.ts   turns and pending clarifications
 ```
 
 `src/types/storage.ts` keeps its exported record types. Its `odUserId` and `odUserName` field names
@@ -585,7 +582,7 @@ import a module that still uses Deno; shared types and helpers move first.
     - the AI budget: concurrent admissions and the safe-integer limit;
     - autonomous participation;
     - turns: a new token on clear, the separate pending expiry, a stale `ask()` rejected;
-    - the per-guild lock;
+    - concurrent creation of the same event, and a stale receipt replaced concurrently;
     - operation and guard claims, including concurrent attempts;
     - maintenance.
   - Convert or rewrite `storage`, `rate_limit`, `poll_collection`, `discord_actions` (`mod`,
@@ -841,6 +838,44 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   removed in slice 5); the socket-level close tests for rejected responses are secondary to the unit
   tests that count cancellations.
 
+### Slice 3 (done)
+
+- **Database** (`src/db/`): `openDatabase()` sets the pragmas, creates the parent directory, applies
+  migrations each in an immediate transaction, and refuses a newer schema. Query modules for votes
+  and polls, chat state, AI usage, Discord action records and retention.
+- **Services:** `storage.ts`, `rate_limit.ts` and `discord_actions/mod.ts` run on SQLite with the
+  same interfaces. The KV retry loops are gone: reads and writes happen with no `await` between
+  them, inside `.immediate()` transactions.
+- **No per-guild lock.** The planned lock is not needed. Instead, the claim transaction re-checks
+  everything `once()` read before awaiting Discord (the operation, the guard and the turn token),
+  and a stale guard is deleted only if unchanged. This is exactly what Deno KV's `check()` did, so
+  the messages users see in a race are unchanged. Two new tests race two users creating the same
+  event, and two users replacing an ended event.
+- **Turns** (`TurnStore`): a fresh token on every turn write stands in for the KV versionstamp.
+  Turns and pending clarifications expire separately after 20 minutes; the hourly maintenance job
+  sweeps them. `main.ts` shares one store with the maintenance job.
+- **Rate limit:** per-user minute counts are in memory (one entry per user, replaced when the minute
+  changes). The token total's `CHECK` failure becomes `RangeError("AI token counter overflow")`.
+- **Scheduler:** `registerCronJobs(cron, …)` with `bunCron` in production (UTC, errors logged). The
+  sixth job, Maintenance at `15 * * * *`, deletes AI usage older than 30 days and expired turns. The
+  weekly window uses `setUTCDate`.
+- **Server:** `Bun.serve` on port 8000 with `development: false`, `idleTimeout: 120` and an
+  `error()` handler that logs and returns a plain 500. The `/stats` and `/trigger_stats` windows
+  also use UTC days now (same bug as the weekly job).
+- **`main.ts`:** `HARU_DB_PATH` (default `./data/haru.sqlite3`, already git-ignored). Gateway
+  IDENTIFY properties are `"bun"`.
+- **Types:** Bun types `Response.json()` as `unknown`; three Discord responses are now cast to
+  `{ id: string }`.
+- **Tests:** every non-script test file now runs on Bun (37 unit files, 663 tests; transport 43).
+  KV-inspecting tests are rewritten as behavior tests (table below). Failure injection uses SQLite
+  triggers instead of patched KV commits. The gate also type-checks `main.ts`.
+- **CI:** the Deno job is removed. `scripts/` still uses Deno until slice 4 and is not run in CI
+  meanwhile.
+- **Smoke run (local, gateway stubbed, no Discord token available here):** `/health` returns `OK`; a
+  vote write and `/stats` work; the database file is created at `user_version = 1`; the six jobs
+  register; a request that takes 12 s completes. **Still to do with a test bot:** gateway READY, a
+  mention reply, `\reset`, an event clarification, `POST /trigger_poll`, and the autonomous job.
+
 ## Future work
 
 - Switch to stable `bun lint` when it ships.
@@ -857,8 +892,16 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
 
 Filled in during the port.
 
-| File                                | Deno tests + steps | Bun tests       | Reason / replacement                                                                                                                                                                                                                        |
-| ----------------------------------- | ------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/services/public_fetch.test.ts` | 46 (2 groups)      | 44              | Five `Deno.resolveDns` tests (requires both families, family failure ×2, caller cancellation, already aborted) replaced by: default lookup and error mapping; partial family results ×2; hung lookup ends at the deadline; already aborted. |
-| `tests/public_fetch.integration.ts` | 19 (4 groups) → 15 | 22 (1 may skip) | Added: corrupt `br`, `zstd` and `constructor` encodings (3); 204/205/304 return no body (1); proxy variables ignored (1); IPv6 literal (1, skips without IPv6); exact path and port, zone ids refused (1).                                  |
-| `tests/link_open.integration.ts`    | 26 (6 groups) → 20 | 21              | Added: malformed `br` (Deno 2.6 accepted some malformed Brotli, so the Deno test left it out).                                                                                                                                              |
+| File                                               | Deno tests + steps | Bun tests       | Reason / replacement                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------- | ------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/services/public_fetch.test.ts`                | 46 (2 groups)      | 44              | Five `Deno.resolveDns` tests (requires both families, family failure ×2, caller cancellation, already aborted) replaced by: default lookup and error mapping; partial family results ×2; hung lookup ends at the deadline; already aborted.                                                                                                                                                                       |
+| `tests/public_fetch.integration.ts`                | 19 (4 groups) → 15 | 22 (1 may skip) | Added: corrupt `br`, `zstd` and `constructor` encodings (3); 204/205/304 return no body (1); proxy variables ignored (1); IPv6 literal (1, skips without IPv6); exact path and port, zone ids refused (1).                                                                                                                                                                                                        |
+| `tests/link_open.integration.ts`                   | 26 (6 groups) → 20 | 21              | Added: malformed `br` (Deno 2.6 accepted some malformed Brotli, so the Deno test left it out).                                                                                                                                                                                                                                                                                                                    |
+| `src/services/storage.test.ts`                     | 47                 | 48              | KV-only tests replaced: CAS retry → participation survives reopening the file; claim racing a read → a failed write keeps the earlier claim; bounded completion retries → completion records a reaction without moving time back; two index-failure tests → a failed `recordVote` leaves no partial vote, and `savePendingPoll` overwrites a collected poll. Added: stats across DST under `America/Los_Angeles`. |
+| `src/services/rate_limit.test.ts`                  | 22                 | 22              | KV-only tests replaced: CAS conflicts → safe-integer token limit, failed daily write consumes no allowance, request count beyond the safe range; midnight read race → a restart resets minute counts but keeps daily totals; token retry day → totals survive reopening the file; KV expirations → maintenance deletes usage older than 30 days.                                                                  |
+| `src/features/discord_actions/mod.test.ts`         | 35                 | 37              | KV commit race → a turn expired after 20 minutes cannot write or ask. Added: two users creating the same event at once; two users replacing an ended event at once.                                                                                                                                                                                                                                               |
+| `src/server.test.ts`                               | 4                  | 6               | Added: the production server answers `/health` on `Bun.serve`; a throwing handler returns a plain 500.                                                                                                                                                                                                                                                                                                            |
+| `src/scheduler.test.ts` (new)                      | —                  | 4               | Registrar runs in UTC and logs failures; six schedules are the same in any `TZ`; weekly window across DST; maintenance job.                                                                                                                                                                                                                                                                                       |
+| `src/db/database.test.ts` (new)                    | —                  | 6               | Migrations, pragmas, reopening, refusing a newer schema, failed-migration rollback, constraints.                                                                                                                                                                                                                                                                                                                  |
+| `src/db/discord_actions.test.ts` (new)             | —                  | 5               | Claims (turn check, duplicates, all-or-nothing), completion and guards, compare-and-delete of a stale guard.                                                                                                                                                                                                                                                                                                      |
+| `src/features/discord_actions/state.test.ts` (new) | —                  | 3               | New token per turn write, separate expiries, sweep.                                                                                                                                                                                                                                                                                                                                                               |

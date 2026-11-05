@@ -1,4 +1,5 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { expect, test } from "bun:test";
+import { asFetch } from "./test_support/fetch.ts";
 import {
   bMessageMentionsBot,
   getBotUserId,
@@ -12,6 +13,7 @@ import type { AiResult } from "./ai_service.ts";
 import type { BotDependencies } from "./bot_actions.ts";
 import type { AppConfig } from "./src/config.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
+import { openDatabase } from "./src/db/database.ts";
 import type { BudgetResult, RateLimitResult, UsageStats } from "./src/services/rate_limit.ts";
 import type { LinkOpenError } from "./src/services/link_open.ts";
 import type { SearchResult } from "./src/services/web_search.ts";
@@ -51,14 +53,14 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 function mockFetchMessages(messages: Array<Record<string, unknown>>): { restore: () => void } {
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) => {
+  globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
     return Promise.resolve(
       new Response(JSON.stringify(messages), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
     );
-  }) as typeof fetch;
+  });
 
   return {
     restore: () => {
@@ -89,7 +91,7 @@ function mockDiscordApiFetch(
   const posted_messages: string[] = [];
   const original_fetch = globalThis.fetch;
 
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = asFetch((input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const method = (init?.method ?? "GET").toUpperCase();
 
@@ -123,7 +125,7 @@ function mockDiscordApiFetch(
     }
 
     return Promise.resolve(new Response("not found", { status: 404 }));
-  }) as typeof fetch;
+  });
 
   return {
     postedMessages: posted_messages,
@@ -270,7 +272,7 @@ function createDeps(
   };
 }
 
-Deno.test("saveContext stores image attachment URLs in context", async () => {
+test("saveContext stores image attachment URLs in context", async () => {
   const channel_id = "channel-images-1";
   const config = createMockConfig();
   const mock = mockFetchMessages([
@@ -298,14 +300,16 @@ Deno.test("saveContext stores image attachment URLs in context", async () => {
     await saveContext(config, channel_id, 5);
     const ctx = getContext(channel_id) ?? [];
 
-    assertEquals(ctx.length, 1);
-    assertEquals(ctx[0]["imageUrls"], ["https://cdn.discordapp.com/attachments/1/2/cat.png"]);
+    expect(ctx.length).toStrictEqual(1);
+    expect(ctx[0]["imageUrls"]).toStrictEqual([
+      "https://cdn.discordapp.com/attachments/1/2/cat.png",
+    ]);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("saveContext uses image filenames without trusting dimension-only hints", async () => {
+test("saveContext uses image filenames without trusting dimension-only hints", async () => {
   const channel_id = "channel-images-2";
   const config = createMockConfig();
   const mock = mockFetchMessages([
@@ -333,14 +337,16 @@ Deno.test("saveContext uses image filenames without trusting dimension-only hint
     await saveContext(config, channel_id, 5);
     const ctx = getContext(channel_id) ?? [];
 
-    assertEquals(ctx.length, 1);
-    assertEquals(ctx[0]["imageUrls"], ["https://media.discordapp.net/attachments/3/4/dog.jpg"]);
+    expect(ctx.length).toStrictEqual(1);
+    expect(ctx[0]["imageUrls"]).toStrictEqual([
+      "https://media.discordapp.net/attachments/3/4/dog.jpg",
+    ]);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("\\open command calls linkOpenService and injects web context", async () => {
+test("\\open command calls linkOpenService and injects web context", async () => {
   const fetch_mock = mockDiscordApiFetch({
     recentMessages: [
       {
@@ -359,23 +365,23 @@ Deno.test("\\open command calls linkOpenService and injects web context", async 
 
     await handleMessage(message, ctx.deps);
 
-    assertEquals(ctx.linkCalls, ["https://example.com"]);
-    assertEquals(ctx.webSearchCalls.length, 0);
-    assertEquals(ctx.aiCalls.length, 1);
-    assertEquals(fetch_mock.postedMessages.length, 1);
-    assertEquals(fetch_mock.postedMessages[0], "AI reply");
+    expect(ctx.linkCalls).toStrictEqual(["https://example.com"]);
+    expect(ctx.webSearchCalls.length).toStrictEqual(0);
+    expect(ctx.aiCalls.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages[0]).toStrictEqual("AI reply");
 
     const ai_input = ctx.aiCalls[0];
     const web_entry = ai_input.find((m) => m["author"] === "web");
-    assertEquals(web_entry !== undefined, true);
-    assertStringIncludes(String(web_entry?.["content"] ?? ""), "Source domain: example.com");
-    assertStringIncludes(String(web_entry?.["content"] ?? ""), "Title: Example Title");
+    expect(web_entry !== undefined).toStrictEqual(true);
+    expect(String(web_entry?.["content"] ?? "")).toContain("Source domain: example.com");
+    expect(String(web_entry?.["content"] ?? "")).toContain("Title: Example Title");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("\\open command includes optional user request in web context", async () => {
+test("\\open command includes optional user request in web context", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -386,10 +392,9 @@ Deno.test("\\open command includes optional user request in web context", async 
 
     await handleMessage(message, ctx.deps);
 
-    assertEquals(ctx.aiCalls.length, 1);
+    expect(ctx.aiCalls.length).toStrictEqual(1);
     const web_entry = ctx.aiCalls[0].find((m) => m["author"] === "web");
-    assertStringIncludes(
-      String(web_entry?.["content"] ?? ""),
+    expect(String(web_entry?.["content"] ?? "")).toContain(
       "User request: what are the key points?",
     );
   } finally {
@@ -397,7 +402,7 @@ Deno.test("\\open command includes optional user request in web context", async 
   }
 });
 
-Deno.test("\\open command with multiple urls uses first URL only", async () => {
+test("\\open command with multiple urls uses first URL only", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -408,16 +413,18 @@ Deno.test("\\open command with multiple urls uses first URL only", async () => {
 
     await handleMessage(message, ctx.deps);
 
-    assertEquals(ctx.linkCalls.length, 1);
-    assertEquals(ctx.linkCalls[0], "https://first.example/a");
+    expect(ctx.linkCalls.length).toStrictEqual(1);
+    expect(ctx.linkCalls[0]).toStrictEqual("https://first.example/a");
     const web_entry = ctx.aiCalls[0].find((m) => m["author"] === "web");
-    assertEquals(String(web_entry?.["content"] ?? "").includes("https://second.example/b"), false);
+    expect(String(web_entry?.["content"] ?? "").includes("https://second.example/b")).toStrictEqual(
+      false,
+    );
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("\\open failure sends fallback message and skips AI", async () => {
+test("\\open failure sends fallback message and skips AI", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -428,15 +435,15 @@ Deno.test("\\open failure sends fallback message and skips AI", async () => {
 
     await handleMessage(message, ctx.deps);
 
-    assertEquals(ctx.aiCalls.length, 0);
-    assertEquals(fetch_mock.postedMessages.length, 1);
-    assertStringIncludes(fetch_mock.postedMessages[0], "couldn't safely open");
+    expect(ctx.aiCalls.length).toStrictEqual(0);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages[0]).toContain("couldn't safely open");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("non-open mention still uses auto-search flow", async () => {
+test("non-open mention still uses auto-search flow", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig({ webSearchEnabled: true });
@@ -450,62 +457,53 @@ Deno.test("non-open mention still uses auto-search flow", async () => {
 
     await handleMessage(message, ctx.deps);
 
-    assertEquals(ctx.linkCalls.length, 0);
-    assertEquals(ctx.webSearchCalls.length, 1);
-    assertEquals(ctx.aiCalls.length, 1);
+    expect(ctx.linkCalls.length).toStrictEqual(0);
+    expect(ctx.webSearchCalls.length).toStrictEqual(1);
+    expect(ctx.aiCalls.length).toStrictEqual(1);
     const web_entry = ctx.aiCalls[0].find((m) => m["author"] === "web");
-    assertEquals(web_entry !== undefined, true);
-    assertStringIncludes(
-      String(web_entry?.["content"] ?? ""),
-      'Reference notes for "what is deno?"',
-    );
+    expect(web_entry !== undefined).toStrictEqual(true);
+    expect(String(web_entry?.["content"] ?? "")).toContain('Reference notes for "what is deno?"');
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test(
-  "handleMessage posts one greeting GIF when final reply has greeting trigger",
-  async () => {
-    const fetch_mock = mockDiscordApiFetch();
-    try {
-      const config = createMockConfig({ webSearchEnabled: false });
-      const ctx = createDeps(config, {
-        aiResult: { ok: true, text: "Ciallo! Hello there~", tokensUsed: 7 },
-      });
+test("handleMessage posts one greeting GIF when final reply has greeting trigger", async () => {
+  const fetch_mock = mockDiscordApiFetch();
+  try {
+    const config = createMockConfig({ webSearchEnabled: false });
+    const ctx = createDeps(config, {
+      aiResult: { ok: true, text: "Ciallo! Hello there~", tokensUsed: 7 },
+    });
 
-      await handleMessage(createMentionMessage("<@12345> tell me something fun"), ctx.deps);
+    await handleMessage(createMentionMessage("<@12345> tell me something fun"), ctx.deps);
 
-      assertEquals(fetch_mock.postedMessages.length, 2);
-      assertEquals(fetch_mock.postedMessages[0], "Ciallo! Hello there~");
-      assertEquals(aszHaruGreetingGifPool.includes(fetch_mock.postedMessages[1]), true);
-    } finally {
-      fetch_mock.restore();
-    }
-  },
-);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(2);
+    expect(fetch_mock.postedMessages[0]).toStrictEqual("Ciallo! Hello there~");
+    expect(aszHaruGreetingGifPool.includes(fetch_mock.postedMessages[1])).toStrictEqual(true);
+  } finally {
+    fetch_mock.restore();
+  }
+});
 
-Deno.test(
-  "handleMessage does not post greeting GIF when final reply has no greeting trigger",
-  async () => {
-    const fetch_mock = mockDiscordApiFetch();
-    try {
-      const config = createMockConfig({ webSearchEnabled: false });
-      const ctx = createDeps(config, {
-        aiResult: { ok: true, text: "I can help with that request.", tokensUsed: 7 },
-      });
+test("handleMessage does not post greeting GIF when final reply has no greeting trigger", async () => {
+  const fetch_mock = mockDiscordApiFetch();
+  try {
+    const config = createMockConfig({ webSearchEnabled: false });
+    const ctx = createDeps(config, {
+      aiResult: { ok: true, text: "I can help with that request.", tokensUsed: 7 },
+    });
 
-      await handleMessage(createMentionMessage("<@12345> tell me something fun"), ctx.deps);
+    await handleMessage(createMentionMessage("<@12345> tell me something fun"), ctx.deps);
 
-      assertEquals(fetch_mock.postedMessages.length, 1);
-      assertEquals(fetch_mock.postedMessages[0], "I can help with that request.");
-    } finally {
-      fetch_mock.restore();
-    }
-  },
-);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages[0]).toStrictEqual("I can help with that request.");
+  } finally {
+    fetch_mock.restore();
+  }
+});
 
-Deno.test("\\open replies strip URLs from final output", async () => {
+test("\\open replies strip URLs from final output", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -516,66 +514,67 @@ Deno.test("\\open replies strip URLs from final output", async () => {
 
     await handleMessage(message, ctx.deps);
 
-    assertEquals(fetch_mock.postedMessages.length, 1);
-    assertEquals(fetch_mock.postedMessages[0].includes("http"), false);
-    assertStringIncludes(fetch_mock.postedMessages[0], "Check this out:");
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages[0].includes("http")).toStrictEqual(false);
+    expect(fetch_mock.postedMessages[0]).toContain("Check this out:");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("bMessageMentionsBot matches mention id, username, and fallback mention syntax", () => {
-  assertEquals(
+test("bMessageMentionsBot matches mention id, username, and fallback mention syntax", () => {
+  expect(
     bMessageMentionsBot(undefined as unknown as Record<string, unknown>, "bot-0"),
+  ).toStrictEqual(false);
+  expect(bMessageMentionsBot({ mentions: [{ id: "bot-1" }] }, "bot-1")).toStrictEqual(true);
+  expect(bMessageMentionsBot({ mentions: [{ username: "bot-2" }] }, "bot-2")).toStrictEqual(true);
+  expect(bMessageMentionsBot({ content: "hello <@!bot-3>" }, "bot-3")).toStrictEqual(true);
+  expect(bMessageMentionsBot({ mentions: [], content: "hello world" }, "bot-9")).toStrictEqual(
     false,
   );
-  assertEquals(bMessageMentionsBot({ mentions: [{ id: "bot-1" }] }, "bot-1"), true);
-  assertEquals(bMessageMentionsBot({ mentions: [{ username: "bot-2" }] }, "bot-2"), true);
-  assertEquals(bMessageMentionsBot({ content: "hello <@!bot-3>" }, "bot-3"), true);
-  assertEquals(bMessageMentionsBot({ mentions: [], content: "hello world" }, "bot-9"), false);
 });
 
-Deno.test("sendMessage returns missing channel error", async () => {
+test("sendMessage returns missing channel error", async () => {
   const result = await sendMessage(createMockConfig(), "", "hello");
-  assertEquals(result, { ok: false, error: "missing channelId" });
+  expect(result).toStrictEqual({ ok: false, error: "missing channelId" });
 });
 
-Deno.test("sendMessage returns discord error on non-ok response", async () => {
+test("sendMessage returns discord error on non-ok response", async () => {
   const fetch_mock = mockDiscordApiFetch({ postStatus: 500 });
   try {
     const result = await sendMessage(createMockConfig(), "chan-1", "hello");
-    assertEquals(result.ok, false);
+    expect(result.ok).toStrictEqual(false);
     if (!result.ok) {
-      assertStringIncludes(result.error, "Discord post error 500");
+      expect(result.error).toContain("Discord post error 500");
     }
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("sendMessage returns fetch error when network fails", async () => {
+test("sendMessage returns fetch error when network fails", async () => {
   const original_fetch = globalThis.fetch;
-  globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) => {
+  globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
     return Promise.reject(new Error("network down"));
-  }) as typeof fetch;
+  });
 
   try {
     const result = await sendMessage(createMockConfig(), "chan-1", "hello");
-    assertEquals(result.ok, false);
+    expect(result.ok).toStrictEqual(false);
     if (!result.ok) {
-      assertStringIncludes(result.error, "network down");
+      expect(result.error).toContain("network down");
     }
   } finally {
     globalThis.fetch = original_fetch;
   }
 });
 
-Deno.test("postPoll handles success, error response, and thrown fetch", async () => {
+test("postPoll handles success, error response, and thrown fetch", async () => {
   {
     const fetch_ok = mockDiscordApiFetch();
     try {
       await postPoll(createMockConfig(), "chan-1");
-      assertEquals(fetch_ok.postedMessages.length, 1);
+      expect(fetch_ok.postedMessages.length).toStrictEqual(1);
     } finally {
       fetch_ok.restore();
     }
@@ -585,7 +584,7 @@ Deno.test("postPoll handles success, error response, and thrown fetch", async ()
     const fetch_error = mockDiscordApiFetch({ postStatus: 500 });
     try {
       await postPoll(createMockConfig(), "chan-1");
-      assertEquals(fetch_error.postedMessages.length, 1);
+      expect(fetch_error.postedMessages.length).toStrictEqual(1);
     } finally {
       fetch_error.restore();
     }
@@ -593,9 +592,9 @@ Deno.test("postPoll handles success, error response, and thrown fetch", async ()
 
   {
     const original_fetch = globalThis.fetch;
-    globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) => {
+    globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
       return Promise.reject(new Error("poll fetch failed"));
-    }) as typeof fetch;
+    });
 
     try {
       await postPoll(createMockConfig(), "chan-1");
@@ -605,76 +604,73 @@ Deno.test("postPoll handles success, error response, and thrown fetch", async ()
   }
 });
 
-Deno.test(
-  "saveContext handles trigger inclusion, proxy_url image extraction, and trimming",
-  async () => {
-    const channel_id = "channel-savecontext-trim";
-    const config = createMockConfig();
-    const mock = mockFetchMessages([
-      {
-        id: "m3",
-        content: "newest",
-        author: { id: "u3" },
-        attachments: [
-          null,
-          {
-            content_type: "image/png",
-            filename: "missing-url.png",
-          },
-          {
-            url: "not-a-url",
-            content_type: "image/png",
-          },
-          {
-            proxy_url: "https://media.discordapp.net/attachments/1/2/proxy.webp",
-            width: 100,
-            height: 100,
-          },
-          {
-            url: "ftp://bad.example/file.png",
-            content_type: "image/png",
-          },
-        ],
-        created_at: "2026-03-01T12:00:02.000Z",
-      },
-      {
-        id: "m2",
-        content: "middle",
-        author: { id: "u2", username: "bob" },
-        created_at: "2026-03-01T12:00:01.000Z",
-      },
-      {
-        id: "m1",
-        content: "oldest",
-        author: { id: "u1", username: "alice" },
-        created_at: "2026-03-01T12:00:00.000Z",
-      },
+test("saveContext handles trigger inclusion, proxy_url image extraction, and trimming", async () => {
+  const channel_id = "channel-savecontext-trim";
+  const config = createMockConfig();
+  const mock = mockFetchMessages([
+    {
+      id: "m3",
+      content: "newest",
+      author: { id: "u3" },
+      attachments: [
+        null,
+        {
+          content_type: "image/png",
+          filename: "missing-url.png",
+        },
+        {
+          url: "not-a-url",
+          content_type: "image/png",
+        },
+        {
+          proxy_url: "https://media.discordapp.net/attachments/1/2/proxy.webp",
+          width: 100,
+          height: 100,
+        },
+        {
+          url: "ftp://bad.example/file.png",
+          content_type: "image/png",
+        },
+      ],
+      created_at: "2026-03-01T12:00:02.000Z",
+    },
+    {
+      id: "m2",
+      content: "middle",
+      author: { id: "u2", username: "bob" },
+      created_at: "2026-03-01T12:00:01.000Z",
+    },
+    {
+      id: "m1",
+      content: "oldest",
+      author: { id: "u1", username: "alice" },
+      created_at: "2026-03-01T12:00:00.000Z",
+    },
+  ]);
+
+  try {
+    await saveContext(config, channel_id, 2, {
+      id: "m2",
+      content: "trigger replacement",
+      author: { id: "u2", username: "bob" },
+      channel_id,
+      timestamp: "2026-03-01T12:00:03.000Z",
+    });
+    const ctx = getContext(channel_id) ?? [];
+    expect(ctx.length).toStrictEqual(2);
+    expect(ctx[0]["id"]).toStrictEqual("m3");
+    expect(ctx[1]["id"]).toStrictEqual("m2");
+    expect(ctx[0]["author"]).toStrictEqual("u3");
+    expect(ctx[0]["imageUrls"]).toStrictEqual([
+      "https://media.discordapp.net/attachments/1/2/proxy.webp",
     ]);
+    expect(ctx[0]["timestamp"]).toStrictEqual("2026-03-01T12:00:02.000Z");
+  } finally {
+    mock.restore();
+  }
+});
 
-    try {
-      await saveContext(config, channel_id, 2, {
-        id: "m2",
-        content: "trigger replacement",
-        author: { id: "u2", username: "bob" },
-        channel_id,
-        timestamp: "2026-03-01T12:00:03.000Z",
-      });
-      const ctx = getContext(channel_id) ?? [];
-      assertEquals(ctx.length, 2);
-      assertEquals(ctx[0]["id"], "m3");
-      assertEquals(ctx[1]["id"], "m2");
-      assertEquals(ctx[0]["author"], "u3");
-      assertEquals(ctx[0]["imageUrls"], [
-        "https://media.discordapp.net/attachments/1/2/proxy.webp",
-      ]);
-      assertEquals(ctx[0]["timestamp"], "2026-03-01T12:00:02.000Z");
-    } finally {
-      mock.restore();
-    }
-  },
-);
-
-Deno.test("saveContext excludes source messages without usable timestamps", async () => {
+test("saveContext excludes source messages without usable timestamps", async () => {
   const channel_id = "channel-no-timestamp";
   const mock = mockFetchMessages([
     {
@@ -687,23 +683,23 @@ Deno.test("saveContext excludes source messages without usable timestamps", asyn
   try {
     await saveContext(createMockConfig(), channel_id, 5);
     const ctx = getContext(channel_id) ?? [];
-    assertEquals(ctx, []);
+    expect(ctx).toStrictEqual([]);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("saveContext handles missing channel, non-ok fetch, and thrown fetch", async () => {
+test("saveContext handles missing channel, non-ok fetch, and thrown fetch", async () => {
   const config = createMockConfig();
 
   await saveContext(config, "", 5);
-  assertEquals(getContext(""), undefined);
+  expect(getContext("")).toStrictEqual(undefined);
 
   {
     const fetch_mock = mockDiscordApiFetch({ messagesStatus: 500 });
     try {
       await saveContext(config, "channel-non-ok", 5);
-      assertEquals(getContext("channel-non-ok"), undefined);
+      expect(getContext("channel-non-ok")).toStrictEqual(undefined);
     } finally {
       fetch_mock.restore();
     }
@@ -711,19 +707,19 @@ Deno.test("saveContext handles missing channel, non-ok fetch, and thrown fetch",
 
   {
     const original_fetch = globalThis.fetch;
-    globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) => {
+    globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
       return Promise.reject(new Error("save context failed"));
-    }) as typeof fetch;
+    });
     try {
       await saveContext(config, "channel-throw", 5);
-      assertEquals(getContext("channel-throw"), undefined);
+      expect(getContext("channel-throw")).toStrictEqual(undefined);
     } finally {
       globalThis.fetch = original_fetch;
     }
   }
 });
 
-Deno.test("handleMessage ignores non-mention and bot-authored messages", async () => {
+test("handleMessage ignores non-mention and bot-authored messages", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -756,14 +752,14 @@ Deno.test("handleMessage ignores non-mention and bot-authored messages", async (
     };
     await handleMessage(fromSelf, ctx.deps);
 
-    assertEquals(ctx.aiCalls.length, 0);
-    assertEquals(fetch_mock.postedMessages.length, 0);
+    expect(ctx.aiCalls.length).toStrictEqual(0);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(0);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("handleMessage exits early when message has no channel id", async () => {
+test("handleMessage exits early when message has no channel id", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig({ channelId: "" });
@@ -777,120 +773,114 @@ Deno.test("handleMessage exits early when message has no channel id", async () =
 
     await handleMessage(message, ctx.deps);
 
-    assertEquals(ctx.aiCalls.length, 0);
-    assertEquals(fetch_mock.postedMessages.length, 0);
+    expect(ctx.aiCalls.length).toStrictEqual(0);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(0);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("handleMessage exits when message payload is missing", async () => {
+test("handleMessage exits when message payload is missing", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
     const ctx = createDeps(config);
     await handleMessage(undefined as unknown as Record<string, unknown>, ctx.deps);
-    assertEquals(ctx.aiCalls.length, 0);
-    assertEquals(fetch_mock.postedMessages.length, 0);
+    expect(ctx.aiCalls.length).toStrictEqual(0);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(0);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test(
-  "handleMessage persists reset and does not reload pre-reset Discord history",
-  async () => {
-    const config = createMockConfig({ webSearchEnabled: false });
-    const preload_fetch = mockFetchMessages([
+test("handleMessage persists reset and does not reload pre-reset Discord history", async () => {
+  const config = createMockConfig({ webSearchEnabled: false });
+  const preload_fetch = mockFetchMessages([
+    {
+      id: "ctx-1",
+      content: "cached line",
+      author: { id: "u1", username: "alice" },
+      created_at: "2026-03-01T11:00:00.000Z",
+    },
+  ]);
+
+  try {
+    await saveContext(config, "chan-reset", 5);
+  } finally {
+    preload_fetch.restore();
+  }
+
+  const fetch_mock = mockDiscordApiFetch({
+    recentMessages: [
       {
-        id: "ctx-1",
-        content: "cached line",
-        author: { id: "u1", username: "alice" },
-        created_at: "2026-03-01T11:00:00.000Z",
+        id: "msg-after-reset",
+        content: "<@12345> what do you remember?",
+        author: { id: "user-1", username: "alice", bot: false },
+        timestamp: "2026-03-01T12:01:00.000Z",
       },
-    ]);
+      {
+        id: "msg-trigger",
+        content: "<@12345> \\reset",
+        author: { id: "user-1", username: "alice", bot: false },
+        timestamp: "2026-03-01T12:00:00.000Z",
+      },
+      {
+        id: "old-before-reset",
+        content: "this must stay forgotten",
+        author: { id: "user-2", username: "bob", bot: false },
+        timestamp: "2026-03-01T11:59:00.000Z",
+      },
+    ],
+  });
+  try {
+    const ctx = createDeps(config);
+    const reset_message = {
+      ...createMentionMessage("<@12345> \\reset"),
+      channel_id: "chan-reset",
+    };
+    await handleMessage(reset_message, ctx.deps);
 
-    try {
-      await saveContext(config, "chan-reset", 5);
-    } finally {
-      preload_fetch.restore();
-    }
-
-    const fetch_mock = mockDiscordApiFetch({
-      recentMessages: [
-        {
-          id: "msg-after-reset",
-          content: "<@12345> what do you remember?",
-          author: { id: "user-1", username: "alice", bot: false },
-          timestamp: "2026-03-01T12:01:00.000Z",
-        },
-        {
-          id: "msg-trigger",
-          content: "<@12345> \\reset",
-          author: { id: "user-1", username: "alice", bot: false },
-          timestamp: "2026-03-01T12:00:00.000Z",
-        },
-        {
-          id: "old-before-reset",
-          content: "this must stay forgotten",
-          author: { id: "user-2", username: "bob", bot: false },
-          timestamp: "2026-03-01T11:59:00.000Z",
-        },
-      ],
+    expect(getContext("chan-reset")).toStrictEqual(undefined);
+    expect(await ctx.deps.storageService.getContextReset("chan-reset")).toStrictEqual({
+      channelId: "chan-reset",
+      messageId: "msg-trigger",
+      resetAt: Date.parse("2026-03-01T12:00:00.000Z"),
     });
-    try {
-      const ctx = createDeps(config);
-      const reset_message = {
-        ...createMentionMessage("<@12345> \\reset"),
+    expect(fetch_mock.postedMessages[0]).toContain("cleared our chat context");
+
+    await handleMessage(
+      {
+        ...createMentionMessage("<@12345> what do you remember?"),
+        id: "msg-after-reset",
         channel_id: "chan-reset",
-      };
-      await handleMessage(reset_message, ctx.deps);
+        timestamp: "2026-03-01T12:01:00.000Z",
+      },
+      ctx.deps,
+    );
 
-      assertEquals(getContext("chan-reset"), undefined);
-      assertEquals(await ctx.deps.storageService.getContextReset("chan-reset"), {
-        channelId: "chan-reset",
-        messageId: "msg-trigger",
-        resetAt: Date.parse("2026-03-01T12:00:00.000Z"),
-      });
-      assertStringIncludes(fetch_mock.postedMessages[0], "cleared our chat context");
+    expect(ctx.aiCalls.length).toStrictEqual(1);
+    expect(ctx.aiCalls[0].map((entry) => entry["id"])).toStrictEqual(["msg-after-reset"]);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(2);
+  } finally {
+    fetch_mock.restore();
+  }
+});
 
-      await handleMessage(
-        {
-          ...createMentionMessage("<@12345> what do you remember?"),
-          id: "msg-after-reset",
-          channel_id: "chan-reset",
-          timestamp: "2026-03-01T12:01:00.000Z",
-        },
-        ctx.deps,
-      );
-
-      assertEquals(ctx.aiCalls.length, 1);
-      assertEquals(
-        ctx.aiCalls[0].map((entry) => entry["id"]),
-        ["msg-after-reset"],
-      );
-      assertEquals(fetch_mock.postedMessages.length, 2);
-    } finally {
-      fetch_mock.restore();
-    }
-  },
-);
-
-Deno.test("handleMessage exits when AI is disabled", async () => {
+test("handleMessage exits when AI is disabled", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig({ aiEnabled: false });
     const ctx = createDeps(config);
     await handleMessage(createMentionMessage("<@12345> hello"), ctx.deps);
-    assertEquals(ctx.aiCalls.length, 0);
-    assertEquals(ctx.requestCount, 0);
-    assertEquals(fetch_mock.postedMessages.length, 0);
+    expect(ctx.aiCalls.length).toStrictEqual(0);
+    expect(ctx.requestCount).toStrictEqual(0);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(0);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("handleMessage enforces rate limit and daily budget checks", async () => {
+test("handleMessage enforces rate limit and daily budget checks", async () => {
   {
     const fetch_mock = mockDiscordApiFetch();
     try {
@@ -899,10 +889,10 @@ Deno.test("handleMessage enforces rate limit and daily budget checks", async () 
         rateLimitResult: { allowed: false, remaining: 0, resetInMs: 60000 },
       });
       await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
-      assertEquals(ctx.requestCount, 0);
-      assertEquals(ctx.aiCalls.length, 0);
-      assertEquals(fetch_mock.postedMessages.length, 1);
-      assertStringIncludes(fetch_mock.postedMessages[0], "1 minute");
+      expect(ctx.requestCount).toStrictEqual(0);
+      expect(ctx.aiCalls.length).toStrictEqual(0);
+      expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+      expect(fetch_mock.postedMessages[0]).toContain("1 minute");
     } finally {
       fetch_mock.restore();
     }
@@ -916,17 +906,17 @@ Deno.test("handleMessage enforces rate limit and daily budget checks", async () 
         budgetResult: { allowed: false, tokensRemaining: 0 },
       });
       await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
-      assertEquals(ctx.requestCount, 0);
-      assertEquals(ctx.aiCalls.length, 0);
-      assertEquals(fetch_mock.postedMessages.length, 1);
-      assertStringIncludes(fetch_mock.postedMessages[0], "brain power");
+      expect(ctx.requestCount).toStrictEqual(0);
+      expect(ctx.aiCalls.length).toStrictEqual(0);
+      expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+      expect(fetch_mock.postedMessages[0]).toContain("brain power");
     } finally {
       fetch_mock.restore();
     }
   }
 });
 
-Deno.test("handleMessage formats short rate-limit windows in seconds", async () => {
+test("handleMessage formats short rate-limit windows in seconds", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -934,14 +924,14 @@ Deno.test("handleMessage formats short rate-limit windows in seconds", async () 
       rateLimitResult: { allowed: false, remaining: 0, resetInMs: 1000 },
     });
     await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
-    assertEquals(fetch_mock.postedMessages.length, 1);
-    assertStringIncludes(fetch_mock.postedMessages[0], "1 second");
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages[0]).toContain("1 second");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("handleMessage supports missing author and missing webSearch service", async () => {
+test("handleMessage supports missing author and missing webSearch service", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig({ webSearchEnabled: true });
@@ -959,15 +949,15 @@ Deno.test("handleMessage supports missing author and missing webSearch service",
 
     await handleMessage(message, deps_no_search);
 
-    assertEquals(ctx.webSearchCalls.length, 0);
-    assertEquals(ctx.aiCalls.length, 1);
-    assertEquals(fetch_mock.postedMessages.length, 1);
+    expect(ctx.webSearchCalls.length).toStrictEqual(0);
+    expect(ctx.aiCalls.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("handleMessage handles mention with undefined content", async () => {
+test("handleMessage handles mention with undefined content", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -979,14 +969,14 @@ Deno.test("handleMessage handles mention with undefined content", async () => {
       mentions: [{ id: "12345" }],
     };
     await handleMessage(message, ctx.deps);
-    assertEquals(ctx.aiCalls.length, 1);
-    assertEquals(fetch_mock.postedMessages.length, 1);
+    expect(ctx.aiCalls.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("open command injects Untitled when fetched page has no title", async () => {
+test("open command injects Untitled when fetched page has no title", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -1004,22 +994,22 @@ Deno.test("open command injects Untitled when fetched page has no title", async 
     await handleMessage(createMentionMessage("<@12345> \\open https://example.com"), ctx.deps);
 
     const web_entry = ctx.aiCalls[0].find((m) => m["author"] === "web");
-    assertStringIncludes(String(web_entry?.["content"] ?? ""), "Title: Untitled");
+    expect(String(web_entry?.["content"] ?? "")).toContain("Title: Untitled");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("handleMessage handles open-command disabled and malformed cases", async () => {
+test("handleMessage handles open-command disabled and malformed cases", async () => {
   {
     const fetch_mock = mockDiscordApiFetch();
     try {
       const config = createMockConfig({ linkOpenEnabled: false });
       const ctx = createDeps(config);
       await handleMessage(createMentionMessage("<@12345> \\open https://example.com"), ctx.deps);
-      assertEquals(ctx.aiCalls.length, 0);
-      assertEquals(fetch_mock.postedMessages.length, 1);
-      assertStringIncludes(fetch_mock.postedMessages[0], "turned off");
+      expect(ctx.aiCalls.length).toStrictEqual(0);
+      expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+      expect(fetch_mock.postedMessages[0]).toContain("turned off");
     } finally {
       fetch_mock.restore();
     }
@@ -1031,16 +1021,16 @@ Deno.test("handleMessage handles open-command disabled and malformed cases", asy
       const config = createMockConfig();
       const ctx = createDeps(config);
       await handleMessage(createMentionMessage("<@12345> \\open not-a-url"), ctx.deps);
-      assertEquals(ctx.aiCalls.length, 0);
-      assertEquals(fetch_mock.postedMessages.length, 1);
-      assertStringIncludes(fetch_mock.postedMessages[0], "put a link after \\open");
+      expect(ctx.aiCalls.length).toStrictEqual(0);
+      expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+      expect(fetch_mock.postedMessages[0]).toContain("put a link after \\open");
     } finally {
       fetch_mock.restore();
     }
   }
 });
 
-Deno.test("handleMessage handles search failure, AI failure, and reply post failure", async () => {
+test("handleMessage handles search failure, AI failure, and reply post failure", async () => {
   {
     const fetch_mock = mockDiscordApiFetch();
     try {
@@ -1049,9 +1039,9 @@ Deno.test("handleMessage handles search failure, AI failure, and reply post fail
         webSearchResult: { ok: false, error: "search offline" },
       });
       await handleMessage(createMentionMessage("<@12345> what is deno?"), ctx.deps);
-      assertEquals(ctx.webSearchCalls.length, 1);
-      assertEquals(ctx.aiCalls.length, 1);
-      assertEquals(fetch_mock.postedMessages.length, 1);
+      expect(ctx.webSearchCalls.length).toStrictEqual(1);
+      expect(ctx.aiCalls.length).toStrictEqual(1);
+      expect(fetch_mock.postedMessages.length).toStrictEqual(1);
     } finally {
       fetch_mock.restore();
     }
@@ -1065,9 +1055,9 @@ Deno.test("handleMessage handles search failure, AI failure, and reply post fail
         aiResult: { ok: false, error: "No text in OpenAI response" },
       });
       await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
-      assertEquals(ctx.aiCalls.length, 1);
-      assertEquals(fetch_mock.postedMessages.length, 1);
-      assertStringIncludes(fetch_mock.postedMessages[0], "brain's a bit fuzzy");
+      expect(ctx.aiCalls.length).toStrictEqual(1);
+      expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+      expect(fetch_mock.postedMessages[0]).toContain("brain's a bit fuzzy");
     } finally {
       fetch_mock.restore();
     }
@@ -1079,16 +1069,16 @@ Deno.test("handleMessage handles search failure, AI failure, and reply post fail
       const config = createMockConfig();
       const ctx = createDeps(config);
       await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
-      assertEquals(ctx.aiCalls.length, 1);
-      assertEquals(ctx.recordedTokens, [9]);
-      assertEquals(fetch_mock.postedMessages.length, 1);
+      expect(ctx.aiCalls.length).toStrictEqual(1);
+      expect(ctx.recordedTokens).toStrictEqual([9]);
+      expect(fetch_mock.postedMessages.length).toStrictEqual(1);
     } finally {
       fetch_mock.restore();
     }
   }
 });
 
-Deno.test("open command falls back to canned reply when URL stripping empties output", async () => {
+test("open command falls back to canned reply when URL stripping empties output", async () => {
   const fetch_mock = mockDiscordApiFetch();
   try {
     const config = createMockConfig();
@@ -1096,95 +1086,90 @@ Deno.test("open command falls back to canned reply when URL stripping empties ou
       aiResult: { ok: true, text: "https://example.com/only-link", tokensUsed: 4 },
     });
     await handleMessage(createMentionMessage("<@12345> \\open https://example.com"), ctx.deps);
-    assertEquals(fetch_mock.postedMessages.length, 1);
-    assertStringIncludes(fetch_mock.postedMessages[0], "I read it!");
+    expect(fetch_mock.postedMessages.length).toStrictEqual(1);
+    expect(fetch_mock.postedMessages[0]).toContain("I read it!");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test("getBotUserId static import still returns a cached id", async () => {
+test("getBotUserId static import still returns a cached id", async () => {
   const fetch_mock = mockDiscordApiFetch({ botId: "12345" });
   try {
     const result = await getBotUserId(createMockConfig());
-    assertEquals(typeof result, "string");
+    expect(typeof result).toStrictEqual("string");
   } finally {
     fetch_mock.restore();
   }
 });
 
-Deno.test(
-  "handleMessage admits exactly one concurrent mention for one remaining allowance",
-  async () => {
-    const kv = await Deno.openKv(":memory:");
-    const fetchMock = mockDiscordApiFetch();
-    try {
-      const config = createMockConfig({ aiRateLimitPerUser: 1 });
-      const fixture = createDeps(config);
-      fixture.deps.rateLimitService = createRateLimitService(kv, config, () =>
-        Date.parse("2026-09-05T12:34:00Z"),
-      );
-      await Promise.all(
-        Array.from({ length: 12 }, () =>
-          handleMessage(createMentionMessage("<@12345> hello"), fixture.deps),
-        ),
-      );
-      assertEquals(fixture.aiCalls.length, 1);
-      assertEquals(
-        fetchMock.postedMessages.filter((message) => message.includes("speedy")).length,
-        11,
-      );
-      assertEquals(fetchMock.postedMessages.filter((message) => message === "AI reply").length, 1);
-      assertEquals(await fixture.deps.rateLimitService.getUsageStats(), {
-        dailyTokensUsed: 9,
-        dailyTokenBudget: config.aiDailyTokenBudget,
-        requestsToday: 1,
-      });
-    } finally {
-      fetchMock.restore();
-      kv.close();
-    }
-  },
-);
-
-Deno.test(
-  "usage command bypasses AI budgets and does not mutate conversation context",
-  async () => {
-    const mock = mockDiscordApiFetch();
-    const state = createDeps(createMockConfig({ aiEnabled: false }), {
-      rateLimitResult: { allowed: false, remaining: 0, resetInMs: 1000 },
-      budgetResult: { allowed: false, tokensRemaining: 0 },
+test("handleMessage admits exactly one concurrent mention for one remaining allowance", async () => {
+  const kv = openDatabase(":memory:");
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const config = createMockConfig({ aiRateLimitPerUser: 1 });
+    const fixture = createDeps(config);
+    fixture.deps.rateLimitService = createRateLimitService(kv, config, () =>
+      Date.parse("2026-09-05T12:34:00Z"),
+    );
+    await Promise.all(
+      Array.from({ length: 12 }, () =>
+        handleMessage(createMentionMessage("<@12345> hello"), fixture.deps),
+      ),
+    );
+    expect(fixture.aiCalls.length).toStrictEqual(1);
+    expect(
+      fetchMock.postedMessages.filter((message) => message.includes("speedy")).length,
+    ).toStrictEqual(11);
+    expect(
+      fetchMock.postedMessages.filter((message) => message === "AI reply").length,
+    ).toStrictEqual(1);
+    expect(await fixture.deps.rateLimitService.getUsageStats()).toStrictEqual({
+      dailyTokensUsed: 9,
+      dailyTokenBudget: config.aiDailyTokenBudget,
+      requestsToday: 1,
     });
-    let reads = 0;
-    state.deps.usageService = {
-      getMonthToDate() {
-        reads++;
-        return Promise.resolve({
-          start: "2026-10-01T00:00:00Z",
-          asOf: "2026-10-06T00:00:00Z",
-          openaiScope: "organization",
-          awsCost: { ok: true, value: { amount: 1, currency: "USD" } },
-          openaiCost: { ok: true, value: { amount: 2, currency: "USD" } },
-          tokens: { ok: true, value: { input: 100, cached: 20, output: 10 } },
-        });
-      },
-    };
-    const context = getContext("chan-1");
-    try {
-      await handleMessage(createMentionMessage(" <@!12345> \\UsAgE "), state.deps);
-      assertEquals(reads, 1);
-      assertEquals(state.aiCalls.length, 0);
-      assertEquals(state.requestCount, 0);
-      assertEquals(state.recordedTokens, []);
-      assertEquals(getContext("chan-1"), context);
-      assertStringIncludes(mock.postedMessages[0], "**AWS cost:** $1.00");
-    } finally {
-      mock.restore();
-    }
-  },
-);
+  } finally {
+    fetchMock.restore();
+    kv.close();
+  }
+});
 
-Deno.test("usage requires a mention and configured channel and ignores bots", async () => {
+test("usage command bypasses AI budgets and does not mutate conversation context", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(createMockConfig({ aiEnabled: false }), {
+    rateLimitResult: { allowed: false, remaining: 0, resetInMs: 1000 },
+    budgetResult: { allowed: false, tokensRemaining: 0 },
+  });
+  let reads = 0;
+  state.deps.usageService = {
+    getMonthToDate() {
+      reads++;
+      return Promise.resolve({
+        start: "2026-10-01T00:00:00Z",
+        asOf: "2026-10-06T00:00:00Z",
+        openaiScope: "organization",
+        awsCost: { ok: true, value: { amount: 1, currency: "USD" } },
+        openaiCost: { ok: true, value: { amount: 2, currency: "USD" } },
+        tokens: { ok: true, value: { input: 100, cached: 20, output: 10 } },
+      });
+    },
+  };
+  const context = getContext("chan-1");
+  try {
+    await handleMessage(createMentionMessage(" <@!12345> \\UsAgE "), state.deps);
+    expect(reads).toStrictEqual(1);
+    expect(state.aiCalls.length).toStrictEqual(0);
+    expect(state.requestCount).toStrictEqual(0);
+    expect(state.recordedTokens).toStrictEqual([]);
+    expect(getContext("chan-1")).toStrictEqual(context);
+    expect(mock.postedMessages[0]).toContain("**AWS cost:** $1.00");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("usage requires a mention and configured channel and ignores bots", async () => {
   const mock = mockDiscordApiFetch();
   const state = createDeps(createMockConfig({ aiEnabled: false }));
   let reads = 0;
@@ -1206,14 +1191,16 @@ Deno.test("usage requires a mention and configured channel and ignores bots", as
     );
     await handleMessage(createMentionMessage("<@12345> \\usage-extra"), state.deps);
     await handleMessage(createMentionMessage("<@12345> discuss \\usage"), state.deps);
-    assertEquals(reads, 0);
-    assertEquals(mock.postedMessages, ["Usage is available in configured bot channels only."]);
+    expect(reads).toStrictEqual(0);
+    expect(mock.postedMessages).toStrictEqual([
+      "Usage is available in configured bot channels only.",
+    ]);
   } finally {
     mock.restore();
   }
 });
 
-Deno.test("usage handles unavailable service and unexpected service failures", async () => {
+test("usage handles unavailable service and unexpected service failures", async () => {
   const mock = mockDiscordApiFetch();
   const state = createDeps(createMockConfig());
   try {
@@ -1224,11 +1211,11 @@ Deno.test("usage handles unavailable service and unexpected service failures", a
       },
     };
     await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
-    assertEquals(mock.postedMessages, [
+    expect(mock.postedMessages).toStrictEqual([
       "Usage reporting is unavailable right now.",
       "Usage reporting is unavailable right now.",
     ]);
-    assertEquals(state.aiCalls.length, 0);
+    expect(state.aiCalls.length).toStrictEqual(0);
   } finally {
     mock.restore();
   }

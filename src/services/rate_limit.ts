@@ -5,7 +5,9 @@
  * finish above it. It is not a reservation or a strict cap on in-flight tokens.
  */
 
+import { type Database, SQLiteError } from "bun:sqlite";
 import type { AppConfig } from "../config.ts";
+import { createAiUsageQueries } from "../db/ai_usage.ts";
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -41,26 +43,22 @@ export interface RateLimitService {
   getUsageStats(): Promise<UsageStats>;
 }
 
-const MINUTE_TTL_MS = 2 * 60_000;
-const DAILY_TTL_MS = 48 * 60 * 60_000;
-const MAX_COMMIT_ATTEMPTS = 100;
-
-/** Bounded jittered backoff avoids spinning or silently losing a failed update. */
-async function retryConflict(attempt: number): Promise<void> {
-  if (attempt >= MAX_COMMIT_ATTEMPTS) {
-    throw new Error("AI usage transaction failed after repeated conflicts");
-  }
-  await new Promise((resolve) =>
-    setTimeout(resolve, 1 + Math.random() * Math.min(32, 2 ** Math.min(attempt, 5))),
-  );
-}
-
-/** Numeric CAS updates preserve pre-existing KV values and expiration periods. */
+/**
+ * Per-user request counts live in memory for the current UTC minute (a restart resets them,
+ * behavior change 2). Daily request and token totals are stored in SQLite.
+ *
+ * `bun:sqlite` is synchronous and nothing below awaits between reading and writing, so admission
+ * cannot interleave with another admission or a token report.
+ */
 export function createRateLimitService(
-  kv: Deno.Kv,
+  db: Database,
   config: AppConfig,
   now: () => number = Date.now,
 ): RateLimitService {
+  const usage = createAiUsageQueries(db);
+  // One entry per user; an entry from an earlier minute is replaced on the next admission.
+  const minuteCounts = new Map<string, { minute: string; count: number }>();
+
   function bucket(time = now()) {
     const iso = new Date(time).toISOString();
     return {
@@ -70,61 +68,39 @@ export function createRateLimitService(
     };
   }
 
-  async function countRequest(
-    userId: string,
-    enforceBudget: boolean,
-    enforceUserLimit: boolean,
-  ): Promise<RequestAdmission> {
-    for (let attempt = 1; ; attempt++) {
+  function userCount(userId: string, minute: string): number {
+    const entry = minuteCounts.get(userId);
+    return entry?.minute === minute ? entry.count : 0;
+  }
+
+  const admit = db.transaction(
+    (userId: string, enforceBudget: boolean, enforceUserLimit: boolean): RequestAdmission => {
       const current = bucket();
-      const userKey = ["ai_usage", "user", userId, current.minute];
-      const requestsKey = ["ai_usage", "daily_requests", current.date];
-      const tokensKey = ["ai_usage", "daily_tokens", current.date];
-      const [user, requests, tokens] = await kv.getMany<[number, number, number]>([
-        userKey,
-        requestsKey,
-        tokensKey,
-      ]);
-      // An asynchronous read or conflict retry must not admit into an old minute.
-      const latest = bucket();
-      if (latest.minute !== current.minute) {
-        await retryConflict(attempt);
-        continue;
-      }
-      const count = user.value ?? 0;
+      const count = userCount(userId, current.minute);
       const result = {
         remaining: Math.max(0, config.aiRateLimitPerUser - count),
-        resetInMs: latest.resetInMs,
+        resetInMs: current.resetInMs,
       };
       if (enforceUserLimit && count >= config.aiRateLimitPerUser) {
         return { ...result, allowed: false, reason: "user_limit" };
       }
-      if (enforceBudget && (tokens.value ?? 0) >= config.aiDailyTokenBudget) {
+      if (enforceBudget && usage.get(current.date).tokens >= config.aiDailyTokenBudget) {
         return { ...result, allowed: false, reason: "daily_budget" };
       }
-      const transaction = kv
-        .atomic()
-        .check(user, requests)
-        .set(userKey, count + 1, { expireIn: MINUTE_TTL_MS })
-        .set(requestsKey, (requests.value ?? 0) + 1, { expireIn: DAILY_TTL_MS });
-      // If completed usage changed during admission, retry the budget check.
-      if (enforceBudget) transaction.check(tokens);
-      if ((await transaction.commit()).ok) {
-        return { ...result, allowed: true, remaining: Math.max(0, result.remaining - 1) };
-      }
-      await retryConflict(attempt);
-    }
-  }
+      usage.addRequest(current.date);
+      minuteCounts.set(userId, { minute: current.minute, count: count + 1 });
+      return { ...result, allowed: true, remaining: Math.max(0, result.remaining - 1) };
+    },
+  );
 
   return {
-    admitRequest(userId, options) {
-      return countRequest(userId, true, options?.enforceUserLimit ?? true);
+    async admitRequest(userId, options) {
+      return admit.immediate(userId, true, options?.enforceUserLimit ?? true);
     },
 
     async checkUserRateLimit(userId) {
       const current = bucket();
-      const entry = await kv.get<number>(["ai_usage", "user", userId, current.minute]);
-      const count = entry.value ?? 0;
+      const count = userCount(userId, current.minute);
       return {
         allowed: count < config.aiRateLimitPerUser,
         remaining: Math.max(0, config.aiRateLimitPerUser - count),
@@ -133,12 +109,11 @@ export function createRateLimitService(
     },
 
     async recordUserRequest(userId) {
-      await countRequest(userId, false, false);
+      admit.immediate(userId, false, false);
     },
 
     async checkDailyBudget() {
-      const entry = await kv.get<number>(["ai_usage", "daily_tokens", bucket().date]);
-      const used = entry.value ?? 0;
+      const used = usage.get(bucket().date).tokens;
       return {
         allowed: used < config.aiDailyTokenBudget,
         tokensRemaining: Math.max(0, config.aiDailyTokenBudget - used),
@@ -149,32 +124,24 @@ export function createRateLimitService(
       if (!Number.isSafeInteger(tokens) || tokens < 0) {
         throw new RangeError("Reported token usage must be a non-negative safe integer");
       }
-      // Pin the recording day before retries; one update cannot cross buckets.
-      const key = ["ai_usage", "daily_tokens", bucket().date];
-      for (let attempt = 1; ; attempt++) {
-        const entry = await kv.get<number>(key);
-        const total = (entry.value ?? 0) + tokens;
-        if (!Number.isSafeInteger(total)) throw new RangeError("AI token counter overflow");
-        const result = await kv
-          .atomic()
-          .check(entry)
-          .set(key, total, { expireIn: DAILY_TTL_MS })
-          .commit();
-        if (result.ok) return;
-        await retryConflict(attempt);
+      const date = bucket().date;
+      try {
+        usage.addTokens(date, tokens);
+      } catch (error) {
+        // The CHECK constraint keeps the total within the safe integer range.
+        if (error instanceof SQLiteError && error.code === "SQLITE_CONSTRAINT_CHECK") {
+          throw new RangeError("AI token counter overflow", { cause: error });
+        }
+        throw error;
       }
     },
 
     async getUsageStats() {
-      const date = bucket().date;
-      const [tokens, requests] = await kv.getMany<[number, number]>([
-        ["ai_usage", "daily_tokens", date],
-        ["ai_usage", "daily_requests", date],
-      ]);
+      const today = usage.get(bucket().date);
       return {
-        dailyTokensUsed: tokens.value ?? 0,
+        dailyTokensUsed: today.tokens,
         dailyTokenBudget: config.aiDailyTokenBudget,
-        requestsToday: requests.value ?? 0,
+        requestsToday: today.requests,
       };
     },
   };

@@ -5,6 +5,11 @@
  * - Daily mood poll (05:00 UTC)
  * - Daily wellness check (06:00 UTC, 1 hour after poll)
  * - Weekly stats summary (Sundays at 06:00 UTC)
+ * - Poll result collection (every hour at :30)
+ * - Autonomous chat (every minute)
+ * - Maintenance (every hour at :15)
+ *
+ * Schedules are in UTC whatever the process time zone is.
  */
 
 import type { AppConfig } from "./config.ts";
@@ -20,23 +25,49 @@ import { buildMoodPollPayload } from "./features/poll/mod.ts";
 import { buildAlertEmbed, buildStatsEmbed } from "./features/stats/mod.ts";
 import { DEFAULT_MOOD_CONFIG } from "./types/bot.ts";
 
+/** Registers one job. The production registrar is {@link bunCron}; tests pass a fake. */
+export type CronRegistrar = (
+  name: string,
+  schedule: string,
+  handler: () => Promise<void> | void,
+) => void;
+
+/** Runs jobs in this process with `Bun.cron` in UTC. A failing job is logged, not fatal. */
+export const bunCron: CronRegistrar = (name, schedule, handler) => {
+  Bun.cron(
+    schedule,
+    async () => {
+      try {
+        await handler();
+      } catch (error) {
+        console.error(`[CRON] ${name} failed:`, error);
+      }
+    },
+    { tz: "UTC" },
+  );
+};
+
 /**
  * Registers all cron jobs for the application.
  *
+ * @param cron - Job registrar
  * @param config - Application configuration
  * @param discord - Discord API client
  * @param storage - Storage service for vote data
  * @param dateFormatter - Date formatter for poll questions
  * @param aiService - AI service for autonomous chat replies
  * @param rateLimit - Rate limit service for AI budget tracking
+ * @param maintenance - Hourly retention clean-up
  */
 export function registerCronJobs(
+  cron: CronRegistrar,
   config: AppConfig,
   discord: DiscordClient,
   storage: StorageService,
   dateFormatter: Intl.DateTimeFormat,
   aiService: AiService,
   rateLimit: RateLimitService,
+  maintenance: () => void = () => {},
 ): void {
   let autonomous_chat_running = false;
 
@@ -44,7 +75,7 @@ export function registerCronJobs(
   // Daily Mood Poll
   // Schedule: 05:00 UTC = 21:00 PST / 22:00 PDT
   // =========================================================================
-  Deno.cron("Daily Retro Poll", "0 5 * * *", async () => {
+  cron("Daily Retro Poll", "0 5 * * *", async () => {
     console.log("[CRON] Starting scheduled poll job...");
 
     try {
@@ -56,7 +87,7 @@ export function registerCronJobs(
 
         if (response.ok) {
           // Parse response to get message ID
-          const messageData = await response.json();
+          const messageData = (await response.json()) as { id: string };
           const messageId = messageData.id;
 
           // Save pending poll for later collection
@@ -87,7 +118,7 @@ export function registerCronJobs(
   // Schedule: 06:00 UTC = 22:00 PST / 23:00 PDT (1 hour after poll)
   // Checks if any user has consecutive "glue" days and sends supportive message
   // =========================================================================
-  Deno.cron("Daily Wellness Check", "0 6 * * *", async () => {
+  cron("Daily Wellness Check", "0 6 * * *", async () => {
     console.log("[CRON] Starting wellness check...");
 
     try {
@@ -123,13 +154,14 @@ export function registerCronJobs(
   // Schedule: Sundays at 06:00 UTC
   // Posts a summary of the week's mood trends
   // =========================================================================
-  Deno.cron("Weekly Stats Summary", "0 6 * * SUN", async () => {
+  cron("Weekly Stats Summary", "0 6 * * SUN", async () => {
     console.log("[CRON] Starting weekly stats summary...");
 
     try {
       const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 7);
+      const startDate = new Date(endDate);
+      // UTC calendar days, so the window is the same in any process time zone.
+      startDate.setUTCDate(startDate.getUTCDate() - 7);
 
       for (const channelId of config.channelIds) {
         const stats = await storage.getStats(
@@ -158,7 +190,7 @@ export function registerCronJobs(
   // Schedule: Every hour at :30 minutes
   // Checks for expired polls and collects their results
   // =========================================================================
-  Deno.cron("Poll Result Collection", "30 * * * *", async () => {
+  cron("Poll Result Collection", "30 * * * *", async () => {
     console.log("[CRON] Checking for expired polls to collect...");
 
     try {
@@ -176,7 +208,7 @@ export function registerCronJobs(
   // Schedule: Every minute
   // Joins active conversations only when explicitly enabled and guardrails pass.
   // =========================================================================
-  Deno.cron("Autonomous Chat", "* * * * *", async () => {
+  cron("Autonomous Chat", "* * * * *", async () => {
     if (!config.autonomousChatEnabled) return;
     if (!config.aiEnabled || !config.openaiApiKey) {
       console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
@@ -217,10 +249,24 @@ export function registerCronJobs(
     }
   });
 
+  // =========================================================================
+  // Maintenance
+  // Schedule: Every hour at :15
+  // Deletes old AI usage rows and expired in-memory Discord action turns.
+  // =========================================================================
+  cron("Maintenance", "15 * * * *", () => {
+    try {
+      maintenance();
+    } catch (error) {
+      console.error("[CRON] Error in maintenance:", error);
+    }
+  });
+
   console.log("[CRON] Registered jobs:");
   console.log("  - Daily Retro Poll (05:00 UTC)");
   console.log("  - Daily Wellness Check (06:00 UTC)");
   console.log("  - Weekly Stats Summary (Sundays 06:00 UTC)");
   console.log("  - Poll Result Collection (every hour at :30)");
   console.log("  - Autonomous Chat (every minute, disabled unless configured)");
+  console.log("  - Maintenance (every hour at :15)");
 }

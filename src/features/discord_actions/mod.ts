@@ -11,6 +11,13 @@ import {
   getGuildPermissions,
   type ScheduledEventPayload,
 } from "../../services/discord_events.ts";
+import type { Database } from "bun:sqlite";
+import {
+  createDiscordActionQueries,
+  type GuardKey,
+  type OperationKey,
+} from "../../db/discord_actions.ts";
+import { type Turn, TurnStore, turnKey } from "./state.ts";
 import { resolveEventTime } from "./time.ts";
 import { DISCORD_ACTION_TOOLS } from "./tools.ts";
 
@@ -42,27 +49,17 @@ export interface DiscordActionService {
     messageId?: string,
   ): Promise<void>;
 }
-interface PendingRequest {
+export interface PendingRequest {
   messageId: string;
   content: string;
   question: string;
   replies: string[];
   requestedAt: string;
 }
-interface OperationRecord {
-  state: "pending" | "done";
-  result?: ActionResult;
-}
-const PENDING_TTL = 20 * 60_000;
 function isOlder(messageId: string, previousId: string): boolean {
   return (
     /^\d+$/.test(messageId) && /^\d+$/.test(previousId) && BigInt(messageId) < BigInt(previousId)
   );
-}
-interface RequestGeneration {
-  token: string;
-  messageId: string;
-  reset?: boolean;
 }
 
 /** A conservative authorization gate, independent of the model's interpretation of details. */
@@ -207,22 +204,12 @@ function eventResult(event: DiscordScheduledEvent, reused = false): ActionResult
 
 export function createDiscordActionService(
   client: DiscordEventsClient,
-  kv: Deno.Kv,
+  db: Database,
   timeZone: string,
   now: () => number = Date.now,
+  turns: TurnStore<PendingRequest> = new TurnStore(now),
 ): DiscordActionService {
-  const pendingKey = (guild: string, channel: string, user: string) => [
-    "discord_action_pending",
-    guild,
-    channel,
-    user,
-  ];
-  const generationKey = (guild: string, channel: string, user: string) => [
-    "discord_action_generation",
-    guild,
-    channel,
-    user,
-  ];
+  const records = createDiscordActionQueries(db);
   function superseded(): Error {
     return new Error(
       "That request was replaced, cancelled or expired. Please ask me again if you still want it!~",
@@ -230,16 +217,16 @@ export function createDiscordActionService(
   }
 
   async function once(
-    messageKey: Deno.KvKey,
-    fingerprintKey: Deno.KvKey | null,
+    operation: OperationKey,
+    guard: GuardKey | null,
     perform: () => Promise<ActionResult>,
-    generation: Deno.KvEntryMaybe<RequestGeneration>,
+    isCurrent: () => boolean,
     refreshCreationFingerprint = true,
   ): Promise<ActionResult> {
-    const previous = await kv.get<OperationRecord>(messageKey);
-    if (previous.value) {
+    const previous = records.getOperation<ActionResult>(operation);
+    if (previous) {
       return (
-        previous.value.result ?? {
+        previous.result ?? {
           ok: false,
           uncertain: true,
           message:
@@ -247,29 +234,30 @@ export function createDiscordActionService(
         }
       );
     }
-    let fingerprint = fingerprintKey ? await kv.get<OperationRecord>(fingerprintKey) : null;
+    let fingerprint = guard ? records.getGuard<ActionResult>(guard) : null;
     if (
       refreshCreationFingerprint &&
-      fingerprintKey &&
-      fingerprint?.value?.result?.ok &&
-      fingerprint.value.result.eventId
+      guard &&
+      fingerprint?.result?.ok &&
+      fingerprint.result.eventId
     ) {
-      const active = (await client.listScheduledEvents(String(messageKey[1]))).find(
-        (event) =>
-          event.id === fingerprint?.value?.result?.eventId && [1, 2].includes(event.status),
+      const eventId = fingerprint.result.eventId;
+      const active = (await client.listScheduledEvents(operation.guildId)).find(
+        (event) => event.id === eventId && [1, 2].includes(event.status),
       );
       if (active) return eventResult(active, true);
-      if (!(await kv.atomic().check(fingerprint).delete(fingerprintKey).commit()).ok) {
+      // Delete the stale guard only if nothing changed it while Discord was being checked.
+      if (!records.deleteGuardIfUnchanged(guard, fingerprint)) {
         return {
           ok: false,
           message: "The matching event changed while I was checking it. Please try again.",
         };
       }
-      fingerprint = await kv.get<OperationRecord>(fingerprintKey);
+      fingerprint = records.getGuard<ActionResult>(guard);
     }
-    if (fingerprint?.value) {
+    if (fingerprint) {
       return (
-        fingerprint.value.result ?? {
+        fingerprint.result ?? {
           ok: false,
           uncertain: true,
           message:
@@ -277,11 +265,9 @@ export function createDiscordActionService(
         }
       );
     }
-    let claim = kv.atomic().check(previous, generation).set(messageKey, { state: "pending" });
-    if (fingerprint && fingerprintKey) {
-      claim = claim.check(fingerprint).set(fingerprintKey, { state: "pending" });
-    }
-    if (!(await claim.commit()).ok) {
+    // One transaction: the turn is still current and neither the operation nor the guard
+    // appeared while Discord was being checked.
+    if (!records.claim(operation, guard, isCurrent, now())) {
       return {
         ok: false,
         message: "That request is already being processed. I have not repeated it.",
@@ -294,16 +280,8 @@ export function createDiscordActionService(
       result = errorResult(error);
     }
     // A durable claim remains if recording the result fails after Discord accepted a write.
-    const record: OperationRecord = { state: "done", result };
-    let complete = kv.atomic().set(messageKey, record);
-    if (fingerprintKey) {
-      complete =
-        result.ok || result.uncertain
-          ? complete.set(fingerprintKey, record)
-          : complete.delete(fingerprintKey);
-    }
     try {
-      await complete.commit();
+      records.complete(operation, guard, result, Boolean(result.ok || result.uncertain), now());
     } catch {
       console.error(
         "[DISCORD ACTION] Could not persist the result; keeping the claim to prevent replay.",
@@ -314,58 +292,35 @@ export function createDiscordActionService(
 
   return {
     async clearPending(guildId, channelId, userId, messageId) {
-      // Leave a new generation behind so already-running sessions cannot restore the request.
-      const stateKey = generationKey(guildId, channelId, userId);
-      while (true) {
-        const previous = await kv.get<RequestGeneration>(stateKey);
-        if (messageId && previous.value && isOlder(messageId, previous.value.messageId)) return;
-        const value: RequestGeneration = {
-          token: crypto.randomUUID(),
-          messageId: messageId ?? previous.value?.messageId ?? "0",
-          reset: true,
-        };
-        if (
-          (
-            await kv
-              .atomic()
-              .check(previous)
-              .set(stateKey, value, { expireIn: PENDING_TTL })
-              .delete(pendingKey(guildId, channelId, userId))
-              .commit()
-          ).ok
-        )
-          return;
-      }
+      // Leave a new turn behind so already-running sessions cannot restore the request.
+      const key = turnKey(guildId, channelId, userId);
+      const previous = turns.turn(key);
+      if (messageId && previous && isOlder(messageId, previous.messageId)) return;
+      turns.setTurn(key, messageId ?? previous?.messageId ?? "0", true);
+      turns.deletePending(key);
     },
     async createSession(context) {
-      const key = pendingKey(context.guildId, context.channelId, context.userId);
-      const stateKey = generationKey(context.guildId, context.channelId, context.userId);
+      const key = turnKey(context.guildId, context.channelId, context.userId);
       let pending: PendingRequest | null;
-      let generation: Deno.KvEntryMaybe<RequestGeneration>;
+      let turn: Turn;
       let abandoningCreation: boolean;
       let currentExplicit: boolean;
-      // Claim this turn before model work begins. CAS prevents a stale snapshot from
-      // overwriting an abandonment or clarification processed by another handler.
-      for (let attempt = 0; ; attempt++) {
-        const [storedPending, storedGeneration] = await kv.getMany<
-          [PendingRequest, RequestGeneration]
-        >([key, stateKey]);
-        const previous = storedGeneration.value;
-        if (
-          attempt >= 3 ||
-          (previous &&
-            (isOlder(context.messageId, previous.messageId) ||
-              (previous.reset && context.messageId === previous.messageId)))
-        ) {
-          // Earlier handler work may finish after a newer message has already arrived.
-          // Keep the session read-only rather than reviving that older authorization.
-          generation = storedGeneration;
-          pending = null;
-          abandoningCreation = false;
-          currentExplicit = false;
-          break;
-        }
-        pending = storedPending.value;
+      // Claim this turn before model work begins. Nothing here awaits, so another handler
+      // cannot change the turn between reading and writing it.
+      const previous = turns.turn(key);
+      if (
+        previous &&
+        (isOlder(context.messageId, previous.messageId) ||
+          (previous.reset && context.messageId === previous.messageId))
+      ) {
+        // Earlier handler work may finish after a newer message has already arrived.
+        // Keep the session read-only rather than reviving that older authorization.
+        turn = previous;
+        pending = null;
+        abandoningCreation = false;
+        currentExplicit = false;
+      } else {
+        pending = turns.pending(key);
         abandoningCreation = Boolean(
           pending &&
           hasExplicitCreationRequest(pending.content) &&
@@ -375,23 +330,13 @@ export function createDiscordActionService(
         );
         const abandoned = isAbandonment(context.content) || abandoningCreation;
         currentExplicit = !abandoningCreation && hasExplicitActionRequest(context.content);
-        const value: RequestGeneration = {
-          token: crypto.randomUUID(),
-          messageId: context.messageId,
-        };
-        let update = kv
-          .atomic()
-          .check(storedPending, storedGeneration)
-          .set(stateKey, value, { expireIn: PENDING_TTL });
+        turn = turns.setTurn(key, context.messageId);
         if (abandoned || currentExplicit) {
-          update = update.delete(key);
+          turns.deletePending(key);
           pending = null;
         }
-        const committed = await update.commit();
-        if (!committed.ok) continue;
-        generation = { key: stateKey, value, versionstamp: committed.versionstamp };
-        break;
       }
+      const isCurrent = () => turns.isCurrent(key, turn.token);
       const origin = currentExplicit
         ? context
         : pending
@@ -401,11 +346,11 @@ export function createDiscordActionService(
       const verifiedEvents = new Map<string, DiscordScheduledEvent>();
 
       async function ensureCurrent(): Promise<void> {
-        if ((await kv.get(stateKey)).versionstamp !== generation.versionstamp) throw superseded();
+        if (!isCurrent()) throw superseded();
       }
       async function finishPending(): Promise<void> {
         // A completed older action must never erase the newer turn's clarification.
-        await kv.atomic().check(generation).delete(key).commit();
+        if (isCurrent()) turns.deletePending(key);
       }
 
       async function loadAccess(): Promise<{
@@ -493,17 +438,8 @@ export function createDiscordActionService(
             : (pending?.requestedAt ?? new Date(now()).toISOString()),
           replies: currentExplicit ? [] : [...(pending?.replies ?? []), context.content].slice(-5),
         };
-        if (
-          !(
-            await kv
-              .atomic()
-              .check(generation)
-              .set(key, request, { expireIn: PENDING_TTL })
-              .commit()
-          ).ok
-        ) {
-          throw superseded();
-        }
+        if (!isCurrent()) throw superseded();
+        turns.setPending(key, request);
         const result: ActionResult = { ok: false, message: question, needsClarification: true };
         results.push(result);
         return result;
@@ -782,8 +718,8 @@ export function createDiscordActionService(
                 event.status === 4
                   ? receipt(true)
                   : await once(
-                      ["discord_actions", context.guildId, origin.messageId, name],
-                      ["discord_event_cancellation", context.guildId, eventId],
+                      { guildId: context.guildId, messageId: origin.messageId, action: name },
+                      { guildId: context.guildId, kind: "cancellation", key: eventId },
                       async () => {
                         await ensureCurrent();
                         const cancelled = await client.cancelScheduledEvent(
@@ -804,7 +740,7 @@ export function createDiscordActionService(
                         }
                         return receipt(false);
                       },
-                      generation,
+                      isCurrent,
                       false,
                     );
               results.push(result);
@@ -890,8 +826,8 @@ export function createDiscordActionService(
                 byte.toString(16).padStart(2, "0"),
               ).join("");
               const result = await once(
-                ["discord_actions", context.guildId, origin.messageId, name],
-                ["discord_event_fingerprint", context.guildId, hash],
+                { guildId: context.guildId, messageId: origin.messageId, action: name },
+                { guildId: context.guildId, kind: "creation_fingerprint", key: hash },
                 async () => {
                   const events = await client.listScheduledEvents(context.guildId);
                   const existing = events.find(
@@ -917,7 +853,7 @@ export function createDiscordActionService(
                   verifiedEvents.set(event.id, event);
                   return eventResult(event, Boolean(existing));
                 },
-                generation,
+                isCurrent,
               );
               results.push(result);
               if (result.ok) await finishPending();
@@ -980,7 +916,7 @@ export function createDiscordActionService(
                 );
               }
               const result = await once(
-                ["discord_actions", context.guildId, origin.messageId, name],
+                { guildId: context.guildId, messageId: origin.messageId, action: name },
                 null,
                 async () => {
                   await ensureCurrent();
@@ -1003,7 +939,7 @@ export function createDiscordActionService(
                     message: `Here's your ${eventId ? "event " : ""}invite!~\n${inviteUrl}`,
                   };
                 },
-                generation,
+                isCurrent,
               );
               results.push(result);
               if (result.ok) await finishPending();

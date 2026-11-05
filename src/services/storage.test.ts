@@ -1,10 +1,15 @@
 /**
  * Storage Service Unit Tests
  *
- * Tests the Deno KV storage operations using an in-memory database.
+ * Tests the SQLite storage operations using an in-memory database.
  */
 
-import { assertEquals, assertRejects } from "@std/assert";
+import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { rejects } from "../../test_support/assert.ts";
+import { type Database, openDatabase } from "../db/database.ts";
 import { createStorageService, type StorageService } from "./storage.ts";
 import type { AutonomousParticipationRecord, PollRecord } from "../types/storage.ts";
 
@@ -12,8 +17,8 @@ const TEST_CHANNEL_ID = "chan-1";
 const OTHER_CHANNEL_ID = "chan-2";
 
 // Helper to create a fresh storage service for each test
-async function createTestStorage(): Promise<{ storage: StorageService; kv: Deno.Kv }> {
-  const kv = await Deno.openKv(":memory:");
+async function createTestStorage(): Promise<{ storage: StorageService; kv: Database }> {
+  const kv = openDatabase(":memory:");
   const storage = createStorageService(kv);
   return { storage, kv };
 }
@@ -22,36 +27,36 @@ async function createTestStorage(): Promise<{ storage: StorageService; kv: Deno.
 // recordVote Tests
 // ============================================================================
 
-Deno.test("recordVote stores a vote correctly", async () => {
+test("recordVote stores a vote correctly", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-10");
 
   const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
-  assertEquals(votes.length, 1);
-  assertEquals(votes[0].channelId, TEST_CHANNEL_ID);
-  assertEquals(votes[0].odUserId, "user123");
-  assertEquals(votes[0].odUserName, "Alice");
-  assertEquals(votes[0].mood, "umazing");
-  assertEquals(votes[0].date, "2025-12-10");
+  expect(votes.length).toStrictEqual(1);
+  expect(votes[0].channelId).toStrictEqual(TEST_CHANNEL_ID);
+  expect(votes[0].odUserId).toStrictEqual("user123");
+  expect(votes[0].odUserName).toStrictEqual("Alice");
+  expect(votes[0].mood).toStrictEqual("umazing");
+  expect(votes[0].date).toStrictEqual("2025-12-10");
 
   kv.close();
 });
 
-Deno.test("recordVote overwrites vote for same user on same date", async () => {
+test("recordVote overwrites vote for same user on same date", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-10");
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-10");
 
   const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
-  assertEquals(votes.length, 1);
-  assertEquals(votes[0].mood, "glue"); // Should be updated
+  expect(votes.length).toStrictEqual(1);
+  expect(votes[0].mood).toStrictEqual("glue"); // Should be updated
 
   kv.close();
 });
 
-Deno.test("recordVote stores multiple users on same date", async () => {
+test("recordVote stores multiple users on same date", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-10");
@@ -59,12 +64,12 @@ Deno.test("recordVote stores multiple users on same date", async () => {
   await storage.recordVote(TEST_CHANNEL_ID, "user3", "Charlie", "glue", "2025-12-10");
 
   const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
-  assertEquals(votes.length, 3);
+  expect(votes.length).toStrictEqual(3);
 
   kv.close();
 });
 
-Deno.test("recordVote isolates same user across channels", async () => {
+test("recordVote isolates same user across channels", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-10");
@@ -73,15 +78,15 @@ Deno.test("recordVote isolates same user across channels", async () => {
   const firstChannelVotes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
   const secondChannelVotes = await storage.getVotesForDate(OTHER_CHANNEL_ID, "2025-12-10");
 
-  assertEquals(firstChannelVotes.length, 1);
-  assertEquals(firstChannelVotes[0].mood, "glue");
-  assertEquals(secondChannelVotes.length, 1);
-  assertEquals(secondChannelVotes[0].mood, "ok");
+  expect(firstChannelVotes.length).toStrictEqual(1);
+  expect(firstChannelVotes[0].mood).toStrictEqual("glue");
+  expect(secondChannelVotes.length).toStrictEqual(1);
+  expect(secondChannelVotes[0].mood).toStrictEqual("ok");
 
   kv.close();
 });
 
-Deno.test("context resets persist independently for each channel", async () => {
+test("context resets persist independently for each channel", async () => {
   const { storage, kv } = await createTestStorage();
   const first = { channelId: TEST_CHANNEL_ID, messageId: "reset-1", resetAt: 1000 };
   const second = { channelId: OTHER_CHANNEL_ID, messageId: "reset-2", resetAt: 2000 };
@@ -89,9 +94,9 @@ Deno.test("context resets persist independently for each channel", async () => {
   await storage.setContextReset(first);
   await storage.setContextReset(second);
 
-  assertEquals(await storage.getContextReset(TEST_CHANNEL_ID), first);
-  assertEquals(await storage.getContextReset(OTHER_CHANNEL_ID), second);
-  assertEquals(await storage.getContextReset("unknown"), null);
+  expect(await storage.getContextReset(TEST_CHANNEL_ID)).toStrictEqual(first);
+  expect(await storage.getContextReset(OTHER_CHANNEL_ID)).toStrictEqual(second);
+  expect(await storage.getContextReset("unknown")).toStrictEqual(null);
 
   kv.close();
 });
@@ -108,8 +113,8 @@ function createParticipation(
   };
 }
 
-Deno.test("autonomous participation claims exactly once across concurrent services", async () => {
-  using kv = await Deno.openKv(":memory:");
+test("autonomous participation claims exactly once across concurrent services", async () => {
+  using kv = openDatabase(":memory:");
   const first = createStorageService(kv);
   const second = createStorageService(kv);
   const record = createParticipation();
@@ -119,185 +124,151 @@ Deno.test("autonomous participation claims exactly once across concurrent servic
     ),
   );
 
-  assertEquals(claims.filter(Boolean).length, 1);
-  assertEquals(await first.getAutonomousParticipation(TEST_CHANNEL_ID), record);
+  expect(claims.filter(Boolean).length).toStrictEqual(1);
+  expect(await first.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(record);
 });
 
-Deno.test(
-  "autonomous participation persists across service recreation and isolates channels",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const first = createStorageService(kv);
-    const record = createParticipation();
-    assertEquals(await first.getAutonomousParticipation(TEST_CHANNEL_ID), null);
-    assertEquals(await first.claimAutonomousParticipation(record, 1000), true);
+test("autonomous participation persists across service recreation and isolates channels", async () => {
+  using kv = openDatabase(":memory:");
+  const first = createStorageService(kv);
+  const record = createParticipation();
+  expect(await first.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(null);
+  expect(await first.claimAutonomousParticipation(record, 1000)).toStrictEqual(true);
 
-    const restarted = createStorageService(kv);
-    assertEquals(await restarted.getAutonomousParticipation(TEST_CHANNEL_ID), record);
-    assertEquals(
-      await restarted.claimAutonomousParticipation({ ...record, attemptedAt: 10_000 }, 1000),
-      false,
-    );
-    const otherChannel = { ...record, channelId: OTHER_CHANNEL_ID };
-    assertEquals(await restarted.claimAutonomousParticipation(otherChannel, 1000), true);
-    assertEquals(await restarted.getAutonomousParticipation(OTHER_CHANNEL_ID), otherChannel);
-    assertEquals(await restarted.getAutonomousParticipation("unknown"), null);
-  },
-);
+  const restarted = createStorageService(kv);
+  expect(await restarted.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(record);
+  expect(
+    await restarted.claimAutonomousParticipation({ ...record, attemptedAt: 10_000 }, 1000),
+  ).toStrictEqual(false);
+  const otherChannel = { ...record, channelId: OTHER_CHANNEL_ID };
+  expect(await restarted.claimAutonomousParticipation(otherChannel, 1000)).toStrictEqual(true);
+  expect(await restarted.getAutonomousParticipation(OTHER_CHANNEL_ID)).toStrictEqual(otherChannel);
+  expect(await restarted.getAutonomousParticipation("unknown")).toStrictEqual(null);
+});
 
-Deno.test(
-  "autonomous participation rejects cooldown attempts without advancing the watermark",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const first = createParticipation();
-    const next = createParticipation({
+test("autonomous participation rejects cooldown attempts without advancing the watermark", async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  const next = createParticipation({
+    latestHumanMessageId: "1234567890123456790",
+    latestHumanTimestampMs: 1500,
+    attemptedAt: 2999,
+  });
+  expect(await storage.claimAutonomousParticipation(first, 1000)).toStrictEqual(true);
+  expect(await storage.claimAutonomousParticipation(next, 1000)).toStrictEqual(false);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(first);
+  const atCooldownBoundary = { ...next, attemptedAt: 3000 };
+  expect(await storage.claimAutonomousParticipation(atCooldownBoundary, 1000)).toStrictEqual(true);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(
+    atCooldownBoundary,
+  );
+
+  const rows = kv
+    .query<{ n: number }, []>("SELECT COUNT(*) AS n FROM autonomous_participation")
+    .get();
+  expect(rows?.n).toBe(1);
+});
+
+test("autonomous participation rejects same messages, older context and reversed clocks", async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  expect(await storage.claimAutonomousParticipation(first, 0)).toStrictEqual(true);
+  for (const candidate of [
+    { ...first, attemptedAt: 10_000 },
+    { ...first, latestHumanTimestampMs: 1500, attemptedAt: 10_000 },
+    {
+      ...first,
+      latestHumanMessageId: "1234567890123456790",
+      latestHumanTimestampMs: 999,
+      attemptedAt: 10_000,
+    },
+    {
+      ...first,
       latestHumanMessageId: "1234567890123456790",
       latestHumanTimestampMs: 1500,
-      attemptedAt: 2999,
-    });
-    assertEquals(await storage.claimAutonomousParticipation(first, 1000), true);
-    assertEquals(await storage.claimAutonomousParticipation(next, 1000), false);
-    assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
-    const atCooldownBoundary = { ...next, attemptedAt: 3000 };
-    assertEquals(await storage.claimAutonomousParticipation(atCooldownBoundary, 1000), true);
-    assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), atCooldownBoundary);
+      attemptedAt: 1999,
+    },
+  ])
+    expect(await storage.claimAutonomousParticipation(candidate, 0)).toStrictEqual(false);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(first);
+});
 
-    const records = Array.fromAsync(kv.list({ prefix: ["autonomous_participation"] }));
-    assertEquals((await records).length, 1);
-  },
-);
-
-Deno.test(
-  "autonomous participation rejects same messages, older context and reversed clocks",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const first = createParticipation();
-    assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
-    for (const candidate of [
-      { ...first, attemptedAt: 10_000 },
-      { ...first, latestHumanTimestampMs: 1500, attemptedAt: 10_000 },
+test("autonomous participation orders equal timestamps by exact numeric snowflake", async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  expect(await storage.claimAutonomousParticipation(first, 0)).toStrictEqual(true);
+  expect(
+    await storage.claimAutonomousParticipation(
       {
         ...first,
-        latestHumanMessageId: "1234567890123456790",
-        latestHumanTimestampMs: 999,
-        attemptedAt: 10_000,
+        latestHumanMessageId: "1234567890123456788",
+        attemptedAt: 3000,
       },
+      0,
+    ),
+  ).toStrictEqual(false);
+  const newer = { ...first, latestHumanMessageId: "1234567890123456790", attemptedAt: 3000 };
+  expect(await storage.claimAutonomousParticipation(newer, 0)).toStrictEqual(true);
+  expect(await storage.claimAutonomousParticipation(first, 0)).toStrictEqual(false);
+});
+
+test("autonomous participation fails closed for equal timestamps with unordered IDs", async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation({ latestHumanMessageId: "message-a" });
+  expect(await storage.claimAutonomousParticipation(first, 0)).toStrictEqual(true);
+  expect(
+    await storage.claimAutonomousParticipation(
       {
         ...first,
-        latestHumanMessageId: "1234567890123456790",
-        latestHumanTimestampMs: 1500,
-        attemptedAt: 1999,
+        latestHumanMessageId: "message-b",
+        attemptedAt: 3000,
       },
-    ])
-      assertEquals(await storage.claimAutonomousParticipation(candidate, 0), false);
-    assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
-  },
-);
+      0,
+    ),
+  ).toStrictEqual(false);
+  expect(
+    await storage.claimAutonomousParticipation(
+      {
+        ...first,
+        latestHumanMessageId: "message-b",
+        latestHumanTimestampMs: 1001,
+        attemptedAt: 3000,
+      },
+      0,
+    ),
+  ).toStrictEqual(true);
+});
 
-Deno.test(
-  "autonomous participation orders equal timestamps by exact numeric snowflake",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const first = createParticipation();
-    assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
-    assertEquals(
-      await storage.claimAutonomousParticipation(
-        {
-          ...first,
-          latestHumanMessageId: "1234567890123456788",
-          attemptedAt: 3000,
-        },
-        0,
-      ),
+test("autonomous participation survives reopening the database file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "haru-storage-"));
+  try {
+    const path = join(dir, "haru.sqlite3");
+    const record = createParticipation({ lastReactionEmoji: "UwU:1" });
+    {
+      using db = openDatabase(path);
+      expect(await createStorageService(db).claimAutonomousParticipation(record, 0)).toBe(true);
+    }
+    using db = openDatabase(path);
+    const storage = createStorageService(db);
+    expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(record);
+    expect(await storage.claimAutonomousParticipation({ ...record, attemptedAt: 9000 }, 0)).toBe(
       false,
     );
-    const newer = { ...first, latestHumanMessageId: "1234567890123456790", attemptedAt: 3000 };
-    assertEquals(await storage.claimAutonomousParticipation(newer, 0), true);
-    assertEquals(await storage.claimAutonomousParticipation(first, 0), false);
-  },
-);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
-Deno.test(
-  "autonomous participation fails closed for equal timestamps with unordered IDs",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const first = createParticipation({ latestHumanMessageId: "message-a" });
-    assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
-    assertEquals(
-      await storage.claimAutonomousParticipation(
-        {
-          ...first,
-          latestHumanMessageId: "message-b",
-          attemptedAt: 3000,
-        },
-        0,
-      ),
-      false,
-    );
-    assertEquals(
-      await storage.claimAutonomousParticipation(
-        {
-          ...first,
-          latestHumanMessageId: "message-b",
-          latestHumanTimestampMs: 1001,
-          attemptedAt: 3000,
-        },
-        0,
-      ),
-      true,
-    );
-  },
-);
-
-Deno.test(
-  "autonomous participation retries a CAS conflict and fails after bounded conflicts",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const atomic = kv.atomic.bind(kv);
-    let conflictsRemaining = 1;
-    let attempts = 0;
-    kv.atomic = () => {
-      attempts++;
-      const operation = atomic();
-      if (conflictsRemaining-- > 0) operation.commit = () => Promise.resolve({ ok: false });
-      return operation;
-    };
-
-    const first = createParticipation();
-    assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
-    assertEquals(attempts, 2);
-    conflictsRemaining = 100;
-    attempts = 0;
-    await assertRejects(
-      () =>
-        storage.claimAutonomousParticipation(
-          {
-            ...first,
-            latestHumanMessageId: "1234567890123456790",
-            latestHumanTimestampMs: 1001,
-            attemptedAt: 3000,
-          },
-          0,
-        ),
-      Error,
-      "Autonomous participation transaction failed after repeated conflicts",
-    );
-    assertEquals(attempts, 10);
-    assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
-  },
-);
-
-Deno.test("autonomous participation rejects invalid times before writing", async () => {
-  using kv = await Deno.openKv(":memory:");
+test("autonomous participation rejects invalid times before writing", async () => {
+  using kv = openDatabase(":memory:");
   const storage = createStorageService(kv);
   const record = createParticipation();
   for (const cooldown of [-1, NaN, Infinity]) {
-    await assertRejects(() => storage.claimAutonomousParticipation(record, cooldown), RangeError);
+    await rejects(() => storage.claimAutonomousParticipation(record, cooldown), RangeError);
   }
   for (const invalid of [
     { ...record, channelId: "" },
@@ -305,133 +276,109 @@ Deno.test("autonomous participation rejects invalid times before writing", async
     { ...record, attemptedAt: NaN },
     { ...record, latestHumanTimestampMs: -1 },
   ])
-    await assertRejects(() => storage.claimAutonomousParticipation(invalid, 0), RangeError);
-  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), null);
+    await rejects(() => storage.claimAutonomousParticipation(invalid, 0), RangeError);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(null);
 });
 
-Deno.test("autonomous participation cooldown extends from generation completion", async () => {
-  using kv = await Deno.openKv(":memory:");
+test("autonomous participation cooldown extends from generation completion", async () => {
+  using kv = openDatabase(":memory:");
   const storage = createStorageService(kv);
   const first = createParticipation({ attemptedAt: 0 });
-  assertEquals(await storage.claimAutonomousParticipation(first, 60_000), true);
+  expect(await storage.claimAutonomousParticipation(first, 60_000)).toStrictEqual(true);
   await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 59_000);
   const next = createParticipation({
     latestHumanMessageId: "1234567890123456790",
     latestHumanTimestampMs: 60_000,
     attemptedAt: 60_000,
   });
-  assertEquals(await storage.claimAutonomousParticipation(next, 60_000), false);
-  assertEquals(
+  expect(await storage.claimAutonomousParticipation(next, 60_000)).toStrictEqual(false);
+  expect(
     await storage.claimAutonomousParticipation({ ...next, attemptedAt: 119_000 }, 60_000),
-    true,
-  );
+  ).toStrictEqual(true);
 });
 
-Deno.test(
-  "autonomous participation completion never decreases time or changes another channel",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const first = createParticipation();
-    const other = createParticipation({ channelId: OTHER_CHANNEL_ID });
-    await storage.claimAutonomousParticipation(first, 0);
-    await storage.claimAutonomousParticipation(other, 0);
-    await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 4000);
-    await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 3000);
-    assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), {
-      ...first,
-      attemptedAt: 4000,
-    });
-    assertEquals(await storage.getAutonomousParticipation(OTHER_CHANNEL_ID), other);
-  },
-);
+test("autonomous participation completion never decreases time or changes another channel", async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  const first = createParticipation();
+  const other = createParticipation({ channelId: OTHER_CHANNEL_ID });
+  await storage.claimAutonomousParticipation(first, 0);
+  await storage.claimAutonomousParticipation(other, 0);
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 4000);
+  await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 3000);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual({
+    ...first,
+    attemptedAt: 4000,
+  });
+  expect(await storage.getAutonomousParticipation(OTHER_CHANNEL_ID)).toStrictEqual(other);
+});
 
-Deno.test("autonomous participation completion ignores absent and newer claims", async () => {
-  using kv = await Deno.openKv(":memory:");
+test("autonomous participation completion ignores absent and newer claims", async () => {
+  using kv = openDatabase(":memory:");
   const storage = createStorageService(kv);
   const first = createParticipation();
   await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 10_000);
-  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), null);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(null);
   const newer = createParticipation({ latestHumanMessageId: "1234567890123456790" });
   await storage.claimAutonomousParticipation(newer, 0);
   await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 10_000);
-  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), newer);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(newer);
 });
 
-Deno.test(
-  "autonomous participation completion cannot overwrite a claim that races with its read",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const first = createParticipation();
-    await storage.claimAutonomousParticipation(first, 0);
-    const newer = createParticipation({
-      latestHumanMessageId: "1234567890123456790",
-      latestHumanTimestampMs: 3000,
-      attemptedAt: 4000,
-    });
-    const atomic = kv.atomic.bind(kv);
-    let replaced = false;
-    kv.atomic = () => {
-      const operation = atomic();
-      const commit = operation.commit.bind(operation);
-      operation.commit = async () => {
-        if (!replaced) {
-          replaced = true;
-          await kv.set(["autonomous_participation", TEST_CHANNEL_ID], newer);
-        }
-        return await commit();
-      };
-      return operation;
-    };
-    await storage.finishAutonomousParticipation(
-      TEST_CHANNEL_ID,
-      first.latestHumanMessageId,
-      10_000,
-    );
-    assertEquals(replaced, true);
-    assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), newer);
-  },
-);
+test("a failed autonomous participation write keeps the earlier claim", async () => {
+  using db = openDatabase(":memory:");
+  const storage = createStorageService(db);
+  const first = createParticipation();
+  await storage.claimAutonomousParticipation(first, 0);
+  db.run(`CREATE TRIGGER fail_participation BEFORE UPDATE ON autonomous_participation
+          BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END`);
+  await rejects(
+    () => storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 9000),
+    Error,
+    "simulated write failure",
+  );
+  const newer = createParticipation({
+    latestHumanMessageId: "1234567890123456790",
+    latestHumanTimestampMs: 3000,
+    attemptedAt: 4000,
+  });
+  await rejects(() => storage.claimAutonomousParticipation(newer, 0), Error, "simulated");
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(first);
+});
 
-Deno.test(
-  "autonomous participation completion retries conflicts and fails after bounded retries",
-  async () => {
-    using kv = await Deno.openKv(":memory:");
-    const storage = createStorageService(kv);
-    const first = createParticipation();
-    await storage.claimAutonomousParticipation(first, 0);
-    const atomic = kv.atomic.bind(kv);
-    let conflictsRemaining = 1;
-    let attempts = 0;
-    kv.atomic = () => {
-      attempts++;
-      const operation = atomic();
-      if (conflictsRemaining-- > 0) operation.commit = () => Promise.resolve({ ok: false });
-      return operation;
-    };
-    await storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 4000);
-    assertEquals(attempts, 2);
-    conflictsRemaining = 100;
-    attempts = 0;
-    await assertRejects(
-      () =>
-        storage.finishAutonomousParticipation(TEST_CHANNEL_ID, first.latestHumanMessageId, 5000),
-      Error,
-      "Autonomous participation completion failed after repeated conflicts",
-    );
-    assertEquals(attempts, 10);
-    assertEquals((await storage.getAutonomousParticipation(TEST_CHANNEL_ID))?.attemptedAt, 4000);
-  },
-);
+test("autonomous participation completion records a reaction without moving time back", async () => {
+  using db = openDatabase(":memory:");
+  const storage = createStorageService(db);
+  const first = createParticipation({ attemptedAt: 5000 });
+  await storage.claimAutonomousParticipation(first, 0);
+  await storage.finishAutonomousParticipation(
+    TEST_CHANNEL_ID,
+    first.latestHumanMessageId,
+    4000,
+    "UwU:7",
+  );
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual({
+    ...first,
+    lastReactionEmoji: "UwU:7",
+  });
+  const next = createParticipation({
+    latestHumanMessageId: "1234567890123456790",
+    latestHumanTimestampMs: 1500,
+    attemptedAt: 6000,
+  });
+  expect(await storage.claimAutonomousParticipation(next, 0)).toBe(true);
+  expect((await storage.getAutonomousParticipation(TEST_CHANNEL_ID))?.lastReactionEmoji).toBe(
+    "UwU:7",
+  );
+});
 
-Deno.test("autonomous participation completion rejects invalid times before writing", async () => {
-  using kv = await Deno.openKv(":memory:");
+test("autonomous participation completion rejects invalid times before writing", async () => {
+  using kv = openDatabase(":memory:");
   const storage = createStorageService(kv);
   const first = createParticipation();
   await storage.claimAutonomousParticipation(first, 0);
   for (const finishedAt of [-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-    await assertRejects(
+    await rejects(
       () =>
         storage.finishAutonomousParticipation(
           TEST_CHANNEL_ID,
@@ -441,23 +388,23 @@ Deno.test("autonomous participation completion rejects invalid times before writ
       RangeError,
     );
   }
-  assertEquals(await storage.getAutonomousParticipation(TEST_CHANNEL_ID), first);
+  expect(await storage.getAutonomousParticipation(TEST_CHANNEL_ID)).toStrictEqual(first);
 });
 
 // ============================================================================
 // getUserHistory Tests
 // ============================================================================
 
-Deno.test("getUserHistory returns empty array for unknown user", async () => {
+test("getUserHistory returns empty array for unknown user", async () => {
   const { storage, kv } = await createTestStorage();
 
   const history = await storage.getUserHistory(TEST_CHANNEL_ID, "unknown");
-  assertEquals(history, []);
+  expect(history).toStrictEqual([]);
 
   kv.close();
 });
 
-Deno.test("getUserHistory returns votes sorted by date descending", async () => {
+test("getUserHistory returns votes sorted by date descending", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-08");
@@ -466,15 +413,15 @@ Deno.test("getUserHistory returns votes sorted by date descending", async () => 
 
   const history = await storage.getUserHistory(TEST_CHANNEL_ID, "user123");
 
-  assertEquals(history.length, 3);
-  assertEquals(history[0].date, "2025-12-10"); // Most recent first
-  assertEquals(history[1].date, "2025-12-09");
-  assertEquals(history[2].date, "2025-12-08");
+  expect(history.length).toStrictEqual(3);
+  expect(history[0].date).toStrictEqual("2025-12-10"); // Most recent first
+  expect(history[1].date).toStrictEqual("2025-12-09");
+  expect(history[2].date).toStrictEqual("2025-12-08");
 
   kv.close();
 });
 
-Deno.test("getUserHistory respects limit parameter", async () => {
+test("getUserHistory respects limit parameter", async () => {
   const { storage, kv } = await createTestStorage();
 
   // Add 10 votes
@@ -484,7 +431,7 @@ Deno.test("getUserHistory respects limit parameter", async () => {
   }
 
   const history = await storage.getUserHistory(TEST_CHANNEL_ID, "user123", 5);
-  assertEquals(history.length, 5);
+  expect(history.length).toStrictEqual(5);
 
   kv.close();
 });
@@ -493,16 +440,16 @@ Deno.test("getUserHistory respects limit parameter", async () => {
 // getVotesForDate Tests
 // ============================================================================
 
-Deno.test("getVotesForDate returns empty array for date with no votes", async () => {
+test("getVotesForDate returns empty array for date with no votes", async () => {
   const { storage, kv } = await createTestStorage();
 
   const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
-  assertEquals(votes, []);
+  expect(votes).toStrictEqual([]);
 
   kv.close();
 });
 
-Deno.test("getVotesForDate returns all votes for a specific date", async () => {
+test("getVotesForDate returns all votes for a specific date", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-10");
@@ -510,7 +457,7 @@ Deno.test("getVotesForDate returns all votes for a specific date", async () => {
   await storage.recordVote(TEST_CHANNEL_ID, "user3", "Charlie", "glue", "2025-12-11"); // Different date
 
   const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
-  assertEquals(votes.length, 2);
+  expect(votes.length).toStrictEqual(2);
 
   kv.close();
 });
@@ -519,20 +466,20 @@ Deno.test("getVotesForDate returns all votes for a specific date", async () => {
 // getStats Tests
 // ============================================================================
 
-Deno.test("getStats returns empty stats for date range with no votes", async () => {
+test("getStats returns empty stats for date range with no votes", async () => {
   const { storage, kv } = await createTestStorage();
 
   const stats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-01", "2025-12-03");
 
-  assertEquals(stats.length, 3);
-  assertEquals(stats[0].total, 0);
-  assertEquals(stats[1].total, 0);
-  assertEquals(stats[2].total, 0);
+  expect(stats.length).toStrictEqual(3);
+  expect(stats[0].total).toStrictEqual(0);
+  expect(stats[1].total).toStrictEqual(0);
+  expect(stats[2].total).toStrictEqual(0);
 
   kv.close();
 });
 
-Deno.test("getStats aggregates votes correctly", async () => {
+test("getStats aggregates votes correctly", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-10");
@@ -542,16 +489,16 @@ Deno.test("getStats aggregates votes correctly", async () => {
 
   const stats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-10", "2025-12-10");
 
-  assertEquals(stats.length, 1);
-  assertEquals(stats[0].umazing, 2);
-  assertEquals(stats[0].ok, 1);
-  assertEquals(stats[0].glue, 1);
-  assertEquals(stats[0].total, 4);
+  expect(stats.length).toStrictEqual(1);
+  expect(stats[0].umazing).toStrictEqual(2);
+  expect(stats[0].ok).toStrictEqual(1);
+  expect(stats[0].glue).toStrictEqual(1);
+  expect(stats[0].total).toStrictEqual(4);
 
   kv.close();
 });
 
-Deno.test("getStats returns stats sorted by date ascending", async () => {
+test("getStats returns stats sorted by date ascending", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "umazing", "2025-12-12");
@@ -560,15 +507,37 @@ Deno.test("getStats returns stats sorted by date ascending", async () => {
 
   const stats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-10", "2025-12-12");
 
-  assertEquals(stats.length, 3);
-  assertEquals(stats[0].date, "2025-12-10");
-  assertEquals(stats[1].date, "2025-12-11");
-  assertEquals(stats[2].date, "2025-12-12");
+  expect(stats.length).toStrictEqual(3);
+  expect(stats[0].date).toStrictEqual("2025-12-10");
+  expect(stats[1].date).toStrictEqual("2025-12-11");
+  expect(stats[2].date).toStrictEqual("2025-12-12");
 
   kv.close();
 });
 
-Deno.test("getStats isolates channels", async () => {
+test("getStats lists each day once across a DST change in a non-UTC time zone", async () => {
+  const savedTz = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  try {
+    const { storage, kv } = await createTestStorage();
+    await storage.recordVote(TEST_CHANNEL_ID, "u1", "Alice", "ok", "2026-03-09");
+    const stats = await storage.getStats(TEST_CHANNEL_ID, "2026-03-06", "2026-03-10");
+    expect(stats.map((day) => day.date)).toStrictEqual([
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+    ]);
+    expect(stats[3].ok).toBe(1);
+    kv.close();
+  } finally {
+    if (savedTz === undefined) delete process.env.TZ;
+    else process.env.TZ = savedTz;
+  }
+});
+
+test("getStats isolates channels", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user1", "Alice", "glue", "2025-12-10");
@@ -577,10 +546,10 @@ Deno.test("getStats isolates channels", async () => {
   const firstChannelStats = await storage.getStats(TEST_CHANNEL_ID, "2025-12-10", "2025-12-10");
   const secondChannelStats = await storage.getStats(OTHER_CHANNEL_ID, "2025-12-10", "2025-12-10");
 
-  assertEquals(firstChannelStats[0].glue, 1);
-  assertEquals(firstChannelStats[0].umazing, 0);
-  assertEquals(secondChannelStats[0].glue, 0);
-  assertEquals(secondChannelStats[0].umazing, 1);
+  expect(firstChannelStats[0].glue).toStrictEqual(1);
+  expect(firstChannelStats[0].umazing).toStrictEqual(0);
+  expect(secondChannelStats[0].glue).toStrictEqual(0);
+  expect(secondChannelStats[0].umazing).toStrictEqual(1);
 
   kv.close();
 });
@@ -589,16 +558,16 @@ Deno.test("getStats isolates channels", async () => {
 // getConsecutiveGlueCount Tests
 // ============================================================================
 
-Deno.test("getConsecutiveGlueCount returns 0 for user with no votes", async () => {
+test("getConsecutiveGlueCount returns 0 for user with no votes", async () => {
   const { storage, kv } = await createTestStorage();
 
   const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "unknown");
-  assertEquals(count, 0);
+  expect(count).toStrictEqual(0);
 
   kv.close();
 });
 
-Deno.test("getConsecutiveGlueCount returns 0 when most recent is not glue", async () => {
+test("getConsecutiveGlueCount returns 0 when most recent is not glue", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
@@ -606,12 +575,12 @@ Deno.test("getConsecutiveGlueCount returns 0 when most recent is not glue", asyn
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "ok", "2025-12-10"); // Most recent
 
   const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
-  assertEquals(count, 0);
+  expect(count).toStrictEqual(0);
 
   kv.close();
 });
 
-Deno.test("getConsecutiveGlueCount counts consecutive glue votes from most recent", async () => {
+test("getConsecutiveGlueCount counts consecutive glue votes from most recent", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-05");
@@ -620,12 +589,12 @@ Deno.test("getConsecutiveGlueCount counts consecutive glue votes from most recen
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
 
   const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
-  assertEquals(count, 3); // 3 consecutive glue days
+  expect(count).toStrictEqual(3); // 3 consecutive glue days
 
   kv.close();
 });
 
-Deno.test("getConsecutiveGlueCount stops at first non-glue vote", async () => {
+test("getConsecutiveGlueCount stops at first non-glue vote", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-05");
@@ -634,12 +603,12 @@ Deno.test("getConsecutiveGlueCount stops at first non-glue vote", async () => {
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
 
   const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
-  assertEquals(count, 2); // Only 2 consecutive from most recent
+  expect(count).toStrictEqual(2); // Only 2 consecutive from most recent
 
   kv.close();
 });
 
-Deno.test("getConsecutiveGlueCount stops when there is a gap in vote dates", async () => {
+test("getConsecutiveGlueCount stops when there is a gap in vote dates", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-05");
@@ -647,24 +616,24 @@ Deno.test("getConsecutiveGlueCount stops when there is a gap in vote dates", asy
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-08");
 
   const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
-  assertEquals(count, 2); // 12-06 is missing, so 12-05 does not extend the streak
+  expect(count).toStrictEqual(2); // 12-06 is missing, so 12-05 does not extend the streak
 
   kv.close();
 });
 
-Deno.test("getConsecutiveGlueCount returns 1 when most recent glue vote is stale", async () => {
+test("getConsecutiveGlueCount returns 1 when most recent glue vote is stale", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-01");
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-03");
 
   const count = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
-  assertEquals(count, 1);
+  expect(count).toStrictEqual(1);
 
   kv.close();
 });
 
-Deno.test("getConsecutiveGlueCount is channel scoped", async () => {
+test("getConsecutiveGlueCount is channel scoped", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-07");
@@ -674,8 +643,8 @@ Deno.test("getConsecutiveGlueCount is channel scoped", async () => {
   const firstChannelCount = await storage.getConsecutiveGlueCount(TEST_CHANNEL_ID, "user123");
   const secondChannelCount = await storage.getConsecutiveGlueCount(OTHER_CHANNEL_ID, "user123");
 
-  assertEquals(firstChannelCount, 2);
-  assertEquals(secondChannelCount, 0);
+  expect(firstChannelCount).toStrictEqual(2);
+  expect(secondChannelCount).toStrictEqual(0);
 
   kv.close();
 });
@@ -684,18 +653,18 @@ Deno.test("getConsecutiveGlueCount is channel scoped", async () => {
 // getUsersAtRisk Tests
 // ============================================================================
 
-Deno.test("getUsersAtRisk returns empty array when no users at risk", async () => {
+test("getUsersAtRisk returns empty array when no users at risk", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "umazing", "2025-12-10");
 
   const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
-  assertEquals(atRisk, []);
+  expect(atRisk).toStrictEqual([]);
 
   kv.close();
 });
 
-Deno.test("getUsersAtRisk identifies user at threshold", async () => {
+test("getUsersAtRisk identifies user at threshold", async () => {
   const { storage, kv } = await createTestStorage();
 
   // Create 7 consecutive glue days for user
@@ -705,13 +674,13 @@ Deno.test("getUsersAtRisk identifies user at threshold", async () => {
   }
 
   const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
-  assertEquals(atRisk.length, 1);
-  assertEquals(atRisk[0][0].odUserId, "user123");
+  expect(atRisk.length).toStrictEqual(1);
+  expect(atRisk[0][0].odUserId).toStrictEqual("user123");
 
   kv.close();
 });
 
-Deno.test("getUsersAtRisk does not include users below threshold", async () => {
+test("getUsersAtRisk does not include users below threshold", async () => {
   const { storage, kv } = await createTestStorage();
 
   // Create only 5 consecutive glue days
@@ -721,12 +690,12 @@ Deno.test("getUsersAtRisk does not include users below threshold", async () => {
   }
 
   const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
-  assertEquals(atRisk, []);
+  expect(atRisk).toStrictEqual([]);
 
   kv.close();
 });
 
-Deno.test("getUsersAtRisk identifies multiple users at risk", async () => {
+test("getUsersAtRisk identifies multiple users at risk", async () => {
   const { storage, kv } = await createTestStorage();
 
   // User 1: 7 glue days
@@ -763,29 +732,26 @@ Deno.test("getUsersAtRisk identifies multiple users at risk", async () => {
   }
 
   const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
-  assertEquals(atRisk.length, 2);
+  expect(atRisk.length).toStrictEqual(2);
 
   kv.close();
 });
 
-Deno.test(
-  "getUsersAtRisk excludes users whose glue votes are not on consecutive days",
-  async () => {
-    const { storage, kv } = await createTestStorage();
+test("getUsersAtRisk excludes users whose glue votes are not on consecutive days", async () => {
+  const { storage, kv } = await createTestStorage();
 
-    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-01");
-    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-03");
-    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-04");
-    await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-05");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-01");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-03");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-04");
+  await storage.recordVote(TEST_CHANNEL_ID, "user123", "Alice", "glue", "2025-12-05");
 
-    const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 4);
-    assertEquals(atRisk, []);
+  const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 4);
+  expect(atRisk).toStrictEqual([]);
 
-    kv.close();
-  },
-);
+  kv.close();
+});
 
-Deno.test("getUsersAtRisk is channel scoped", async () => {
+test("getUsersAtRisk is channel scoped", async () => {
   const { storage, kv } = await createTestStorage();
 
   for (let i = 1; i <= 7; i++) {
@@ -797,8 +763,8 @@ Deno.test("getUsersAtRisk is channel scoped", async () => {
   const firstChannelAtRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
   const secondChannelAtRisk = await storage.getUsersAtRisk(OTHER_CHANNEL_ID, 7);
 
-  assertEquals(firstChannelAtRisk.length, 1);
-  assertEquals(secondChannelAtRisk, []);
+  expect(firstChannelAtRisk.length).toStrictEqual(1);
+  expect(secondChannelAtRisk).toStrictEqual([]);
 
   kv.close();
 });
@@ -820,20 +786,20 @@ function createPoll(overrides: Partial<PollRecord> = {}): PollRecord {
   };
 }
 
-Deno.test("savePendingPoll and getAllPendingPolls include uncollected polls only", async () => {
+test("savePendingPoll and getAllPendingPolls include uncollected polls only", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.savePendingPoll(createPoll({ messageId: "poll-a", collected: false }));
   await storage.savePendingPoll(createPoll({ messageId: "poll-b", collected: true }));
 
   const pending = await storage.getAllPendingPolls();
-  assertEquals(pending.length, 1);
-  assertEquals(pending[0].messageId, "poll-a");
+  expect(pending.length).toStrictEqual(1);
+  expect(pending[0].messageId).toStrictEqual("poll-a");
 
   kv.close();
 });
 
-Deno.test("getExpiredPolls returns only expired and uncollected polls", async () => {
+test("getExpiredPolls returns only expired and uncollected polls", async () => {
   const { storage, kv } = await createTestStorage();
   const now = Date.now();
 
@@ -860,102 +826,99 @@ Deno.test("getExpiredPolls returns only expired and uncollected polls", async ()
   );
 
   const expired = await storage.getExpiredPolls();
-  assertEquals(expired.length, 1);
-  assertEquals(expired[0].messageId, "expired-open");
+  expect(expired.length).toStrictEqual(1);
+  expect(expired[0].messageId).toStrictEqual("expired-open");
 
   kv.close();
 });
 
-Deno.test("markPollCollected updates existing poll and leaves missing poll unchanged", async () => {
+test("markPollCollected updates existing poll and leaves missing poll unchanged", async () => {
   const { storage, kv } = await createTestStorage();
 
   await storage.savePendingPoll(createPoll({ messageId: "poll-to-collect", collected: false }));
   await storage.markPollCollected("poll-to-collect");
   await storage.markPollCollected("does-not-exist");
 
-  const entry = await kv.get<PollRecord>(["pending_polls", "poll-to-collect"]);
-  assertEquals(entry.value?.collected, true);
+  const row = kv
+    .query<{ collected_at: number | null }, [string]>(
+      "SELECT collected_at FROM polls WHERE message_id = ?",
+    )
+    .get("poll-to-collect");
+  expect(row?.collected_at).toBeNumber();
+  expect(await storage.getAllPendingPolls()).toStrictEqual([]);
+  expect(kv.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM polls").get()?.n).toBe(1);
 
   kv.close();
 });
 
-for (const failure of ["unsuccessful commit", "rejected commit"] as const) {
-  Deno.test(
-    `recordVote keeps both indexes unchanged after ${failure} and supports retry`,
-    async () => {
-      using kv = await Deno.openKv(":memory:");
-      const storage = createStorageService(kv);
-      const atomic = kv.atomic.bind(kv);
-      let failing = true;
-      kv.atomic = () => {
-        const operation = atomic();
-        if (failing) {
-          operation.commit = () =>
-            failure === "rejected commit"
-              ? Promise.reject(new Error("Injected disk failure"))
-              : Promise.resolve({ ok: false });
-        }
-        return operation;
-      };
-
-      await assertRejects(() =>
-        storage.recordVote(TEST_CHANNEL_ID, "user", "Alice", "ok", "2026-09-01"),
-      );
-      assertEquals(await storage.getVotesForDate(TEST_CHANNEL_ID, "2026-09-01"), []);
-      assertEquals(await storage.getUserHistory(TEST_CHANNEL_ID, "user"), []);
-
-      failing = false;
-      await storage.recordVote(TEST_CHANNEL_ID, "user", "Alice", "ok", "2026-09-01");
-      const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2026-09-01");
-      assertEquals(votes.length, 1);
-      assertEquals(await storage.getUserHistory(TEST_CHANNEL_ID, "user"), votes);
-    },
+test("a failed recordVote leaves no partial vote and supports retry", async () => {
+  using db = openDatabase(":memory:");
+  const storage = createStorageService(db);
+  db.run(`CREATE TRIGGER fail_vote BEFORE INSERT ON votes
+          BEGIN SELECT RAISE(ABORT, 'Injected disk failure'); END`);
+  await rejects(
+    () => storage.recordVote(TEST_CHANNEL_ID, "user", "Alice", "ok", "2026-09-01"),
+    Error,
+    "Injected disk failure",
   );
-}
+  expect(await storage.getVotesForDate(TEST_CHANNEL_ID, "2026-09-01")).toStrictEqual([]);
+  expect(await storage.getUserHistory(TEST_CHANNEL_ID, "user")).toStrictEqual([]);
 
-Deno.test(
-  "last delivered expression survives claims, silence, and storage recreation",
-  async () => {
-    const kv = await Deno.openKv(":memory:");
-    try {
-      let storage = createStorageService(kv);
-      const first = {
-        channelId: "channel",
-        latestHumanMessageId: "100",
-        latestHumanTimestampMs: 1000,
-        attemptedAt: 2000,
-      };
-      assertEquals(await storage.claimAutonomousParticipation(first, 0), true);
-      await storage.finishAutonomousParticipation("channel", "100", 2000, "UwU:123");
-      storage = createStorageService(kv);
-      assertEquals(
-        (await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji,
-        "UwU:123",
-      );
-      assertEquals(
-        await storage.claimAutonomousParticipation(
-          {
-            ...first,
-            latestHumanMessageId: "101",
-            latestHumanTimestampMs: 3000,
-            attemptedAt: 4000,
-          },
-          0,
-        ),
-        true,
-      );
-      await storage.finishAutonomousParticipation("channel", "101", 5000);
-      assertEquals(
-        (await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji,
-        "UwU:123",
-      );
-      await storage.finishAutonomousParticipation("channel", "100", 6000, "Wrong:456");
-      assertEquals(
-        (await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji,
-        "UwU:123",
-      );
-    } finally {
-      kv.close();
-    }
-  },
-);
+  db.run("DROP TRIGGER fail_vote");
+  await storage.recordVote(TEST_CHANNEL_ID, "user", "Alice", "ok", "2026-09-01");
+  const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2026-09-01");
+  expect(votes.length).toBe(1);
+  expect(await storage.getUserHistory(TEST_CHANNEL_ID, "user")).toStrictEqual(votes);
+});
+
+test("savePendingPoll overwrites an existing poll, including its collected state", async () => {
+  using db = openDatabase(":memory:");
+  const storage = createStorageService(db, () => 5000);
+  await storage.savePendingPoll(createPoll({ messageId: "poll", expiresAt: 1000 }));
+  await storage.markPollCollected("poll");
+  expect(await storage.getAllPendingPolls()).toStrictEqual([]);
+  const replaced = createPoll({ messageId: "poll", channelId: "chan-9", expiresAt: 4000 });
+  await storage.savePendingPoll(replaced);
+  expect(await storage.getAllPendingPolls()).toStrictEqual([replaced]);
+  expect(await storage.getExpiredPolls()).toStrictEqual([replaced]);
+});
+
+test("last delivered expression survives claims, silence, and storage recreation", async () => {
+  const kv = openDatabase(":memory:");
+  try {
+    let storage = createStorageService(kv);
+    const first = {
+      channelId: "channel",
+      latestHumanMessageId: "100",
+      latestHumanTimestampMs: 1000,
+      attemptedAt: 2000,
+    };
+    expect(await storage.claimAutonomousParticipation(first, 0)).toStrictEqual(true);
+    await storage.finishAutonomousParticipation("channel", "100", 2000, "UwU:123");
+    storage = createStorageService(kv);
+    expect((await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji).toStrictEqual(
+      "UwU:123",
+    );
+    expect(
+      await storage.claimAutonomousParticipation(
+        {
+          ...first,
+          latestHumanMessageId: "101",
+          latestHumanTimestampMs: 3000,
+          attemptedAt: 4000,
+        },
+        0,
+      ),
+    ).toStrictEqual(true);
+    await storage.finishAutonomousParticipation("channel", "101", 5000);
+    expect((await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji).toStrictEqual(
+      "UwU:123",
+    );
+    await storage.finishAutonomousParticipation("channel", "100", 6000, "Wrong:456");
+    expect((await storage.getAutonomousParticipation("channel"))?.lastReactionEmoji).toStrictEqual(
+      "UwU:123",
+    );
+  } finally {
+    kv.close();
+  }
+});

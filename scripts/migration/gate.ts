@@ -113,7 +113,8 @@ if (import.meta.main) {
     );
   }
 
-  if (run(["bun", "check", "--no-script", "--no-pretty", ...all]) !== 0) {
+  // main.ts is checked too: no test imports it.
+  if (run(["bun", "check", "--no-script", "--no-pretty", "main.ts", ...all]) !== 0) {
     problems.push("bun check reported type errors");
   }
   const dir = mkdtempSync(join(tmpdir(), "migration-gate-"));

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import { handleMessage } from "./bot_actions.ts";
 import type { BotDependencies } from "./bot_actions.ts";
 import type { AppConfig } from "./src/config.ts";
@@ -34,7 +34,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   };
 }
 
-Deno.test("handleMessage exits when bot id cannot be fetched", async () => {
+test("handleMessage exits when bot id cannot be fetched", async () => {
   let ai_calls = 0;
   const config = createMockConfig({ discordToken: "" });
   const deps: BotDependencies = {
@@ -101,5 +101,5 @@ Deno.test("handleMessage exits when bot id cannot be fetched", async () => {
     deps,
   );
 
-  assertEquals(ai_calls, 0);
+  expect(ai_calls).toStrictEqual(0);
 });

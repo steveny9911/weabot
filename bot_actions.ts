@@ -76,7 +76,7 @@ export async function getBotUserId(config: AppConfig): Promise<string | undefine
       return undefined;
     }
 
-    const data = await res.json();
+    const data = (await res.json()) as { id: string };
     cached_bot_user_id = data.id;
     return cached_bot_user_id;
   } catch (err) {
