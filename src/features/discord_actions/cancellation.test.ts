@@ -15,9 +15,9 @@ import {
   createDiscordActionService,
   type DiscordActionContext,
   type DiscordActionService,
-  formatActionResults,
-  hasExplicitActionRequest,
 } from "./service.ts";
+import { hasExplicitActionRequest } from "./intent.ts";
+import { formatActionResults } from "./results.ts";
 import { type Database, openDatabase } from "../../db/database.ts";
 
 const GUILD = "100";

@@ -11,10 +11,8 @@
 import { openDatabase } from "../../src/db/database.ts";
 import { createAiService } from "../../src/ai/service.ts";
 import { loadConfig } from "../../src/config.ts";
-import {
-  createDiscordActionService,
-  formatActionResults,
-} from "../../src/features/discord_actions/service.ts";
+import { formatActionResults } from "../../src/features/discord_actions/results.ts";
+import { createDiscordActionService } from "../../src/features/discord_actions/service.ts";
 import {
   createDiscordEventsClient,
   type DiscordEventsClient,

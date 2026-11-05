@@ -20,6 +20,19 @@ import {
 import { type Turn, TurnStore, turnKey } from "./state.ts";
 import { resolveEventTime } from "./time.ts";
 import { DISCORD_ACTION_TOOLS } from "./tools.ts";
+import {
+  containsReference,
+  directReferenceText,
+  directRequestText,
+  hasExplicitActionRequest,
+  hasExplicitCancellationRequest,
+  hasExplicitCreationRequest,
+  hasExplicitEventCreationRequest,
+  hasExplicitInviteCreationRequest,
+  isAbandonment,
+  isDiscussion,
+} from "./intent.ts";
+import { type ActionResult, errorResult, eventResult } from "./results.ts";
 
 export interface DiscordActionContext {
   guildId: string;
@@ -28,14 +41,6 @@ export interface DiscordActionContext {
   botId: string;
   messageId: string;
   content: string;
-}
-export interface ActionResult extends Record<string, unknown> {
-  ok: boolean;
-  message: string;
-  eventId?: string;
-  eventUrl?: string;
-  inviteUrl?: string;
-  uncertain?: boolean;
 }
 export interface DiscordActionSession extends AiReplyOptions {
   results: ActionResult[];
@@ -62,98 +67,6 @@ function isOlder(messageId: string, previousId: string): boolean {
   );
 }
 
-/** A conservative authorization gate, independent of the model's interpretation of details. */
-function directReferenceText(content: string): string {
-  return (
-    content
-      .replace(/```[\s\S]*?```/g, " ")
-      .replace(/`[^`]*`/g, " ")
-      // Discord's >>> blockquote consumes every following line, not just its first.
-      .replace(/^[ \t]*>>>(?:\s|$)[\s\S]*$/gm, " ")
-      .replace(/^\s*>.*$/gm, " ")
-  );
-}
-function directRequestText(content: string): string {
-  return directReferenceText(content).replace(/"[^"\n]*"|“[^”\n]*”/g, " ");
-}
-function isDiscussion(content: string): boolean {
-  const direct = directRequestText(content)
-    .replace(/<@!?\d+>/g, " ")
-    .trim();
-  return (
-    !direct ||
-    /\b(hypothetical|hypothetically|example|pretend)\b/i.test(direct) ||
-    /\bhow\s+(?:do|can|would|could|to)\b|\bwhat\s+(?:if|would)\b/i.test(direct)
-  );
-}
-function isNegativeRequest(content: string): boolean {
-  return /\b(don['’]t|do not|not|never|stop|forget it|never mind|nevermind)\b/i.test(
-    directRequestText(content),
-  );
-}
-function hasExplicitCancellationRequest(content: string): boolean {
-  if (isNegativeRequest(content) || isDiscussion(content)) return false;
-  const direct = directRequestText(content);
-  // Cancelling a pending request is distinct from cancelling an existing event.
-  if (/\b(?:request|creation|creating)\b/i.test(direct)) return false;
-  return (
-    /\b(?:cancel|call\s+off)\b/i.test(direct) &&
-    (/\b(?:event|meetup|meeting|game night|movie night|watch party|hangout|session|party|workshop)\b/i.test(
-      direct,
-    ) ||
-      /\b(?:cancel|call\s+off)\s+(?!please[.!?\s]*$)\S/i.test(direct) ||
-      /\b(?:cancel|call\s+off)\s+["“][^"”\n]+["”]/i.test(content))
-  );
-}
-function isAbandonment(content: string): boolean {
-  return (
-    isNegativeRequest(content) ||
-    (/\bcancel\b/i.test(directRequestText(content)) && !hasExplicitCancellationRequest(content))
-  );
-}
-function creationRequestText(content: string): string {
-  const direct = directRequestText(content);
-  if (isAbandonment(content) || /\b(?:cancel|call\s+off)\b/i.test(direct)) return "";
-  return isDiscussion(content) ? "" : direct;
-}
-function hasExplicitEventCreationRequest(content: string): boolean {
-  const direct = creationRequestText(content);
-  // An invite for an existing event does not authorize creating that event.
-  // Keep independent event clauses and the common "event with an invite" form.
-  const clauses = direct.split(/[.!?;\n]|\b(?:and|then|also)\b/i);
-  return clauses.some((clause) => {
-    const eventClause = clause.replace(
-      /\bwith\s+(?:an?\s+)?(?:invite|invitation|join\s+link)\b.*$/i,
-      " ",
-    );
-    return (
-      !/\b(invite|invitation|join\s+link)\b/i.test(eventClause) &&
-      /\b(event|meetup|meeting|game night|movie night|watch party|hangout|session|party|workshop)\b/i.test(
-        eventClause,
-      ) &&
-      /\b(create|schedule|make|set\s+up|arrange|organ[is]e|plan|host|add)\b/i.test(eventClause)
-    );
-  });
-}
-function hasExplicitInviteCreationRequest(content: string): boolean {
-  const direct = creationRequestText(content);
-  return (
-    /\b(invite|invitation|join\s+link)\b/i.test(direct) &&
-    /\b(create|make|get|give|send|share|generate|need|want)\b/i.test(direct)
-  );
-}
-function hasExplicitCreationRequest(content: string): boolean {
-  return hasExplicitEventCreationRequest(content) || hasExplicitInviteCreationRequest(content);
-}
-export function hasExplicitActionRequest(content: string): boolean {
-  return hasExplicitCreationRequest(content) || hasExplicitCancellationRequest(content);
-}
-
-function containsReference(source: string, reference: string): boolean {
-  const escaped = reference.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(source);
-}
-
 function requiredText(args: Record<string, unknown>, key: string, max: number): string {
   const value = args[key];
   if (typeof value !== "string" || !value.trim() || value.trim().length > max) {
@@ -167,39 +80,6 @@ function optionalText(args: Record<string, unknown>, key: string, max: number): 
 }
 function has(bits: bigint, required: bigint): boolean {
   return (bits & P.ADMINISTRATOR) !== 0n || (bits & required) === required;
-}
-function errorResult(error: unknown): ActionResult {
-  if (error instanceof DiscordApiError && error.uncertain) {
-    return {
-      ok: false,
-      uncertain: true,
-      message:
-        "Discord did not confirm the result. The action may have succeeded; I have not retried it. Check the server's events/invites before trying again.",
-    };
-  }
-  return {
-    ok: false,
-    message: error instanceof Error ? error.message : "The Discord action failed.",
-  };
-}
-function eventResult(event: DiscordScheduledEvent, reused = false): ActionResult {
-  const eventUrl = `https://discord.com/events/${event.guild_id}/${event.id}`;
-  const start = Math.floor(Date.parse(event.scheduled_start_time) / 1000);
-  const end = event.scheduled_end_time
-    ? Math.floor(Date.parse(event.scheduled_end_time) / 1000)
-    : null;
-  return {
-    ok: true,
-    eventId: event.id,
-    eventUrl,
-    channelId: event.channel_id,
-    message:
-      `${
-        reused
-          ? "Ehehe~ your event is already waiting for you! (｡•ᴗ•｡)"
-          : "Ehehe~ I made your event! (｡•ᴗ•｡)"
-      }\n${event.name}\n` + `<t:${start}:F>${end ? ` – <t:${end}:F>` : ""}\n${eventUrl}`,
-  };
 }
 
 export function createDiscordActionService(
@@ -956,13 +836,4 @@ export function createDiscordActionService(
       return session;
     },
   };
-}
-
-/** Keep Haru's voice around verified facts, even if the model fails after a write. */
-export function formatActionResults(results: ActionResult[]): string | null {
-  if (!results.length) return null;
-  const messages = results.map((result) =>
-    result.ok || result.needsClarification === true ? result.message : `Eep... ${result.message}`,
-  );
-  return [...new Set(messages)].join("\n\n");
 }

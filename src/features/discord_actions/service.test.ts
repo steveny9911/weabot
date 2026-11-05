@@ -15,10 +15,10 @@ import {
   createDiscordActionService,
   type DiscordActionContext,
   type DiscordActionService,
-  formatActionResults,
-  hasExplicitActionRequest,
   type PendingRequest,
 } from "./service.ts";
+import { hasExplicitActionRequest } from "./intent.ts";
+import { formatActionResults } from "./results.ts";
 import { type Database, openDatabase } from "../../db/database.ts";
 import { TurnStore, turnKey } from "./state.ts";
 

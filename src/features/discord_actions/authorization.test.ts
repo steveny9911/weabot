@@ -3,8 +3,8 @@ import {
   createDiscordActionService,
   type DiscordActionContext,
   type DiscordActionService,
-  hasExplicitActionRequest,
 } from "./service.ts";
+import { hasExplicitActionRequest } from "./intent.ts";
 import { openDatabase } from "../../db/database.ts";
 import {
   type DiscordEventsClient,

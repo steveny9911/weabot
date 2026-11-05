@@ -7,10 +7,8 @@ import type { UsageService } from "../services/usage.ts";
 import { formatUsageMessage } from "../features/usage.ts";
 import type { AppConfig } from "../config.ts";
 import type { AiService } from "../ai/types.ts";
-import {
-  type DiscordActionService,
-  formatActionResults,
-} from "../features/discord_actions/service.ts";
+import { formatActionResults } from "../features/discord_actions/results.ts";
+import type { DiscordActionService } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
 import {
