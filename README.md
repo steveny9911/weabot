@@ -462,7 +462,6 @@ weabot/
 │   ├── db/                     # SQLite: opening, migrations, queries per table group
 │   └── types/                  # Shared domain types
 ├── tests/
-│   ├── architecture.test.ts    # Enforces the layering rules above
 │   ├── support/                # Test helpers and the test preload
 │   ├── fixtures/               # Loopback servers for transport tests
 │   └── *.integration.ts        # HTTP/TLS transport tests (bun run test:transport)
@@ -477,9 +476,7 @@ weabot/
 └── .github/workflows/ci.yml    # CI pipeline
 ```
 
-Unit tests sit next to the file they test. Imports flow one way, from `main.ts` and `app/` down to
-`types/`: lower layers never import `app/`, `bot/` or `jobs/`, and only `ai/`, `discord/` and `net/`
-make network calls. `tests/architecture.test.ts` checks these rules.
+Unit tests sit next to the file they test.
 
 ---
 
@@ -541,8 +538,7 @@ Haru now runs on Bun and started with a new, empty database. These differences a
 7. An admin HTTP request that sends nothing for 120 seconds is cut off.
 8. Issue triage counts "bun" as an environment detail in bug reports.
 
-Weekly stats no longer drop or duplicate a day across a daylight saving change. See
-[`docs/bun-migration-plan.md`](docs/bun-migration-plan.md) for details.
+Weekly stats no longer drop or duplicate a day across a daylight saving change.
 
 ### Local Issue Automation (Codex + GitHub Issues)
 

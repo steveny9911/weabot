@@ -1,16 +1,10 @@
-/**
- * HTTP Server Module
- *
- * Provides a lightweight HTTP server for health checks, manual triggers,
- * stats viewing, vote recording, and alert checking.
- */
-
 import { timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "../config.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import { collectExpiredPolls } from "../jobs/collect_polls.ts";
+import type { ChannelPost } from "../jobs/channel_posts.ts";
 import { postMoodPolls } from "../jobs/mood_poll.ts";
 import { postStats } from "../jobs/stats.ts";
 import { postTestAlert } from "../jobs/wellness.ts";
@@ -18,388 +12,17 @@ import { buildStatsEmbed } from "../features/stats.ts";
 import type { Mood } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
 
-/**
- * Creates the HTTP request handler with health and authenticated administration.
- *
- * @param config - Application configuration
- * @param discord - Discord API client
- * @param storage - Storage service for vote persistence
- * @param dateFormatter - Date formatter for poll questions
- * @param rateLimit - Rate limit service for AI usage tracking (optional)
- * @returns The handler used by the production server and isolated tests
- */
-export function createRequestHandler(
-  config: AppConfig,
-  discord: DiscordClient,
-  storage: StorageService,
-  dateFormatter: Intl.DateTimeFormat,
-  rateLimit?: RateLimitService,
-) {
-  const deps = { config, discord, storage };
+const WRITES = new Set([
+  "/trigger",
+  "/trigger_poll",
+  "/trigger_stats",
+  "/trigger_alert",
+  "/trigger_collect",
+  "/vote",
+  "/add-pending-poll",
+]);
 
-  return async (req: Request): Promise<Response> => {
-    const url = new URL(req.url);
-
-    // =========================================================================
-    // Health Check
-    // =========================================================================
-    if (url.pathname === "/health") {
-      return new Response("OK", { status: 200 });
-    }
-
-    // Health is the only unauthenticated route. Administrative routes are
-    // disabled everywhere until an operator explicitly configures a token.
-    if (!config.adminHttpToken) return new Response("Not found", { status: 404 });
-    const expected = new TextEncoder().encode(`Bearer ${config.adminHttpToken}`);
-    const supplied = new TextEncoder().encode(req.headers.get("authorization") ?? "");
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-    const writes = new Set([
-      "/trigger",
-      "/trigger_poll",
-      "/trigger_stats",
-      "/trigger_alert",
-      "/trigger_collect",
-      "/vote",
-      "/add-pending-poll",
-    ]);
-    const method = writes.has(url.pathname) ? "POST" : "GET";
-    if (req.method !== method) {
-      return new Response("Method not allowed", { status: 405, headers: { Allow: method } });
-    }
-
-    // =========================================================================
-    // TRIGGER ENDPOINTS - Post directly to Discord for testing
-    // =========================================================================
-
-    // Trigger: Post a mood poll
-    if (url.pathname === "/trigger" || url.pathname === "/trigger_poll") {
-      console.log("[SERVER] Triggering poll...");
-
-      try {
-        const posts = await postMoodPolls(deps, dateFormatter, "[SERVER]");
-        const results = posts.map((post) =>
-          post.ok ? `✅ ${post.channelId}: ${post.detail}` : `❌ ${post.channelId}: ${post.detail}`,
-        );
-        const successCount = posts.filter((post) => post.ok).length;
-
-        if (successCount > 0) {
-          return new Response(`Poll posted:\n${results.join("\n")}`);
-        }
-        return new Response(`❌ Failed:\n${results.join("\n")}`, { status: 500 });
-      } catch (error) {
-        console.error("[SERVER] Error posting poll:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Trigger: Post weekly stats embed
-    if (url.pathname === "/trigger_stats") {
-      const days = parseInt(url.searchParams.get("days") ?? "7", 10);
-      console.log(`[SERVER] Triggering stats (last ${days} days)...`);
-
-      try {
-        const posts = await postStats(deps, {
-          days,
-          title: `📊 Mood Stats (Last ${days} Days)`,
-          label: "stats",
-          tag: "[SERVER]",
-        });
-        const results = posts.map((post) =>
-          post.ok ? `✅ ${post.channelId}` : `❌ ${post.channelId}: ${post.detail}`,
-        );
-        const successCount = posts.filter((post) => post.ok).length;
-
-        if (successCount > 0) {
-          return new Response(`✅ Stats embed posted:\n${results.join("\n")}`);
-        }
-        return new Response(`❌ Failed:\n${results.join("\n")}`, { status: 500 });
-      } catch (error) {
-        console.error("[SERVER] Error posting stats:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Trigger: Post wellness alert (uses test user if no real users at risk)
-    if (url.pathname === "/trigger_alert") {
-      const userName = url.searchParams.get("name") ?? "TestUser";
-      const days = parseInt(url.searchParams.get("days") ?? "7", 10);
-      console.log(`[SERVER] Triggering alert for ${userName} (${days} days)...`);
-
-      try {
-        const posts = await postTestAlert(deps, userName, days);
-        const results = posts.map((post) =>
-          post.ok ? `✅ ${post.channelId}` : `❌ ${post.channelId}: ${post.detail}`,
-        );
-        const successCount = posts.filter((post) => post.ok).length;
-
-        if (successCount > 0) {
-          return new Response(`✅ Alert embed posted:\n${results.join("\n")}`);
-        }
-        return new Response(`❌ Failed:\n${results.join("\n")}`, { status: 500 });
-      } catch (error) {
-        console.error("[SERVER] Error posting alert:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Trigger: Collect expired poll results
-    if (url.pathname === "/trigger_collect") {
-      console.log("[SERVER] Triggering poll result collection...");
-
-      try {
-        const { collected, failed } = await collectExpiredPolls(discord, storage);
-        if (collected.length === 0 && failed.length === 0) {
-          return new Response("ℹ️ No expired polls to collect");
-        }
-        const totalVotes = collected.reduce((total, result) => total + result.votes, 0);
-        const results = [
-          ...collected.map(
-            ({ poll, votes }) => `Poll ${poll.messageId} (${poll.date}): ${votes} votes`,
-          ),
-          ...failed.map(
-            ({ poll }) => `Poll ${poll.messageId} (${poll.date}): failed; pending retry`,
-          ),
-        ];
-        return new Response(
-          `${
-            failed.length ? "❌" : "✅"
-          } Collected ${totalVotes} votes from ${collected.length} poll(s); ${failed.length} failed\n\n${results.join(
-            "\n",
-          )}`,
-          { status: failed.length ? 500 : 200 },
-        );
-      } catch (error) {
-        console.error("[SERVER] Error collecting polls:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // =========================================================================
-    // DATA ENDPOINTS - View/modify data without posting to Discord
-    // =========================================================================
-
-    // Record a vote (for testing)
-    if (url.pathname === "/vote") {
-      const channelId = url.searchParams.get("channelId") ?? config.channelId;
-      const userId = url.searchParams.get("user");
-      const userName = url.searchParams.get("name") ?? "TestUser";
-      const mood = url.searchParams.get("mood") as Mood | null;
-      const date = url.searchParams.get("date") ?? new Date().toISOString().split("T")[0];
-
-      if (!userId || !mood) {
-        return new Response(
-          "Missing required params: user, mood. Optional: name, date, channelId\n" +
-            "Example: /vote?user=123&mood=glue&name=Alice&date=2025-12-11&channelId=123456789",
-          { status: 400 },
-        );
-      }
-
-      if (!["umazing", "ok", "glue"].includes(mood)) {
-        return new Response("Invalid mood. Must be: umazing, ok, or glue", { status: 400 });
-      }
-
-      try {
-        await storage.recordVote(channelId, userId, userName, mood, date);
-        console.log(
-          `[SERVER] Recorded vote in ${channelId}: ${userName} (${userId}) = ${mood} on ${date}`,
-        );
-        return new Response(`✅ Vote recorded in ${channelId}: ${userName} = ${mood} on ${date}`);
-      } catch (error) {
-        console.error("[SERVER] Error recording vote:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Get stats as JSON (without posting)
-    if (url.pathname === "/stats") {
-      const channelId = url.searchParams.get("channelId") ?? config.channelId;
-      const days = parseInt(url.searchParams.get("days") ?? "7", 10);
-
-      try {
-        const endDate = new Date();
-        const startDate = new Date(endDate);
-        // UTC calendar days, so the window is the same in any process time zone.
-        startDate.setUTCDate(startDate.getUTCDate() - days);
-
-        const stats = await storage.getStats(
-          channelId,
-          startDate.toISOString().split("T")[0],
-          endDate.toISOString().split("T")[0],
-        );
-
-        const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
-
-        return new Response(JSON.stringify({ channelId, stats, embed }, null, 2), {
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (error) {
-        console.error("[SERVER] Error getting stats:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Check for users at risk (without sending alerts)
-    if (url.pathname === "/check-alerts") {
-      try {
-        const results = [];
-
-        for (const channelId of config.channelIds) {
-          const atRisk = await storage.getUsersAtRisk(channelId, config.glueAlertThreshold);
-          results.push({
-            channelId,
-            usersAtRisk: atRisk.map((userHistory) => ({
-              user: userHistory[0].odUserName,
-              odUserId: userHistory[0].odUserId,
-              consecutiveDays: userHistory.length,
-            })),
-          });
-        }
-
-        if (results.every((entry) => entry.usersAtRisk.length === 0)) {
-          return new Response("✅ No users at risk. Everyone is doing okay! 🎉");
-        }
-
-        return new Response(JSON.stringify({ results }, null, 2), {
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (error) {
-        console.error("[SERVER] Error checking alerts:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Get user history
-    if (url.pathname === "/user-history") {
-      const channelId = url.searchParams.get("channelId") ?? config.channelId;
-      const userId = url.searchParams.get("user");
-
-      if (!userId) {
-        return new Response(
-          "Missing required param: user\nExample: /user-history?user=123&channelId=123456789",
-          {
-            status: 400,
-          },
-        );
-      }
-
-      try {
-        const history = await storage.getUserHistory(channelId, userId);
-        const consecutiveGlue = await storage.getConsecutiveGlueCount(channelId, userId);
-
-        return new Response(
-          JSON.stringify({ channelId, userId, consecutiveGlue, history }, null, 2),
-          { headers: { "Content-Type": "application/json" } },
-        );
-      } catch (error) {
-        console.error("[SERVER] Error getting user history:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // =========================================================================
-    // AI USAGE MONITORING
-    // =========================================================================
-
-    // Get AI usage statistics
-    if (url.pathname === "/ai-usage") {
-      if (!rateLimit) {
-        return new Response(JSON.stringify({ error: "Rate limit service not configured" }), {
-          status: 503,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      try {
-        const stats = await rateLimit.getUsageStats();
-        const budgetPercentage = (stats.dailyTokensUsed / stats.dailyTokenBudget) * 100;
-
-        return new Response(
-          JSON.stringify(
-            {
-              daily_tokens_used: stats.dailyTokensUsed,
-              daily_token_budget: stats.dailyTokenBudget,
-              budget_percentage: Math.round(budgetPercentage * 100) / 100,
-              requests_today: stats.requestsToday,
-              ai_enabled: config.aiEnabled,
-              rate_limit_per_user: config.aiRateLimitPerUser,
-            },
-            null,
-            2,
-          ),
-          { headers: { "Content-Type": "application/json" } },
-        );
-      } catch (error) {
-        console.error("[SERVER] Error getting AI usage:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Get pending polls awaiting collection
-    if (url.pathname === "/pending-polls") {
-      try {
-        const expiredPolls = await storage.getExpiredPolls();
-        const allPending = await storage.getAllPendingPolls();
-
-        return new Response(
-          JSON.stringify(
-            {
-              expired_ready_to_collect: expiredPolls.length,
-              expired_polls: expiredPolls,
-              all_pending: allPending.length,
-              pending_polls: allPending,
-            },
-            null,
-            2,
-          ),
-          { headers: { "Content-Type": "application/json" } },
-        );
-      } catch (error) {
-        console.error("[SERVER] Error getting pending polls:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // Add a poll to pending (for testing)
-    if (url.pathname === "/add-pending-poll") {
-      const messageId = url.searchParams.get("messageId");
-      const channelId = url.searchParams.get("channelId") ?? config.channelId;
-      const date = url.searchParams.get("date") ?? new Date().toISOString().split("T")[0];
-      const expiresInMs = parseInt(url.searchParams.get("expiresIn") ?? "0", 10);
-
-      if (!messageId) {
-        return new Response(
-          "Missing required param: messageId\n" +
-            "Example: /add-pending-poll?messageId=123456789&expiresIn=0",
-          { status: 400 },
-        );
-      }
-
-      try {
-        const pollRecord: PollRecord = {
-          messageId,
-          channelId,
-          date,
-          createdAt: Date.now(),
-          expiresAt: Date.now() + expiresInMs,
-          collected: false,
-        };
-
-        await storage.savePendingPoll(pollRecord);
-
-        return new Response(`✅ Added pending poll:\n${JSON.stringify(pollRecord, null, 2)}`);
-      } catch (error) {
-        console.error("[SERVER] Error adding pending poll:", error);
-        return new Response(`❌ Error: ${error}`, { status: 500 });
-      }
-    }
-
-    // =========================================================================
-    // Default: Show help
-    // =========================================================================
-    return new Response(
-      `🐴 Haru is running!
+const HELP = `🐴 Haru is running!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TRIGGER ENDPOINTS (post to Discord)
@@ -424,32 +47,276 @@ AI & MONITORING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   /ai-usage                 View AI token usage
   /health                   Health check
-`,
-      { status: 200 },
-    );
+`;
+
+const json = (body: unknown) =>
+  new Response(JSON.stringify(body, null, 2), { headers: { "Content-Type": "application/json" } });
+const today = () => new Date().toISOString().split("T")[0];
+
+/** Lists each channel's result; succeeds if at least one channel got the post. */
+function postReport(posts: ChannelPost[], title: string, showDetail = false): Response {
+  const lines = posts.map((post) =>
+    post.ok
+      ? `✅ ${post.channelId}${showDetail ? `: ${post.detail}` : ""}`
+      : `❌ ${post.channelId}: ${post.detail}`,
+  );
+  return posts.some((post) => post.ok)
+    ? new Response(`${title}:\n${lines.join("\n")}`)
+    : new Response(`❌ Failed:\n${lines.join("\n")}`, { status: 500 });
+}
+
+/** Health is public; every other route needs `ADMIN_HTTP_TOKEN` and is off without it. */
+export function createRequestHandler(
+  config: AppConfig,
+  discord: DiscordClient,
+  storage: StorageService,
+  dateFormatter: Intl.DateTimeFormat,
+  rateLimit?: RateLimitService,
+) {
+  const deps = { config, discord, storage };
+
+  const routes: Record<string, [label: string, run: (url: URL) => Promise<Response>]> = {
+    "/trigger_poll": [
+      "posting poll",
+      async () => {
+        console.log("[SERVER] Triggering poll...");
+        return postReport(
+          await postMoodPolls(deps, dateFormatter, "[SERVER]"),
+          "Poll posted",
+          true,
+        );
+      },
+    ],
+    "/trigger_stats": [
+      "posting stats",
+      async (url) => {
+        const days = parseInt(url.searchParams.get("days") ?? "7", 10);
+        console.log(`[SERVER] Triggering stats (last ${days} days)...`);
+        const posts = await postStats(deps, {
+          days,
+          title: `📊 Mood Stats (Last ${days} Days)`,
+          label: "stats",
+          tag: "[SERVER]",
+        });
+        return postReport(posts, "✅ Stats embed posted");
+      },
+    ],
+    "/trigger_alert": [
+      "posting alert",
+      async (url) => {
+        const userName = url.searchParams.get("name") ?? "TestUser";
+        const days = parseInt(url.searchParams.get("days") ?? "7", 10);
+        console.log(`[SERVER] Triggering alert for ${userName} (${days} days)...`);
+        return postReport(await postTestAlert(deps, userName, days), "✅ Alert embed posted");
+      },
+    ],
+    "/trigger_collect": [
+      "collecting polls",
+      async () => {
+        console.log("[SERVER] Triggering poll result collection...");
+        const { collected, failed } = await collectExpiredPolls(discord, storage);
+        if (collected.length === 0 && failed.length === 0) {
+          return new Response("ℹ️ No expired polls to collect");
+        }
+        const totalVotes = collected.reduce((total, result) => total + result.votes, 0);
+        const lines = [
+          ...collected.map(
+            ({ poll, votes }) => `Poll ${poll.messageId} (${poll.date}): ${votes} votes`,
+          ),
+          ...failed.map(
+            ({ poll }) => `Poll ${poll.messageId} (${poll.date}): failed; pending retry`,
+          ),
+        ];
+        const icon = failed.length ? "❌" : "✅";
+        return new Response(
+          `${icon} Collected ${totalVotes} votes from ${collected.length} poll(s); ${failed.length} failed\n\n${lines.join("\n")}`,
+          { status: failed.length ? 500 : 200 },
+        );
+      },
+    ],
+    "/vote": [
+      "recording vote",
+      async (url) => {
+        const channelId = url.searchParams.get("channelId") ?? config.channelId;
+        const userId = url.searchParams.get("user");
+        const userName = url.searchParams.get("name") ?? "TestUser";
+        const mood = url.searchParams.get("mood") as Mood | null;
+        const date = url.searchParams.get("date") ?? today();
+        if (!userId || !mood) {
+          return new Response(
+            "Missing required params: user, mood. Optional: name, date, channelId\n" +
+              "Example: /vote?user=123&mood=glue&name=Alice&date=2025-12-11&channelId=123456789",
+            { status: 400 },
+          );
+        }
+        if (!["umazing", "ok", "glue"].includes(mood)) {
+          return new Response("Invalid mood. Must be: umazing, ok, or glue", { status: 400 });
+        }
+        await storage.recordVote(channelId, userId, userName, mood, date);
+        console.log(
+          `[SERVER] Recorded vote in ${channelId}: ${userName} (${userId}) = ${mood} on ${date}`,
+        );
+        return new Response(`✅ Vote recorded in ${channelId}: ${userName} = ${mood} on ${date}`);
+      },
+    ],
+    "/stats": [
+      "getting stats",
+      async (url) => {
+        const channelId = url.searchParams.get("channelId") ?? config.channelId;
+        const days = parseInt(url.searchParams.get("days") ?? "7", 10);
+        const endDate = new Date();
+        const startDate = new Date(endDate);
+        startDate.setUTCDate(startDate.getUTCDate() - days);
+        const stats = await storage.getStats(
+          channelId,
+          startDate.toISOString().split("T")[0],
+          endDate.toISOString().split("T")[0],
+        );
+        const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
+        return json({ channelId, stats, embed });
+      },
+    ],
+    "/check-alerts": [
+      "checking alerts",
+      async () => {
+        const results = [];
+        for (const channelId of config.channelIds) {
+          const atRisk = await storage.getUsersAtRisk(channelId, config.glueAlertThreshold);
+          results.push({
+            channelId,
+            usersAtRisk: atRisk.map((history) => ({
+              user: history[0].odUserName,
+              odUserId: history[0].odUserId,
+              consecutiveDays: history.length,
+            })),
+          });
+        }
+        if (results.every((entry) => entry.usersAtRisk.length === 0)) {
+          return new Response("✅ No users at risk. Everyone is doing okay! 🎉");
+        }
+        return json({ results });
+      },
+    ],
+    "/user-history": [
+      "getting user history",
+      async (url) => {
+        const channelId = url.searchParams.get("channelId") ?? config.channelId;
+        const userId = url.searchParams.get("user");
+        if (!userId) {
+          return new Response(
+            "Missing required param: user\nExample: /user-history?user=123&channelId=123456789",
+            { status: 400 },
+          );
+        }
+        const history = await storage.getUserHistory(channelId, userId);
+        const consecutiveGlue = await storage.getConsecutiveGlueCount(channelId, userId);
+        return json({ channelId, userId, consecutiveGlue, history });
+      },
+    ],
+    "/ai-usage": [
+      "getting AI usage",
+      async () => {
+        if (!rateLimit) {
+          return new Response(JSON.stringify({ error: "Rate limit service not configured" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        const stats = await rateLimit.getUsageStats();
+        const budgetPercentage = (stats.dailyTokensUsed / stats.dailyTokenBudget) * 100;
+        return json({
+          daily_tokens_used: stats.dailyTokensUsed,
+          daily_token_budget: stats.dailyTokenBudget,
+          budget_percentage: Math.round(budgetPercentage * 100) / 100,
+          requests_today: stats.requestsToday,
+          ai_enabled: config.aiEnabled,
+          rate_limit_per_user: config.aiRateLimitPerUser,
+        });
+      },
+    ],
+    "/pending-polls": [
+      "getting pending polls",
+      async () => {
+        const expiredPolls = await storage.getExpiredPolls();
+        const allPending = await storage.getAllPendingPolls();
+        return json({
+          expired_ready_to_collect: expiredPolls.length,
+          expired_polls: expiredPolls,
+          all_pending: allPending.length,
+          pending_polls: allPending,
+        });
+      },
+    ],
+    "/add-pending-poll": [
+      "adding pending poll",
+      async (url) => {
+        const messageId = url.searchParams.get("messageId");
+        if (!messageId) {
+          return new Response(
+            "Missing required param: messageId\n" +
+              "Example: /add-pending-poll?messageId=123456789&expiresIn=0",
+            { status: 400 },
+          );
+        }
+        const expiresInMs = parseInt(url.searchParams.get("expiresIn") ?? "0", 10);
+        const pollRecord: PollRecord = {
+          messageId,
+          channelId: url.searchParams.get("channelId") ?? config.channelId,
+          date: url.searchParams.get("date") ?? today(),
+          createdAt: Date.now(),
+          expiresAt: Date.now() + expiresInMs,
+          collected: false,
+        };
+        await storage.savePendingPoll(pollRecord);
+        return new Response(`✅ Added pending poll:\n${JSON.stringify(pollRecord, null, 2)}`);
+      },
+    ],
+  };
+  routes["/trigger"] = routes["/trigger_poll"];
+
+  return async (req: Request): Promise<Response> => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") return new Response("OK", { status: 200 });
+
+    if (!config.adminHttpToken) return new Response("Not found", { status: 404 });
+    const expected = new TextEncoder().encode(`Bearer ${config.adminHttpToken}`);
+    const supplied = new TextEncoder().encode(req.headers.get("authorization") ?? "");
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const method = WRITES.has(url.pathname) ? "POST" : "GET";
+    if (req.method !== method) {
+      return new Response("Method not allowed", { status: 405, headers: { Allow: method } });
+    }
+
+    const route = routes[url.pathname];
+    if (!route) return new Response(HELP, { status: 200 });
+    const [label, run] = route;
+    try {
+      return await run(url);
+    } catch (error) {
+      console.error(`[SERVER] Error ${label}:`, error);
+      return new Response(`❌ Error: ${error}`, { status: 500 });
+    }
   };
 }
 
-/** Logs an error thrown by a handler and returns a plain 500 without details. */
 export function serverError(error: Error): Response {
   console.error("[SERVER] Request failed:", error);
   return new Response("Internal Server Error", { status: 500 });
 }
 
-/** Bun.serve options for the production server; exported so tests can check them. */
 export function serverOptions(handler: (req: Request) => Promise<Response>, port = 8000) {
   return {
     port,
     development: false,
-    // Admin routes such as /trigger_poll can run longer than Bun's 10 s default. This is a hard
-    // limit: a request that sends nothing for 120 s is cut off (behavior change 7).
+    // Admin routes can outlast Bun's 10 s default; a request silent for 120 s is cut off.
     idleTimeout: 120,
     fetch: handler,
     error: serverError,
   } satisfies Bun.Serve.Options<undefined>;
 }
 
-/** Start the production HTTP server with the same policy used by handler tests. */
 export function createServer(
   config: AppConfig,
   discord: DiscordClient,
