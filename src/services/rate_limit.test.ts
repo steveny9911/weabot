@@ -262,6 +262,41 @@ test("a failed daily count write consumes no per-user allowance", async () => {
   expect((await service.admitRequest("user")).remaining).toBe(4);
 });
 
+test("a failed commit consumes no per-user allowance", async () => {
+  using db = openDatabase(":memory:");
+  let failCommit = true;
+  // Runs the transaction body, then fails as a COMMIT would (SQLite rolls the body back).
+  const failingDb = new Proxy(db, {
+    get(target, property) {
+      if (property !== "transaction") {
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+      return (body: (...args: never[]) => unknown) => {
+        const transaction = target.transaction(body);
+        return Object.assign((...args: never[]) => transaction(...args), {
+          immediate: (...args: never[]) => {
+            if (!failCommit) return transaction.immediate(...args);
+            target.run("BEGIN IMMEDIATE");
+            try {
+              body(...args);
+            } finally {
+              target.run("ROLLBACK");
+            }
+            throw new Error("simulated commit failure");
+          },
+        });
+      };
+    },
+  });
+  const service = createRateLimitService(failingDb, createTestConfig(), () => FIXED_NOW);
+  await rejects(() => service.admitRequest("user"), Error, "simulated commit failure");
+  expect((await service.checkUserRateLimit("user")).remaining).toBe(5);
+  expect(dailyRow(db, FIXED_DATE)).toBeNull();
+  failCommit = false;
+  expect((await service.admitRequest("user")).remaining).toBe(4);
+});
+
 test("admission rechecks the budget against usage reported just before it", async () => {
   using db = openDatabase(":memory:");
   const service = createRateLimitService(
@@ -406,7 +441,7 @@ test("invalid token reports cannot reduce or corrupt the budget counter", async 
   const service = createRateLimitService(db, createTestConfig(), () => FIXED_NOW);
   await service.recordTokenUsage(12);
   for (const invalid of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
-    await rejects(() => service.recordTokenUsage(invalid), RangeError);
+    await rejects(() => service.recordTokenUsage(invalid), RangeError, "non-negative safe integer");
   }
   expect((await service.getUsageStats()).dailyTokensUsed).toBe(12);
 });

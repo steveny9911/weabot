@@ -62,6 +62,27 @@ test("reopening a database keeps its data and applies no migration twice", () =>
   });
 });
 
+test("a migration applied by another process meanwhile is not applied again", () => {
+  withDirectory((dir) => {
+    const path = join(dir, "haru.sqlite3");
+    const migrations = ["CREATE TABLE first (x INTEGER) STRICT;"];
+    // The loop reads `length` once for the version check and once before the first migration.
+    // On that second read, another process migrates the same file first.
+    let lengthReads = 0;
+    const racing = new Proxy(migrations, {
+      get(target, property, receiver) {
+        if (property === "length" && ++lengthReads === 2) {
+          openDatabase(path, migrations).close();
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    using db = openDatabase(path, racing);
+    expect(lengthReads).toBeGreaterThanOrEqual(2);
+    expect(pragma(db, "user_version")).toBe(1);
+  });
+});
+
 test("a database newer than the code is refused", () => {
   withDirectory((dir) => {
     const path = join(dir, "haru.sqlite3");

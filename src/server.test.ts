@@ -1,5 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
-import { createRequestHandler, createServer, serverError } from "./server.ts";
+import { expect, setSystemTime, spyOn, test } from "bun:test";
+import { createRequestHandler, createServer, serverOptions } from "./server.ts";
 import { realFetch } from "../test_support/setup.ts";
 import type { AppConfig } from "./config.ts";
 import type { DiscordClient } from "./services/discord.ts";
@@ -146,6 +146,9 @@ test("the production server answers health checks on Bun.serve", async () => {
   );
   try {
     expect(server.development).toBe(false);
+    const options = serverOptions(() => Promise.resolve(new Response()));
+    expect(options.port).toBe(8000);
+    expect(options.idleTimeout).toBe(120);
     const response = await realFetch(`http://127.0.0.1:${server.port}/health`);
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("OK");
@@ -156,14 +159,8 @@ test("the production server answers health checks on Bun.serve", async () => {
 
 test("a throwing handler returns a plain 500 without error details", async () => {
   const logged = spyOn(console, "error").mockImplementation(() => {});
-  const server = Bun.serve({
-    port: 0,
-    development: false,
-    fetch() {
-      throw new Error("secret detail");
-    },
-    error: serverError,
-  });
+  // The same options createServer uses, with a handler that throws.
+  const server = Bun.serve(serverOptions(() => Promise.reject(new Error("secret detail")), 0));
   try {
     const response = await realFetch(`http://127.0.0.1:${server.port}/`);
     expect(response.status).toBe(500);
@@ -172,5 +169,35 @@ test("a throwing handler returns a plain 500 without error details", async () =>
   } finally {
     logged.mockRestore();
     await server.stop(true);
+  }
+});
+
+test("/stats counts UTC days across a DST change in a non-UTC time zone", async () => {
+  const savedTz = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  const ranges: string[][] = [];
+  try {
+    // 16:30 local time on the first day of daylight saving time.
+    setSystemTime(new Date("2026-03-08T23:30:00Z"));
+    const handler = createRequestHandler(
+      { adminHttpToken: "token", channelId: "channel" } as AppConfig,
+      {} as DiscordClient,
+      {
+        getStats: (_channel: string, start: string, end: string) => {
+          ranges.push([start, end]);
+          return Promise.resolve([]);
+        },
+      } as unknown as StorageService,
+      new Intl.DateTimeFormat("en-US"),
+    );
+    const response = await handler(
+      new Request("http://localhost/stats?days=7", { headers: { Authorization: "Bearer token" } }),
+    );
+    expect(response.status).toBe(200);
+    expect(ranges).toStrictEqual([["2026-03-01", "2026-03-08"]]);
+  } finally {
+    setSystemTime();
+    if (savedTz === undefined) delete process.env.TZ;
+    else process.env.TZ = savedTz;
   }
 });

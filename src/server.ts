@@ -489,6 +489,19 @@ export function serverError(error: Error): Response {
   return new Response("Internal Server Error", { status: 500 });
 }
 
+/** Bun.serve options for the production server; exported so tests can check them. */
+export function serverOptions(handler: (req: Request) => Promise<Response>, port = 8000) {
+  return {
+    port,
+    development: false,
+    // Admin routes such as /trigger_poll can run longer than Bun's 10 s default. This is a hard
+    // limit: a request that sends nothing for 120 s is cut off (behavior change 7).
+    idleTimeout: 120,
+    fetch: handler,
+    error: serverError,
+  } satisfies Bun.Serve.Options<undefined>;
+}
+
 /** Start the production HTTP server with the same policy used by handler tests. */
 export function createServer(
   config: AppConfig,
@@ -498,12 +511,7 @@ export function createServer(
   rateLimit?: RateLimitService,
   port = 8000,
 ) {
-  return Bun.serve({
-    port,
-    development: false,
-    // Admin routes such as /trigger_poll can run longer than Bun's 10 s default.
-    idleTimeout: 120,
-    fetch: createRequestHandler(config, discord, storage, dateFormatter, rateLimit),
-    error: serverError,
-  });
+  return Bun.serve(
+    serverOptions(createRequestHandler(config, discord, storage, dateFormatter, rateLimit), port),
+  );
 }

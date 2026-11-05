@@ -28,16 +28,16 @@
     "bot_actions.test.ts": null,
     "src/features/discord_actions/authorization.test.ts": null,
     "src/features/discord_actions/cancellation.test.ts": null,
-    "src/features/discord_actions/mod.test.ts": 37,
-    "src/services/rate_limit.test.ts": null,
+    "src/features/discord_actions/mod.test.ts": 38,
+    "src/services/rate_limit.test.ts": 23,
     "src/services/poll_collection.test.ts": null,
     "src/scheduler.autonomous.test.ts": null,
     "src/services/storage.test.ts": 48,
-    "src/server.test.ts": 6,
+    "src/server.test.ts": 7,
     "src/scheduler.test.ts": 4,
-    "src/db/database.test.ts": 6,
+    "src/db/database.test.ts": 7,
     "src/features/discord_actions/state.test.ts": 3,
-    "src/db/discord_actions.test.ts": 5
+    "src/db/discord_actions.test.ts": 7
   },
   "transport": {
     "tests/public_fetch.integration.ts": 22,

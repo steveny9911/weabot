@@ -56,8 +56,10 @@ export function createRateLimitService(
   now: () => number = Date.now,
 ): RateLimitService {
   const usage = createAiUsageQueries(db);
-  // One entry per user; an entry from an earlier minute is replaced on the next admission.
+  // Counts for the current UTC minute only. Entries from earlier minutes are dropped when the
+  // minute changes, so the map holds at most the users seen in one minute.
   const minuteCounts = new Map<string, { minute: string; count: number }>();
+  let prunedMinute = "";
 
   function bucket(time = now()) {
     const iso = new Date(time).toISOString();
@@ -73,29 +75,62 @@ export function createRateLimitService(
     return entry?.minute === minute ? entry.count : 0;
   }
 
-  const admit = db.transaction(
-    (userId: string, enforceBudget: boolean, enforceUserLimit: boolean): RequestAdmission => {
+  function prune(minute: string): void {
+    if (minute === prunedMinute) return;
+    for (const [id, entry] of minuteCounts) if (entry.minute !== minute) minuteCounts.delete(id);
+    prunedMinute = minute;
+  }
+
+  // The daily count is written in the transaction; the minute count is updated only after the
+  // transaction commits, so a failed commit cannot leave memory ahead of the database.
+  const admitTransaction = db.transaction(
+    (
+      userId: string,
+      enforceBudget: boolean,
+      enforceUserLimit: boolean,
+    ): { admission: RequestAdmission; minute: string; count: number } => {
       const current = bucket();
+      prune(current.minute);
       const count = userCount(userId, current.minute);
       const result = {
         remaining: Math.max(0, config.aiRateLimitPerUser - count),
         resetInMs: current.resetInMs,
       };
-      if (enforceUserLimit && count >= config.aiRateLimitPerUser) {
-        return { ...result, allowed: false, reason: "user_limit" };
-      }
+      const refused = (reason: "user_limit" | "daily_budget") => ({
+        admission: { ...result, allowed: false as const, reason },
+        minute: current.minute,
+        count,
+      });
+      if (enforceUserLimit && count >= config.aiRateLimitPerUser) return refused("user_limit");
       if (enforceBudget && usage.get(current.date).tokens >= config.aiDailyTokenBudget) {
-        return { ...result, allowed: false, reason: "daily_budget" };
+        return refused("daily_budget");
       }
       usage.addRequest(current.date);
-      minuteCounts.set(userId, { minute: current.minute, count: count + 1 });
-      return { ...result, allowed: true, remaining: Math.max(0, result.remaining - 1) };
+      return {
+        admission: { ...result, allowed: true, remaining: Math.max(0, result.remaining - 1) },
+        minute: current.minute,
+        count: count + 1,
+      };
     },
   );
 
+  function admit(
+    userId: string,
+    enforceBudget: boolean,
+    enforceUserLimit: boolean,
+  ): RequestAdmission {
+    const { admission, minute, count } = admitTransaction.immediate(
+      userId,
+      enforceBudget,
+      enforceUserLimit,
+    );
+    if (admission.allowed) minuteCounts.set(userId, { minute, count });
+    return admission;
+  }
+
   return {
     async admitRequest(userId, options) {
-      return admit.immediate(userId, true, options?.enforceUserLimit ?? true);
+      return admit(userId, true, options?.enforceUserLimit ?? true);
     },
 
     async checkUserRateLimit(userId) {
@@ -109,7 +144,7 @@ export function createRateLimitService(
     },
 
     async recordUserRequest(userId) {
-      admit.immediate(userId, false, false);
+      admit(userId, false, false);
     },
 
     async checkDailyBudget() {

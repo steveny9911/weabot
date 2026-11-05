@@ -71,3 +71,26 @@ test("a stale guard is deleted only if it still holds what was read", () => {
   expect(records.deleteGuardIfUnchanged(GUARD, current)).toBe(true);
   expect(records.getGuard(GUARD)).toBeNull();
 });
+
+test("a stale guard is kept when only its time changed", () => {
+  using db = openDatabase(":memory:");
+  const records = createDiscordActionQueries(db);
+  const result = { ok: true, eventId: "501" };
+  records.claim(OPERATION, GUARD, () => true, 1);
+  records.complete(OPERATION, GUARD, result, true, 2);
+  const seen = records.getGuard(GUARD)!;
+  records.complete(OPERATION, GUARD, result, true, 3);
+  expect(records.deleteGuardIfUnchanged(GUARD, seen)).toBe(false);
+  expect(records.getGuard(GUARD)?.updatedAt).toBe(3);
+});
+
+test("a stale guard is kept when only its result changed", () => {
+  using db = openDatabase(":memory:");
+  const records = createDiscordActionQueries(db);
+  records.claim(OPERATION, GUARD, () => true, 1);
+  records.complete(OPERATION, GUARD, { ok: true, eventId: "501" }, true, 2);
+  const seen = records.getGuard(GUARD)!;
+  records.complete(OPERATION, GUARD, { ok: true, eventId: "502" }, true, 2);
+  expect(records.deleteGuardIfUnchanged(GUARD, seen)).toBe(false);
+  expect(records.getGuard(GUARD)?.result).toStrictEqual({ ok: true, eventId: "502" });
+});

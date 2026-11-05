@@ -44,6 +44,8 @@ function migrate(db: Database, migrations: readonly string[]): void {
   }
   for (let version = current + 1; version <= migrations.length; version++) {
     db.transaction(() => {
+      // Another process may have applied this migration since the version was read above.
+      if (userVersion(db) >= version) return;
       db.run(migrations[version - 1]);
       db.run(`PRAGMA user_version = ${version}`);
     }).immediate();

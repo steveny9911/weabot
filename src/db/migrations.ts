@@ -12,7 +12,6 @@ CREATE TABLE polls (
   expires_at    INTEGER NOT NULL,
   collected_at  INTEGER
 ) STRICT;
-CREATE INDEX polls_uncollected ON polls (expires_at) WHERE collected_at IS NULL;
 
 CREATE TABLE votes (
   channel_id   TEXT NOT NULL,

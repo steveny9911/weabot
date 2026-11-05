@@ -679,6 +679,23 @@ test("two users replacing an ended event at once recreate it only once", async (
   });
 });
 
+test("a definite failure releases the event so a new message can try again", async () => {
+  await fixture(async (client, service) => {
+    client.eventFailure = new DiscordApiError("Missing Permissions", 403, false);
+    const first = await (
+      await service.createSession(context())
+    ).executeTool("create_discord_event", eventArgs());
+    expect(first.ok).toStrictEqual(false);
+    expect(first.uncertain).toBeUndefined();
+    client.eventFailure = undefined;
+    const retry = await (
+      await service.createSession(context({ messageId: "601" }))
+    ).executeTool("create_discord_event", eventArgs());
+    expect(retry.ok).toStrictEqual(true);
+    expect(client.eventWrites.length).toStrictEqual(2);
+  });
+});
+
 test("new messages with the same event fingerprint reuse the receipt", async () => {
   await fixture(async (client, service) => {
     const first = await service.createSession(context());
@@ -833,8 +850,7 @@ test("verified event success survives receipt persistence failure and its durabl
     // Fail the receipt write (the update of the pending claim) after Discord accepted the event.
     db.run(`CREATE TRIGGER fail_receipt BEFORE UPDATE ON discord_action_operations
             BEGIN SELECT RAISE(ABORT, 'Simulated storage failure'); END`);
-    const failingService = service;
-    const session = await failingService.createSession(context());
+    const session = await service.createSession(context());
     const result = await session.executeTool("create_discord_event", eventArgs());
     expect(result.ok).toStrictEqual(true);
     expect(result.eventId).toStrictEqual("501");

@@ -47,7 +47,9 @@ Accepted on purpose:
 
 1. **A pending clarification is forgotten on restart.** If Haru asked "what time should the event
    start?" and the bot restarts before the user answers, the user repeats the request. Restarts only
-   happen on deploys.
+   happen on deploys. Discord action turns (which message is the latest per user) are also in
+   memory; handlers in flight end with the process anyway, and recorded actions are still not
+   repeated.
 2. **A restart resets the per-minute AI request counts.** At most one extra minute of allowance. The
    daily token budget is persisted and unaffected.
 3. **Link requests send `User-Agent: HaruBot/1.0`.** The old transport sent no `User-Agent`. Bun's
@@ -60,6 +62,8 @@ Accepted on purpose:
    it unchanged. Most servers treat the two the same.
 6. **A gzip body followed by trailing zero bytes fails to decode** (`fetch_failed`). Deno's zlib
    ignored the padding; `DecompressionStream` rejects it. Rare.
+7. **An admin HTTP request that sends nothing for 120 s is cut off** (`idleTimeout: 120`). Deno had
+   no such limit. Admin routes finish well within it. Bun allows at most 255 s; `0` disables it.
 
 Side effects of the new runtime, all safe because every address is validated before connecting:
 
@@ -136,7 +140,6 @@ CREATE TABLE polls (
   expires_at    INTEGER NOT NULL,
   collected_at  INTEGER                         -- NULL until results are stored
 ) STRICT;
-CREATE INDEX polls_uncollected ON polls (expires_at) WHERE collected_at IS NULL;
 
 CREATE TABLE votes (
   channel_id   TEXT NOT NULL,
@@ -866,15 +869,38 @@ Commits: baseline and lint fixes, scaffolding, repository-wide `bun fmt`, CI.
   IDENTIFY properties are `"bun"`.
 - **Types:** Bun types `Response.json()` as `unknown`; three Discord responses are now cast to
   `{ id: string }`.
-- **Tests:** every non-script test file now runs on Bun (37 unit files, 663 tests; transport 43).
-  KV-inspecting tests are rewritten as behavior tests (table below). Failure injection uses SQLite
-  triggers instead of patched KV commits. The gate also type-checks `main.ts`.
+- **Tests:** every non-script test file now runs on Bun (37 unit files, 663 tests; transport 43; 669
+  unit tests after the review follow-up). KV-inspecting tests are rewritten as behavior tests (table
+  below). Failure injection uses SQLite triggers instead of patched KV commits. The gate also
+  type-checks `main.ts`.
 - **CI:** the Deno job is removed. `scripts/` still uses Deno until slice 4 and is not run in CI
   meanwhile.
 - **Smoke run (local, gateway stubbed, no Discord token available here):** `/health` returns `OK`; a
   vote write and `/stats` work; the database file is created at `user_version = 1`; the six jobs
   register; a request that takes 12 s completes. **Still to do with a test bot:** gateway READY, a
   mention reply, `\reset`, an event clarification, `POST /trigger_poll`, and the autonomous job.
+
+#### Slice 3 review follow-up
+
+- **Rate limit:** the per-minute count is updated only after the transaction commits (a failed
+  commit used to leave memory one request ahead of the database), and counts from earlier minutes
+  are pruned when the minute changes (the map used to keep every user ever seen).
+- **Migrations:** the schema version is re-read inside each migration transaction, so a second
+  process opening the same new file does not re-run a migration.
+- **Schema:** the unused `polls_uncollected` index is removed from migration 1 (both poll queries
+  scan the primary key because they sort by `message_id`). Migration 1 has not shipped yet.
+- **Server:** `serverOptions()` holds the `Bun.serve` options, so tests check the real `idleTimeout`
+  and `error` wiring. Behavior change 7 records the 120 s limit; behavior change 1 now mentions
+  turns.
+- **Tests added** (each verified by a mutation that it catches): a failed commit consumes no
+  allowance; a concurrent migration is not re-applied; a stale guard is kept when only its time or
+  only its result changed; a definite failure releases the event for a new message; `/stats` across
+  DST; the invalid-token message is asserted.
+- **Left as is:** the stale-guard check compares content and time rather than a revision column (an
+  identical rewrite in the same millisecond is not reachable in practice).
+- **Known gap until slice 4:** `scripts/run_discord_sandbox.test.ts` and
+  `scripts/test_reactions_sandbox.test.ts` (5 tests) still use Deno and run nowhere, since the Deno
+  CI job is gone. Slice 4 ports them.
 
 ## Future work
 
@@ -898,10 +924,10 @@ Filled in during the port.
 | `tests/public_fetch.integration.ts`                | 19 (4 groups) → 15 | 22 (1 may skip) | Added: corrupt `br`, `zstd` and `constructor` encodings (3); 204/205/304 return no body (1); proxy variables ignored (1); IPv6 literal (1, skips without IPv6); exact path and port, zone ids refused (1).                                                                                                                                                                                                        |
 | `tests/link_open.integration.ts`                   | 26 (6 groups) → 20 | 21              | Added: malformed `br` (Deno 2.6 accepted some malformed Brotli, so the Deno test left it out).                                                                                                                                                                                                                                                                                                                    |
 | `src/services/storage.test.ts`                     | 47                 | 48              | KV-only tests replaced: CAS retry → participation survives reopening the file; claim racing a read → a failed write keeps the earlier claim; bounded completion retries → completion records a reaction without moving time back; two index-failure tests → a failed `recordVote` leaves no partial vote, and `savePendingPoll` overwrites a collected poll. Added: stats across DST under `America/Los_Angeles`. |
-| `src/services/rate_limit.test.ts`                  | 22                 | 22              | KV-only tests replaced: CAS conflicts → safe-integer token limit, failed daily write consumes no allowance, request count beyond the safe range; midnight read race → a restart resets minute counts but keeps daily totals; token retry day → totals survive reopening the file; KV expirations → maintenance deletes usage older than 30 days.                                                                  |
-| `src/features/discord_actions/mod.test.ts`         | 35                 | 37              | KV commit race → a turn expired after 20 minutes cannot write or ask. Added: two users creating the same event at once; two users replacing an ended event at once.                                                                                                                                                                                                                                               |
-| `src/server.test.ts`                               | 4                  | 6               | Added: the production server answers `/health` on `Bun.serve`; a throwing handler returns a plain 500.                                                                                                                                                                                                                                                                                                            |
+| `src/services/rate_limit.test.ts`                  | 22                 | 23              | Added: a failed commit consumes no allowance. KV-only tests replaced: CAS conflicts → safe-integer token limit, failed daily write consumes no allowance, request count beyond the safe range; midnight read race → a restart resets minute counts but keeps daily totals; token retry day → totals survive reopening the file; KV expirations → maintenance deletes usage older than 30 days.                    |
+| `src/features/discord_actions/mod.test.ts`         | 35                 | 38              | Added: a definite failure releases the event for a new message. KV commit race → a turn expired after 20 minutes cannot write or ask. Added: two users creating the same event at once; two users replacing an ended event at once.                                                                                                                                                                               |
+| `src/server.test.ts`                               | 4                  | 7               | Added: `/stats` counts UTC days across DST. Added: the production server answers `/health` on `Bun.serve`; a throwing handler returns a plain 500.                                                                                                                                                                                                                                                                |
 | `src/scheduler.test.ts` (new)                      | —                  | 4               | Registrar runs in UTC and logs failures; six schedules are the same in any `TZ`; weekly window across DST; maintenance job.                                                                                                                                                                                                                                                                                       |
-| `src/db/database.test.ts` (new)                    | —                  | 6               | Migrations, pragmas, reopening, refusing a newer schema, failed-migration rollback, constraints.                                                                                                                                                                                                                                                                                                                  |
-| `src/db/discord_actions.test.ts` (new)             | —                  | 5               | Claims (turn check, duplicates, all-or-nothing), completion and guards, compare-and-delete of a stale guard.                                                                                                                                                                                                                                                                                                      |
+| `src/db/database.test.ts` (new)                    | —                  | 7               | Added: a migration applied by another process meanwhile is not re-applied. Migrations, pragmas, reopening, refusing a newer schema, failed-migration rollback, constraints.                                                                                                                                                                                                                                       |
+| `src/db/discord_actions.test.ts` (new)             | —                  | 7               | Added: a stale guard is kept when only its time, or only its result, changed. Claims (turn check, duplicates, all-or-nothing), completion and guards, compare-and-delete of a stale guard.                                                                                                                                                                                                                        |
 | `src/features/discord_actions/state.test.ts` (new) | —                  | 3               | New token per turn write, separate expiries, sweep.                                                                                                                                                                                                                                                                                                                                                               |
