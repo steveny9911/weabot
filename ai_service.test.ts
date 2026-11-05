@@ -11,7 +11,6 @@ import {
   type AiParticipationOptions,
   AUTONOMOUS_REACTION_EMOJIS,
   createAiService,
-  generateReplyFromMessages,
 } from "./ai_service.ts";
 import type { AppConfig } from "./src/config.ts";
 import {
@@ -81,35 +80,6 @@ function mockFetch(
     },
     getLastRequest: () => lastRequest,
   };
-}
-
-async function withEnv(
-  vars: Record<string, string | undefined>,
-  fn: () => Promise<void>,
-): Promise<void> {
-  const original: Record<string, string | undefined> = {};
-  for (const key of Object.keys(vars)) {
-    original[key] = process.env[key];
-  }
-
-  try {
-    for (const [key, value] of Object.entries(vars)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await fn();
-  } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
 }
 
 // =============================================================================
@@ -557,64 +527,6 @@ test("generateReply returns error when fetch throws", async () => {
   }
 });
 
-test("generateReplyFromMessages uses env config and returns legacy success shape", async () => {
-  const mock = mockFetch({
-    output_text: "Legacy works",
-    usage: { total_tokens: 30 },
-  });
-
-  try {
-    await withEnv(
-      {
-        OPENAI_API_KEY: "sk-env",
-        DISCORD_TOKEN: "discord-env",
-        CHANNEL_IDS: "chan-1, chan-2",
-        CHANNEL_ID: "fallback-chan",
-        ENABLE_UWU: "false",
-        WEB_SEARCH_ENABLED: "true",
-        BRAVE_SEARCH_API_KEY: "brave-env",
-        WEB_SEARCH_MAX_RESULTS: "7",
-        LINK_OPEN_ENABLED: "true",
-      },
-      async () => {
-        const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
-        expect(result.ok).toStrictEqual(true);
-        if (result.ok) {
-          expect(result.text).toStrictEqual("Legacy works");
-        }
-
-        const request = mock.getLastRequest();
-        expect(request?.body.model).toStrictEqual(undefined);
-      },
-    );
-  } finally {
-    mock.restore();
-  }
-});
-
-test("generateReplyFromMessages returns error when OPENAI_API_KEY is missing", async () => {
-  await withEnv(
-    {
-      OPENAI_API_KEY: undefined,
-      BRAVE_SEARCH_API_KEY: undefined,
-      WEB_SEARCH_ENABLED: undefined,
-      CHANNEL_IDS: undefined,
-      CHANNEL_ID: undefined,
-      DISCORD_TOKEN: undefined,
-      ENABLE_UWU: undefined,
-      WEB_SEARCH_MAX_RESULTS: undefined,
-      LINK_OPEN_ENABLED: undefined,
-    },
-    async () => {
-      const result = await generateReplyFromMessages([{ author: "user", content: "hi" }]);
-      expect(result.ok).toStrictEqual(false);
-      if (!result.ok) {
-        expect(result.error).toStrictEqual("OPENAI_API_KEY not set");
-      }
-    },
-  );
-});
-
 test("generateReply handles malformed output shapes without extractable text", async () => {
   {
     const mock = mockFetch({
@@ -749,31 +661,6 @@ test("generateReply falls back to unknown author/content and zero token usage", 
     const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
     const textPart = input?.[0]?.content?.find((part) => part["type"] === "input_text");
     expect(String(textPart?.["text"] ?? "")).toContain("unknown: ");
-  } finally {
-    mock.restore();
-  }
-});
-
-test("generateReplyFromMessages supports CHANNEL_ID fallback when CHANNEL_IDS is missing", async () => {
-  const mock = mockFetch({
-    output_text: "fallback works",
-    usage: { total_tokens: 15 },
-  });
-
-  try {
-    await withEnv(
-      {
-        OPENAI_API_KEY: "sk-env",
-        CHANNEL_IDS: undefined,
-        CHANNEL_ID: "chan-fallback",
-        BRAVE_SEARCH_API_KEY: undefined,
-        WEB_SEARCH_ENABLED: undefined,
-      },
-      async () => {
-        const result = await generateReplyFromMessages([{ author: "user", content: "hello" }]);
-        expect(result.ok).toStrictEqual(true);
-      },
-    );
   } finally {
     mock.restore();
   }

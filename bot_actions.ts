@@ -86,51 +86,6 @@ export async function getBotUserId(config: AppConfig): Promise<string | undefine
 }
 
 /**
- * Posts a poll to the specified channel.
- */
-export async function postPoll(config: AppConfig, channel_id: string): Promise<void> {
-  const date_formatter = new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
-  const poll_payload = {
-    poll: {
-      question: { text: `Mood (${date_formatter.format(new Date())})` },
-      answers: [
-        { poll_media: { text: "umazing" } },
-        { poll_media: { text: "ok" } },
-        { poll_media: { text: "glue" } },
-      ],
-      duration: 24,
-      allow_multiselect: false,
-    },
-  };
-
-  try {
-    const response = await fetch(`${API_BASE}/channels/${channel_id}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bot ${config.discordToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(poll_payload),
-    });
-
-    if (response.ok) {
-      console.log("Poll posted successfully!");
-    } else {
-      console.error(`Failed to post poll: ${response.status} ${response.statusText}`);
-      const body = await response.text();
-      console.error(body);
-    }
-  } catch (error) {
-    console.error("Error posting poll:", error);
-  }
-}
-
-/**
  * Send a message to a channel.
  */
 export async function sendMessage(
@@ -571,10 +526,3 @@ export async function saveContext(
 export function getContext(channel_id: string): Array<Record<string, unknown>> | undefined {
   return messages_cache.get(channel_id);
 }
-
-// ============================================================================
-// Legacy exports for backwards compatibility during migration
-// ============================================================================
-
-// Keep these for any code that still imports from the old API
-export { bMessageMentionsBot as messageMentionsBot };

@@ -5,7 +5,6 @@ import {
   getBotUserId,
   getContext,
   handleMessage,
-  postPoll,
   saveContext,
   sendMessage,
 } from "./bot_actions.ts";
@@ -566,41 +565,6 @@ test("sendMessage returns fetch error when network fails", async () => {
     }
   } finally {
     globalThis.fetch = original_fetch;
-  }
-});
-
-test("postPoll handles success, error response, and thrown fetch", async () => {
-  {
-    const fetch_ok = mockDiscordApiFetch();
-    try {
-      await postPoll(createMockConfig(), "chan-1");
-      expect(fetch_ok.postedMessages.length).toStrictEqual(1);
-    } finally {
-      fetch_ok.restore();
-    }
-  }
-
-  {
-    const fetch_error = mockDiscordApiFetch({ postStatus: 500 });
-    try {
-      await postPoll(createMockConfig(), "chan-1");
-      expect(fetch_error.postedMessages.length).toStrictEqual(1);
-    } finally {
-      fetch_error.restore();
-    }
-  }
-
-  {
-    const original_fetch = globalThis.fetch;
-    globalThis.fetch = asFetch((_input: string | URL | Request, _init?: RequestInit) => {
-      return Promise.reject(new Error("poll fetch failed"));
-    });
-
-    try {
-      await postPoll(createMockConfig(), "chan-1");
-    } finally {
-      globalThis.fetch = original_fetch;
-    }
   }
 });
 

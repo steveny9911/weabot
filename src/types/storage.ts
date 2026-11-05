@@ -25,17 +25,6 @@ export interface DailyStats {
   total: number;
 }
 
-/** Alert configuration */
-export interface AlertConfig {
-  consecutiveGlueThreshold: number; // Default: 7
-  alertChannelId?: string; // Optional: separate channel for alerts
-}
-
-/** Default alert configuration */
-export const DEFAULT_ALERT_CONFIG: AlertConfig = {
-  consecutiveGlueThreshold: 7,
-};
-
 /** A pending poll waiting for results collection */
 export interface PollRecord {
   messageId: string;
