@@ -66,6 +66,7 @@ test("formatSearchResultsForContext truncates long snippets and fills blank titl
     { title: " ", url: "https://example.com", snippet: longSnippet },
   ]);
 
+  expect(text).toContain("untrusted web text");
   expect(text).toContain("1. Source - ");
   expect(text.includes("x".repeat(210))).toStrictEqual(false);
 });
