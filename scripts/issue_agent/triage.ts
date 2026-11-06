@@ -14,10 +14,7 @@ import {
 } from "./common.ts";
 
 type TriageReason =
-  | "missing-details-bug"
-  | "missing-details-feature"
-  | "inappropriate-request"
-  | "accepted";
+  "missing-details-bug" | "missing-details-feature" | "inappropriate-request" | "accepted";
 
 interface TriageResult {
   decision: AgentDecision;
@@ -31,19 +28,19 @@ function normalize(text: string): string {
 }
 
 function isLikelyBug(text: string): boolean {
-  return /(bug|error|crash|exception|stack trace|traceback|not work|fails?|failure|broken)/i
-    .test(text);
+  return /(bug|error|crash|exception|stack trace|traceback|not work|fails?|failure|broken)/i.test(
+    text,
+  );
 }
 
 function isLikelyFeature(text: string): boolean {
-  return /(feature|enhancement|request|would like|please add|support|improvement|proposal)/i
-    .test(text);
+  return /(feature|enhancement|request|would like|please add|support|improvement|proposal)/i.test(
+    text,
+  );
 }
 
 function hasReproSteps(text: string): boolean {
-  return /(steps? to repro|steps? to reproduce|repro|1\.|2\.|when i|how to reproduce)/i.test(
-    text,
-  );
+  return /(steps? to repro|steps? to reproduce|repro|1\.|2\.|when i|how to reproduce)/i.test(text);
 }
 
 function hasExpected(text: string): boolean {
@@ -55,7 +52,7 @@ function hasActual(text: string): boolean {
 }
 
 function hasEnvironment(text: string): boolean {
-  return /(deno|node|mac|linux|windows|discord|version|browser|os|channel)/i.test(text);
+  return /(bun|node|mac|linux|windows|discord|version|browser|os|channel)/i.test(text);
 }
 
 function hasEvidence(text: string): boolean {
@@ -71,8 +68,9 @@ function hasAcceptanceCriteria(text: string): boolean {
 }
 
 function isInappropriateRequest(text: string): boolean {
-  return /(malware|ransomware|phish|phishing|steal token|token stealer|doxx|ddos|spam bot|credential stuffing|hack.*account|keylogger)/i
-    .test(text);
+  return /(malware|ransomware|phish|phishing|steal token|token stealer|doxx|ddos|spam bot|credential stuffing|hack.*account|keylogger)/i.test(
+    text,
+  );
 }
 
 function triageIssue(issue: GhIssue): TriageResult {
@@ -91,11 +89,11 @@ function triageIssue(issue: GhIssue): TriageResult {
     };
   }
 
-  const bug_like = isLikelyBug(lower);
-  const feature_like = isLikelyFeature(lower);
-  const body_len = (issue.body ?? "").trim().length;
+  const bugLike = isLikelyBug(lower);
+  const featureLike = isLikelyFeature(lower);
+  const bodyLen = (issue.body ?? "").trim().length;
 
-  if (bug_like) {
+  if (bugLike) {
     const checks = [
       hasReproSteps(combined),
       hasExpected(combined),
@@ -104,7 +102,7 @@ function triageIssue(issue: GhIssue): TriageResult {
       hasEvidence(combined),
     ];
     const score = checks.filter(Boolean).length;
-    if (score < 2 || body_len < 40) {
+    if (score < 2 || bodyLen < 40) {
       return {
         decision: "needs-info",
         reason: "missing-details-bug",
@@ -119,8 +117,8 @@ function triageIssue(issue: GhIssue): TriageResult {
     }
   }
 
-  if (feature_like) {
-    if (!hasFeatureUseCase(combined) || !hasAcceptanceCriteria(combined) || body_len < 40) {
+  if (featureLike) {
+    if (!hasFeatureUseCase(combined) || !hasAcceptanceCriteria(combined) || bodyLen < 40) {
       return {
         decision: "needs-info",
         reason: "missing-details-feature",
@@ -134,7 +132,7 @@ function triageIssue(issue: GhIssue): TriageResult {
     }
   }
 
-  if (!bug_like && !feature_like && body_len < 30) {
+  if (!bugLike && !featureLike && bodyLen < 30) {
     return {
       decision: "needs-info",
       reason: "missing-details-feature",
@@ -158,14 +156,14 @@ function triageIssue(issue: GhIssue): TriageResult {
 }
 
 function formatDecisionComment(result: TriageResult): string {
-  const emoji = result.decision === "accepted"
-    ? "✅"
-    : (result.decision === "needs-info" ? "🟡" : "⛔");
-  const heading = result.decision === "accepted"
-    ? "Haru automation triage: accepted"
-    : (result.decision === "needs-info"
-      ? "Haru automation triage: needs more info"
-      : "Haru automation triage: rejected");
+  const emoji =
+    result.decision === "accepted" ? "✅" : result.decision === "needs-info" ? "🟡" : "⛔";
+  const heading =
+    result.decision === "accepted"
+      ? "Haru automation triage: accepted"
+      : result.decision === "needs-info"
+        ? "Haru automation triage: needs more info"
+        : "Haru automation triage: rejected";
   const bullets = result.details.map((line) => `- ${line}`).join("\n");
 
   return [
@@ -188,7 +186,7 @@ function toStateLabel(
   return "agent:rejected";
 }
 
-export async function runTriage(cwd = Deno.cwd()): Promise<void> {
+export async function runTriage(cwd = process.cwd()): Promise<void> {
   await ensureAgentLabels(cwd);
   const actor = await getCurrentGhLogin(cwd);
   const issues = await listOpenIssues(cwd);
@@ -208,27 +206,28 @@ export async function runTriage(cwd = Deno.cwd()): Promise<void> {
     reviewed++;
     const latest = findLatestDecisionComment(issue, actor);
 
-    const should_retriage = !latest || issueUpdatedAfter(issue.updatedAt, latest.at);
-    if (!should_retriage) {
+    const shouldRetriage = !latest || issueUpdatedAfter(issue.updatedAt, latest.at);
+    if (!shouldRetriage) {
       continue;
     }
 
     const result = triageIssue(issue);
-    const target_label = toStateLabel(result.decision);
-    const current_state = issue.labels.find((l) =>
-      l.name === "agent:accepted" || l.name === "agent:needs-info" || l.name === "agent:rejected"
+    const targetLabel = toStateLabel(result.decision);
+    const currentState = issue.labels.find(
+      (l) =>
+        l.name === "agent:accepted" || l.name === "agent:needs-info" || l.name === "agent:rejected",
     )?.name;
 
-    const comment_body = formatDecisionComment(result);
-    const decision_changed = !latest || latest.decision !== result.decision ||
-      latest.reason !== result.reason;
+    const commentBody = formatDecisionComment(result);
+    const decisionChanged =
+      !latest || latest.decision !== result.decision || latest.reason !== result.reason;
 
-    if (decision_changed || issueUpdatedAfter(issue.updatedAt, latest?.at ?? "")) {
-      await commentOnIssue(issue.number, comment_body, cwd);
+    if (decisionChanged || issueUpdatedAfter(issue.updatedAt, latest?.at ?? "")) {
+      await commentOnIssue(issue.number, commentBody, cwd);
     }
 
-    if (current_state !== target_label) {
-      await setIssueStateLabel(issue, target_label, cwd);
+    if (currentState !== targetLabel) {
+      await setIssueStateLabel(issue, targetLabel, cwd);
     }
 
     changed++;

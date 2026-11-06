@@ -36,7 +36,10 @@ export interface NextIssueResult {
   };
 }
 
-export async function runNextIssue(cwd = Deno.cwd(), args = Deno.args): Promise<NextIssueResult> {
+export async function runNextIssue(
+  cwd = process.cwd(),
+  args = process.argv.slice(2),
+): Promise<NextIssueResult> {
   await ensureAgentLabels(cwd);
   const { claim } = parseArgs(args);
   const issues = await listOpenIssues(cwd);
@@ -53,8 +56,8 @@ export async function runNextIssue(cwd = Deno.cwd(), args = Deno.args): Promise<
       return { ok: false, found: false, reason: "issue-not-found" };
     }
 
-    const state_labels = getStateLabels(refreshed);
-    if (state_labels.some((label) => label === "agent:in-progress" || label === "agent:pr-open")) {
+    const stateLabels = getStateLabels(refreshed);
+    if (stateLabels.some((label) => label === "agent:in-progress" || label === "agent:pr-open")) {
       return { ok: true, found: false, reason: "already-claimed" };
     }
 

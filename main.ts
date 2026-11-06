@@ -1,69 +1,78 @@
 import { createUsageService } from "./src/services/usage.ts";
 import { loadConfig } from "./src/config.ts";
-import { createDiscordClient } from "./src/services/discord.ts";
-import { createDiscordEventsClient } from "./src/services/discord_events.ts";
-import { createDiscordActionService } from "./src/features/discord_actions/mod.ts";
+import { createDiscordClient } from "./src/discord/client.ts";
+import { createDiscordEventsClient } from "./src/discord/events.ts";
+import {
+  createDiscordActionService,
+  type PendingRequest,
+} from "./src/features/discord_actions/service.ts";
+import { TurnStore } from "./src/features/discord_actions/state.ts";
+import { DEFAULT_DATABASE_PATH, openDatabase } from "./src/db/database.ts";
+import { createMaintenanceJob } from "./src/jobs/maintenance.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
-import { createWebSearchService } from "./src/services/web_search.ts";
-import { createLinkOpenService } from "./src/services/link_open.ts";
-import { createAiService } from "./ai_service.ts";
-import { createServer } from "./src/server.ts";
-import { registerCronJobs } from "./src/scheduler.ts";
-import { startGateway } from "./discord_gateway.ts";
-import type { BotDependencies } from "./bot_actions.ts";
+import { createWebSearchService } from "./src/net/web_search.ts";
+import { createLinkOpenService } from "./src/net/link_open.ts";
+import { createAiService } from "./src/ai/service.ts";
+import { createServer } from "./src/app/server.ts";
+import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
+import { startGateway } from "./src/app/gateway.ts";
+import type { BotDependencies } from "./src/bot/handle_message.ts";
 
-// --- Initialization ---
-// Throws immediately if required env vars are missing (Fail Fast pattern)
 const config = loadConfig();
 
-// Production can pin the database to a persistent volume while local development
-// continues to use Deno's default per-project location.
-const kv_path = Deno.env.get("DENO_KV_PATH");
-const kv = await Deno.openKv(kv_path || undefined);
-const storage = createStorageService(kv);
+const dbPath = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
+const db = openDatabase(dbPath);
+const storage = createStorageService(db);
+const actionTurns = new TurnStore<PendingRequest>();
 
-// Create the Discord API client
 const discord = createDiscordClient(config.discordToken);
 
-// Create AI-related services
-const rate_limit = createRateLimitService(kv, config);
-const ai_service = createAiService(config);
-const web_search = createWebSearchService(config);
-const link_open = createLinkOpenService(config);
+const rateLimit = createRateLimitService(db, config);
+const aiService = createAiService(config);
+const webSearch = createWebSearchService(config);
+const linkOpen = createLinkOpenService(config);
 
-// Bundle dependencies for bot actions
-const bot_deps: BotDependencies = {
+const botDeps: BotDependencies = {
   config,
   usageService: createUsageService(config),
-  aiService: ai_service,
-  rateLimitService: rate_limit,
-  linkOpenService: link_open,
+  aiService,
+  rateLimitService: rateLimit,
+  linkOpenService: linkOpen,
   storageService: storage,
-  webSearchService: web_search,
+  webSearchService: webSearch,
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
-    kv,
+    db,
     config.timeZone,
+    undefined,
+    actionTurns,
   ),
 };
 
-// Set up the date formatter with configured timezone
-const date_formatter = new Intl.DateTimeFormat("en-US", {
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   month: "long",
   day: "numeric",
   timeZone: config.timeZone,
 });
 
-// --- Register Services ---
-startGateway(config, bot_deps);
-registerCronJobs(config, discord, storage, date_formatter, ai_service, rate_limit);
-createServer(config, discord, storage, date_formatter, rate_limit);
+startGateway(config, botDeps);
+registerCronJobs(
+  bunCron,
+  config,
+  discord,
+  storage,
+  dateFormatter,
+  aiService,
+  rateLimit,
+  createMaintenanceJob(db, actionTurns),
+);
+createServer(config, discord, storage, dateFormatter, rateLimit);
 
-// --- Startup Logging ---
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);
+console.log(`   Database: ${dbPath}`);
 console.log(`   Timezone: ${config.timeZone}`);
 console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");
@@ -71,8 +80,8 @@ console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
 console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
-const max_input_label = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
-console.log(`   Max Input Chars: ${max_input_label}`);
+const maxInputLabel = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
+console.log(`   Max Input Chars: ${maxInputLabel}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
 console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
 console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);

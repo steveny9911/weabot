@@ -36,7 +36,7 @@ in a row.
 
 ### Prerequisites
 
-- [Deno](https://deno.land/) v2.x installed
+- [Bun](https://bun.sh/) 1.4.x (the exact version is in `package.json` `packageManager`)
 - A Discord Bot Token ([create one here](https://discord.com/developers/applications))
 - A Discord Server where you have admin permissions
 
@@ -45,6 +45,7 @@ in a row.
 ```bash
 git clone https://github.com/YOUR_USERNAME/weabot.git
 cd weabot
+bun install
 ```
 
 ### 2. Create Your Discord Bot
@@ -74,7 +75,13 @@ cd weabot
 
 ### 5. Configure Environment Variables
 
-Create a `.env` file in the project root:
+Copy the sample, then fill in the required values:
+
+```bash
+cp .env.sample .env
+```
+
+`.env.sample` lists every setting, marks the required ones, and shows each default. The essentials:
 
 ```bash
 # Required
@@ -87,6 +94,7 @@ GLUE_ALERT_THRESHOLD=7
 LINK_OPEN_ENABLED=true
 AI_CONTEXT_MAX_MESSAGES=40
 AI_CONTEXT_INACTIVITY_MINUTES=20
+HARU_DB_PATH=./data/haru.sqlite3
 
 # Multi-server (optional)
 # CHANNEL_IDS=channel_id_1,channel_id_2
@@ -102,29 +110,46 @@ AI_CONTEXT_INACTIVITY_MINUTES=20
 | `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
 | `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
 | `AI_CONTEXT_INACTIVITY_MINUTES` | No       | Silence that starts a new context (default: `20`)             |
+| `HARU_DB_PATH`                  | No       | SQLite database file (default: `./data/haru.sqlite3`)         |
 
 _Set either `CHANNEL_ID` or `CHANNEL_IDS`._
+
+`.env` is loaded only by `bun run start` and `bun run dev`. Tests never read it; the sandbox and
+evaluation scripts below load it explicitly.
 
 ### 6. Run the Bot
 
 ```bash
 # Production
-deno task start
+bun run start
 
-# Development (with hot reload)
-deno task dev
+# Development (restarts on file changes)
+bun run dev
 ```
 
 You should see:
 
 ```
-🐴 Weabot is running!
+🐴 Haru is running!
    Channels: 123456789012345678
+   Database: ./data/haru.sqlite3
    Timezone: America/Los_Angeles
    Glue Alert Threshold: 7 days
 ```
 
 ---
+
+## Running with Docker
+
+```bash
+cp .env.sample .env      # fill in DISCORD_TOKEN, CHANNEL_ID, and any optional keys
+mkdir data && sudo chown 1000:1000 data
+docker compose up -d     # builds locally; use `pull` to fetch the published image
+```
+
+The container runs as user `1000` and keeps the SQLite database in `./data`. Run only one instance
+per Discord token. No port is published, because the bot only makes outbound connections. To reach
+the admin API from the host, add `ports: ["127.0.0.1:8000:8000"]` and set `ADMIN_HTTP_TOKEN`.
 
 ## Using Haru in Discord
 
@@ -143,7 +168,7 @@ message. Direct mentions and commands still use the normal reply path.
 
 The existing human activity threshold, random admission chance, token budget, configured channels,
 and cooldown apply to all autonomous participation. The latest considered human message and attempt
-time are persisted per channel in Deno KV, so replies, reactions, silence, errors, and restarts
+time are persisted per channel in the database, so replies, reactions, silence, errors, and restarts
 cannot repeatedly process the same conversation. Reaction targets exclude bots, webhooks, older
 handled messages, and messages Haru already reacted to. Nearby messages by one author are
 represented as a turn, with reply relationships intact. Connective fragments and trailing laughter
@@ -174,8 +199,7 @@ For model-quality cases covering the split joke, celebration, kindness, cruelty,
 no Discord access:
 
 ```bash
-deno run --env-file=.env --allow-env --allow-net=api.openai.com \
-  scripts/evaluate_reactions.ts --dry-run
+bun run eval:reactions --dry-run
 ```
 
 For an explicit live sandbox test, post human-authored messages without an @Haru mention in Bot
@@ -184,15 +208,12 @@ only reads messages newer than that boundary, uses the production participation 
 gateway, scheduler, or server. Test admission is explicitly 100% with a one-human-message threshold;
 production admission settings are unchanged. A preview makes no Discord writes. `--send` opts into
 one reply/reaction/silence decision and persists sandbox duplicate protection in a separate
-temporary KV.
+temporary SQLite file (`/tmp/haru-reaction-sandbox.bun.sqlite3`).
 
 ```bash
-deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
-  scripts/test_reactions_sandbox.ts --dry-run --after=BOUNDARY_MESSAGE_ID
+bun run sandbox:reactions --dry-run --after=BOUNDARY_MESSAGE_ID
 
-deno run --unstable-kv --env-file=.env --allow-env --allow-net=discord.com,api.openai.com \
-  --allow-read=/tmp --allow-write=/tmp \
-  scripts/test_reactions_sandbox.ts --send --after=BOUNDARY_MESSAGE_ID
+bun run sandbox:reactions --send --after=BOUNDARY_MESSAGE_ID
 ```
 
 The sandbox tool refuses other write destinations, DMs, and older targets. Verify Discord's actual
@@ -201,8 +222,7 @@ reaction and bot-owned emoji ID after a live test; a valid silent choice does no
 For a real AI smoke test using synthetic conversations and no Discord writes:
 
 ```bash
-deno run --env-file=.env --allow-env --allow-net=api.openai.com \
-  scripts/test_autonomous_participation.ts
+bun run sandbox:autonomous
 ```
 
 ### AI usage limits
@@ -215,16 +235,16 @@ links, generating a reply, or sending to Discord subsequently fails.
 `AI_DAILY_TOKEN_BUDGET` is a **soft threshold** on reported tokens across mentions and autonomous
 chat. Admission stops once recorded usage reaches it. Already admitted requests can finish above the
 threshold; there are no token reservations or strict limits on in-flight usage. For example, two
-requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget by
-199. Use provider spending controls if a strict spending limit is required.
+requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget
+by 199. Use provider spending controls if a strict spending limit is required.
 
 Reported tokens, including usage returned with failed generations, are recorded atomically. Tokens
 are charged to the UTC day when the response is recorded; requests count on their admission day.
 Requests spanning midnight may therefore appear in different daily request and token buckets.
 Autonomous chat uses the same budget check and request accounting, but remains exempt from the human
-per-user limit. Existing numeric KV counters remain compatible, with user buckets retained for two
-minutes and daily counters for 48 hours. A repeatedly conflicting transaction fails explicitly after
-bounded retries, so it never authorizes uncounted work.
+per-user limit. Per-minute user counts are kept in memory, so a restart resets them (at most one
+extra minute of allowance). Daily request and token totals are stored in the database for 30 days,
+so a restart does not reset the budget.
 
 ### Discord events and invitations
 
@@ -277,7 +297,7 @@ when the user does not name one. Daylight saving gaps and repeated times require
 This version creates individual events and invitations and cancels scheduled events. Ending active
 events, cancelling recurring series or occurrences, other event edits/deletion, and bulk invitations
 are not exposed to the AI. Autonomous chat and opened web pages cannot invoke these tools. Mutation
-attempts are recorded in Deno KV; ambiguous network outcomes are not automatically retried.
+attempts are recorded in the database; ambiguous network outcomes are not automatically retried.
 Read-only requests can retry a confirmed rate limit twice, respecting Discord's delay (up to 15
 seconds per wait). If Haru cannot confirm a write, inspect Discord before issuing another request.
 
@@ -286,32 +306,29 @@ seconds per wait). If Haru cannot confirm a write, inspect Discord before issuin
 For an interactive local instance in Bot Sandbox's `#general`:
 
 ```bash
-deno run --unstable-kv --env-file=.env --allow-env \
-  --allow-net=discord.com,gateway.discord.gg,api.openai.com scripts/run_discord_sandbox.ts
+bun run sandbox:discord
 ```
 
 Send `Haru local, create a game night event tomorrow at 8 PM in General voice, ending at 10 PM.`
 Then try `Haru local, cancel the game night event.` Use the same `Haru local,` prefix for
-clarification replies. Do not mention `@Haru`: the prefix isolates local testing when AWS uses the
-same bot identity. The runner accepts human messages only in that exact sandbox channel, uses
-in-memory state and the current test message as context, and does not start scheduled jobs,
+clarification replies. Do not mention `@Haru`: the prefix isolates local testing when production
+uses the same bot identity. The runner accepts human messages only in that exact sandbox channel,
+uses in-memory state and the current test message as context, and does not start scheduled jobs,
 autonomous chat, or the HTTP server. Events and invitations are real; stop with Ctrl-C and remove
 test artifacts when finished. Normal mentions are ignored locally.
 
-The API smoke-test runner (`scripts/test_discord_events.ts`) uses the configured bot token and
-OpenAI key, but never starts the gateway, scheduled jobs, or HTTP server. It checks the exact Bot
-Sandbox server and General channels, uses an in-memory database, and explicitly simulates a request
-from the sandbox owner. It does not post chat messages. This permits API testing even when the bot
-identity is also used in production.
+The API smoke-test runner (`scripts/sandbox/events.ts`) uses the configured bot token and OpenAI
+key, but never starts the gateway, scheduled jobs, or HTTP server. It checks the exact Bot Sandbox
+server and General channels, uses an in-memory database, and explicitly simulates a request from the
+sandbox owner. It does not post chat messages. This permits API testing even when the bot identity
+is also used in production.
 
 ```bash
 # Real AI interpretation and sandbox metadata; event/invite writes are simulated.
-deno run --unstable-kv --env-file=.env --allow-env \
-  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts --dry-run
+bun run sandbox:events --dry-run
 
 # Create and verify one real sandbox event and a 60-second, one-use invite, then clean up.
-deno run --unstable-kv --env-file=.env --allow-env \
-  --allow-net=discord.com,api.openai.com scripts/test_discord_events.ts
+bun run sandbox:events
 ```
 
 The runner prints the verified times, links, and cleanup results. Add `--keep` to the live command
@@ -322,37 +339,31 @@ scheduled jobs and can respond in any server the bot can access.
 
 ### Month-to-date usage
 
-`@Haru \usage` in a configured bot channel reports UTC month-to-date AWS cost, OpenAI API cost, and
+`@Haru \usage` in a configured bot channel reports UTC month-to-date OpenAI API cost and
 input/cache/output tokens. The reply shows its date range and scope, for example:
 
 ```text
 📊 Usage — October 2026 (month to date)
 2026-10-01 → 2026-10-06 13:45 UTC
-AWS cost: $12.35
 OpenAI API cost: $3.50
 Input tokens: 1,234,567
 Cache tokens: 123,000
 Output tokens: 8,000
 ```
 
-Values above are illustrative. AWS uses account-wide UnblendedCost; OpenAI costs cover all API
-products, while tokens cover model completions (including Responses). Totals include usage outside
-Haru. Cache tokens are included in input tokens, and provider data may lag. Missing credentials or
-failed queries show **Unavailable**; valid empty results show zero. Reports are cached for five
-minutes, share concurrent queries, refresh on month rollover, and use a fifteen-second deadline. The
-command works with AI disabled or its budget exhausted, without spending model tokens.
+Values above are illustrative. OpenAI costs cover all API products, while tokens cover model
+completions (including Responses). Totals include usage outside Haru. Cache tokens are included in
+input tokens, and provider data may lag. Missing credentials or failed queries show **Unavailable**;
+valid empty results show zero. Reports are cached for five minutes, share concurrent queries,
+refresh on month rollover, and use a fifteen-second deadline. The command works with AI disabled or
+its budget exhausted, without spending model tokens.
 
 Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `OPENAI_API_KEY`. Optionally
-set `USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. Enable AWS
-Cost Explorer and grant `ce:GetCostAndUsage` (included in the CloudFormation template). AWS uses
-environment credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`)
-or the EC2 role via IMDSv2; local AWS profiles are not used for credentials. For existing
-deployments, preserve the instance AMI as described below. Cost Explorer queries may incur charges.
-The report is visible to channel members.
+set `USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. The report
+is visible to channel members.
 
-Sources:
-[OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage),
-[AWS GetCostAndUsage](https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html).
+Source:
+[OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage).
 
 ---
 
@@ -371,8 +382,8 @@ single 8-second deadline covers DNS, connection setup, up to three redirects, re
 and decompression. Redirects and slowly arriving chunks do not reset the deadline. The 1 MiB body
 limit applies to decoded bytes. Abandoned bodies are canceled, readers released, and the deadline
 timer cleared on every exit; download and decoding errors return structured failures.
-`deno task test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI
-runs these checks on both the production Deno 2.6.0 runtime and the current Deno 2.x release.
+`bun run test:transport` checks the real HTTP/TLS transport against loopback-only fixtures; CI runs
+it too.
 
 ### Available Endpoints
 
@@ -402,23 +413,28 @@ runs these checks on both the production Deno 2.6.0 runtime and the current Deno
 ### Test Workflow
 
 1. **Start the bot**:
+
    ```bash
    export ADMIN_HTTP_TOKEN="$(openssl rand -hex 32)"
-   deno task dev
+   bun run dev
    ```
 
 2. **Test the poll**:
+
    ```bash
    curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_poll
    ```
+
    Check your Discord channel – a poll should appear!
 
 3. **Test the stats embed**:
+
    ```bash
    curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" http://localhost:8000/trigger_stats
    ```
 
 4. **Test the wellness alert**:
+
    ```bash
    # Post a sample alert (customize name and days)
    curl -X POST -H "Authorization: Bearer $ADMIN_HTTP_TOKEN" "http://localhost:8000/trigger_alert?name=TestUser&days=7"
@@ -444,33 +460,35 @@ runs these checks on both the production Deno 2.6.0 runtime and the current Deno
 
 ```
 weabot/
-├── main.ts                     # Entry point
+├── main.ts                     # Entry point: wires services together and starts the app
 ├── src/
 │   ├── config.ts               # Environment configuration
-│   ├── server.ts               # HTTP server & endpoints
-│   ├── scheduler.ts            # Cron job definitions
-│   ├── types/
-│   │   ├── bot.ts              # Domain types (Mood, MoodPollConfig)
-│   │   ├── discord.ts          # Discord API types
-│   │   └── storage.ts          # Storage types (VoteRecord, etc.)
-│   ├── services/
-│   │   ├── discord.ts          # Discord API client
-│   │   ├── storage.ts          # Deno KV storage service
-│   │   ├── web_search.ts       # Brave web search integration
-│   │   ├── link_open.ts        # Safe HTML link opener for \open command
-│   │   └── rate_limit.ts       # AI usage/rate limiting
-│   └── features/
-│       ├── poll/               # Poll creation logic
-│       │   ├── mod.ts
-│       │   ├── payload.ts
-│       │   └── poll.test.ts
-│       └── stats/              # Stats & embed generation
-│           ├── mod.ts
-│           └── embed.ts
-├── deno.json                   # Task definitions
-├── deno.lock                   # Dependency lock file
+│   ├── app/                    # Gateway, HTTP server and cron schedule (started by main.ts)
+│   ├── jobs/                   # Work shared by cron jobs and admin HTTP triggers
+│   ├── bot/                    # Message handling: mentions, \usage, \reset, \open, AI replies
+│   ├── ai/                     # OpenAI Responses client, autonomous participation, reply text
+│   ├── features/               # Bot logic (polls, stats, chat context, reactions, Discord actions)
+│   ├── services/               # Storage, rate limits and usage reporting
+│   ├── discord/                # The only code that calls the Discord REST API
+│   ├── net/                    # Public-web fetches: link opening, web search, retry
+│   ├── db/                     # SQLite: opening, migrations, queries per table group
+│   └── types/                  # Shared domain types
+├── tests/
+│   ├── support/                # Test helpers and the test preload
+│   ├── fixtures/               # Loopback servers for transport tests
+│   └── *.integration.ts        # HTTP/TLS transport tests (bun run test:transport)
+├── scripts/
+│   ├── sandbox/                # Manual runs against the sandbox Discord server
+│   ├── eval/                   # Reaction evaluation
+│   └── issue_agent/            # GitHub issue automation
+├── package.json                # Scripts and dependencies
+├── bun.lock                    # Dependency lock file
+├── bunfig.toml                 # Bun settings (tests, format, lint)
+├── tsconfig.json               # Type-check settings
 └── .github/workflows/ci.yml    # CI pipeline
 ```
+
+Unit tests sit next to the file they test.
 
 ---
 
@@ -479,21 +497,60 @@ weabot/
 ### Run Tests
 
 ```bash
-deno task test
+bun run test
+bun run test:transport
 ```
+
+`test:transport` runs the HTTP/TLS transport tests against loopback servers. Tests block network
+calls that are not stubbed.
 
 ### Lint & Format
 
 ```bash
-deno task lint
-deno task fmt
+bun run lint
+bun run fmt
+bun run fmt:check
 ```
+
+`lint` uses a pinned Bun canary through `bunx`, because `bun lint` is not in a stable Bun release
+yet.
 
 ### Type Check
 
 ```bash
-deno task check
+bun run check
 ```
+
+### Data Storage
+
+Haru keeps everything that must survive a restart in one SQLite database (`HARU_DB_PATH`, default
+`./data/haru.sqlite3`):
+
+- polls and votes;
+- `\reset` markers;
+- the autonomous chat watermark, cooldown and last reaction;
+- daily AI request and token totals (kept for 30 days);
+- Discord action records and event guards, so an action is never repeated.
+
+The schema is created and upgraded on startup. Haru refuses to start on a database written by a
+newer version. Per-minute AI request counts, Discord action turns and pending clarifications are
+kept in memory only.
+
+### Changes From the Previous Runtime
+
+Haru now runs on Bun and started with a new, empty database. These differences are intentional:
+
+1. A pending clarification (for example, "what time should the event start?") is forgotten on
+   restart; repeat the request.
+2. A restart resets the per-minute AI request counts. The daily budget is unaffected.
+3. Link requests send `User-Agent: HaruBot/1.0`.
+4. `\usage` no longer reports AWS cost; it shows OpenAI cost and tokens only.
+5. A link path starting with `//` is requested with a single `/`.
+6. A gzip body followed by trailing zero bytes fails to decode.
+7. An admin HTTP request that sends nothing for 120 seconds is cut off.
+8. Issue triage counts "bun" as an environment detail in bug reports.
+
+Weekly stats no longer drop or duplicate a day across a daylight saving change.
 
 ### Local Issue Automation (Codex + GitHub Issues)
 
@@ -519,105 +576,47 @@ These labels are auto-created/updated by the scripts below.
 Run triage:
 
 ```bash
-deno task agent:triage
+bun run agent:triage
 ```
 
 Run stale close (close rejected/needs-info issues after 3 days inactive):
 
 ```bash
-deno task agent:stale-close
+bun run agent:stale-close
 ```
 
 Run the full triage + stale-close + claim-next cycle:
 
 ```bash
-deno task agent:run-once
+bun run agent:run-once
 ```
 
 Claim next accepted issue for implementation (prints JSON):
 
 ```bash
-deno task agent:next-issue -- --claim
+bun run agent:next-issue --claim
 ```
 
 Mark an issue as PR-open after a PR is created:
 
 ```bash
-deno task agent:mark-pr-open -- 123 https://github.com/OWNER/REPO/pull/456
+bun run agent:mark-pr-open 123 https://github.com/OWNER/REPO/pull/456
 ```
 
 Suggested recurring loop:
 
-1. `deno task agent:triage`
-2. `deno task agent:stale-close`
-3. `deno task agent:next-issue -- --claim`
+1. `bun run agent:triage`
+2. `bun run agent:stale-close`
+3. `bun run agent:next-issue --claim`
 4. If issue found: implement + test + open PR
-5. `deno task agent:mark-pr-open -- <issue_number> <pr_url>`
+5. `bun run agent:mark-pr-open <issue_number> <pr_url>`
 
 ---
-
-## AWS Deployment
-
-The production deployment uses a small ARM EC2 instance in the account's default VPC. It has no
-inbound ports, is administered through AWS Systems Manager, restarts Haru after process or health
-check failures, and backs up Deno KV to a private versioned S3 bucket each day. The instance uses
-Standard CPU credits to avoid surplus CPU credit charges. Bursts spend earned credits; sustained CPU
-work slows toward the instance's baseline as credits run low, which can increase response and
-deployment times. See
-[AWS Standard mode](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-standard-mode.html).
-
-Prerequisites:
-
-- AWS CLI v2 with an authenticated profile
-- `jq` and `sqlite3`
-- A pushed Git commit that the EC2 instance can fetch
-
-Deploy from the repository root, migrating the current local KV database if desired:
-
-```bash
-AWS_PROFILE=mochi-admin ./scripts/deploy_aws.sh \
-  --migrate-kv /path/to/deno/location_data/project/kv.sqlite3
-```
-
-For infrastructure updates that should preserve the running instance, set the CloudFormation
-`ExistingAmiId` parameter to that instance's current EC2 `ImageId`. The default empty value
-continues to use the latest Amazon Linux ARM AMI through `LatestAmiId` for new stacks. Because the
-public SSM parameter can resolve to a newer AMI during an update, leaving the override empty can
-cause an unrelated infrastructure change to replace the instance.
-
-The deployment helper does not discover or set `ExistingAmiId`. Before using it to update an
-existing unpinned stack, create an infrastructure change set with the current AMI override and
-preserve the other stack parameters. Inspect the change set to confirm the instance will not be
-replaced, then apply it. Keep the AMI override on later updates; change or clear it only for an
-intentional AMI upgrade.
-
-Useful operations:
-
-```bash
-# Show the instance ID and backup bucket
-aws cloudformation describe-stacks --profile mochi-admin --region us-west-2 \
-  --stack-name haru-bot --query 'Stacks[0].Outputs'
-
-# Read the AMI to use as ExistingAmiId when preserving this instance
-aws ec2 describe-instances --profile mochi-admin --region us-west-2 \
-  --instance-ids INSTANCE_ID --query 'Reservations[0].Instances[0].ImageId' --output text
-
-# Open a shell without SSH or an inbound firewall rule
-aws ssm start-session --profile mochi-admin --region us-west-2 --target INSTANCE_ID
-
-# Inside the instance
-sudo systemctl status haru
-sudo journalctl -u haru -n 100 --no-pager
-```
-
-Secrets from `.env` are copied to an encrypted SSM `SecureString`; they are never embedded in the
-CloudFormation template. The `/health` and manual trigger endpoints remain accessible only from the
-instance itself.
 
 ## Acknowledgments
 
 - Inspired by [Umamusume Pretty Derby](https://umamusume.jp/)
-- Built with [Deno](https://deno.land/) and the Discord API
+- Built with [Bun](https://bun.sh/) and the Discord API
 
 ---
 

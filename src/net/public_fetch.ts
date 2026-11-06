@@ -1,0 +1,311 @@
+/** Public-only link transport. DNS answers are checked once and the connection
+ * uses a numeric address, preserving the original HTTP Host and TLS identity. */
+import { isIP } from "node:net";
+
+const METADATA_HOSTS = new Set([
+  "metadata",
+  "metadata.google.internal",
+  "instance-data",
+  "instance-data.ec2.internal",
+  "metadata.azure.internal",
+]);
+
+export function normalizeHost(hostname: string): string {
+  let normalized = hostname.trim().toLowerCase().replace(/\.+$/, "");
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
+function aiParseIpv4(hostname: string): number[] | null {
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return null;
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return null;
+
+  const out: number[] = [];
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return null;
+    const n = Number.parseInt(p, 10);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
+    out.push(n);
+  }
+  return out;
+}
+
+function isBlockedIpv4(octets: number[]): boolean {
+  const [a, b, c] = octets;
+
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10
+  if (a === 127) return true; // 127.0.0.0/8
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24
+  if (a === 192 && b === 0 && c === 2) return true; // 192.0.2.0/24
+  if (a === 192 && b === 88 && c === 99) return true; // 192.88.99.0/24
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
+  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24
+  if (a === 203 && b === 0 && c === 113) return true; // 203.0.113.0/24
+  if (a >= 224) return true; // multicast + reserved
+
+  return false;
+}
+
+function aiParseIpv6(hostname: string): number[] | null {
+  let host = hostname.toLowerCase();
+  const zoneIdx = host.indexOf("%");
+  if (zoneIdx >= 0) host = host.slice(0, zoneIdx);
+  if (!host.includes(":")) return null;
+
+  // Convert trailing IPv4 into 2 hextets if present.
+  if (host.includes(".")) {
+    const lastColon = host.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    const ipv4Tail = host.slice(lastColon + 1);
+    const octets = aiParseIpv4(ipv4Tail);
+    if (!octets) return null;
+    const h1 = ((octets[0] << 8) | octets[1]).toString(16);
+    const h2 = ((octets[2] << 8) | octets[3]).toString(16);
+    host = `${host.slice(0, lastColon)}:${h1}:${h2}`;
+  }
+
+  const halves = host.split("::");
+  if (halves.length > 2) return null;
+
+  const leftRaw = halves[0] ? halves[0].split(":").filter(Boolean) : [];
+  const rightRaw = halves.length === 2 && halves[1] ? halves[1].split(":").filter(Boolean) : [];
+
+  const parseH16 = (s: string): number | null => {
+    if (!/^[0-9a-f]{1,4}$/.test(s)) return null;
+    return Number.parseInt(s, 16);
+  };
+
+  const left: number[] = [];
+  for (const seg of leftRaw) {
+    const n = parseH16(seg);
+    if (n === null) return null;
+    left.push(n);
+  }
+
+  const right: number[] = [];
+  for (const seg of rightRaw) {
+    const n = parseH16(seg);
+    if (n === null) return null;
+    right.push(n);
+  }
+
+  let hextets: number[];
+  if (halves.length === 1) {
+    if (left.length !== 8) return null;
+    hextets = left;
+  } else {
+    const zeros = 8 - (left.length + right.length);
+    if (zeros < 1) return null;
+    hextets = [...left, ...Array(zeros).fill(0), ...right];
+  }
+
+  if (hextets.length !== 8) return null;
+
+  const bytes: number[] = [];
+  for (const h of hextets) {
+    bytes.push((h >> 8) & 0xff, h & 0xff);
+  }
+  return bytes;
+}
+
+function isBlockedIpv6(bytes: number[]): boolean {
+  // Only native global unicast and validated IPv4-mapped addresses are allowed.
+  // This also excludes translation/tunnel prefixes, deprecated site-local space,
+  // unspecified/compatible IPv4, and future reserved allocations.
+  const mapped =
+    bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
+  if (mapped) return isBlockedIpv4(bytes.slice(12));
+  if ((bytes[0] & 0xe0) !== 0x20) return true; // outside 2000::/3
+  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] < 2) return true; // 2001::/23
+  if (bytes[0] === 0x20 && bytes[1] === 0x02) return true; // 6to4
+  if (bytes[0] === 0x3f && bytes[1] === 0xff && (bytes[2] & 0xf0) === 0) return true; // 3fff::/20
+  // 2001:db8::/32 documentation range
+  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) {
+    return true;
+  }
+
+  return false;
+}
+
+export function isBlockedHost(url: URL): boolean {
+  const host = normalizeHost(url.hostname);
+  if (!host) return true;
+
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (METADATA_HOSTS.has(host)) return true;
+
+  const ipv4 = aiParseIpv4(host);
+  if (ipv4) return isBlockedIpv4(ipv4);
+
+  const ipv6 = aiParseIpv6(host);
+  if (ipv6) return isBlockedIpv6(ipv6);
+
+  return false;
+}
+
+export class BlockedDestinationError extends Error {
+  constructor() {
+    super("Link destination is not public");
+    this.name = "BlockedDestinationError";
+  }
+}
+
+export type LinkFetch = (url: string, init: RequestInit) => Promise<Response>;
+export type ResolveAddresses = (hostname: string, signal?: AbortSignal) => Promise<string[]>;
+export type PinnedRequest = (url: URL, address: string, signal?: AbortSignal) => Promise<Response>;
+export type DnsLookup = (hostname: string) => Promise<{ address: string }[]>;
+
+const defaultLookup: DnsLookup = (hostname) => Bun.dns.lookup(hostname, { backend: "c-ares" });
+
+/** Both address families from one lookup. A name with no records resolves to
+ * no addresses; every other DNS failure rejects. The lookup itself cannot be
+ * cancelled, so the caller's signal ends the wait and its late answer is
+ * ignored. */
+export async function resolveAddresses(
+  hostname: string,
+  signal?: AbortSignal,
+  lookup: DnsLookup = defaultLookup,
+): Promise<string[]> {
+  signal?.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  // Promise.resolve().then also turns a synchronous throw into a rejection.
+  const answers = Promise.resolve()
+    .then(() => lookup(hostname))
+    .catch((error: unknown) => {
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code === "DNS_ENOTFOUND" || code === "DNS_ENODATA") return [];
+      throw error;
+    });
+  try {
+    return (await Promise.race([answers, aborted])).map((record) => record.address);
+  } finally {
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+const DECODERS = new Map<string, Bun.CompressionFormat>([
+  ["gzip", "gzip"],
+  ["deflate", "deflate"],
+  ["br", "brotli"],
+]);
+
+/** Low-level transport; callers must validate the address first. Exported for transport tests. */
+export async function requestPinned(
+  url: URL,
+  address: string,
+  signal?: AbortSignal,
+  ca?: string,
+): Promise<Response> {
+  const family = isIP(address);
+  // A zone id ("fe80::1%eth0") is not a valid URL host, so the swap below would be ignored.
+  if (!family || address.includes("%")) throw new BlockedDestinationError();
+  signal?.throwIfAborted();
+  const hostname = normalizeHost(url.hostname);
+  // Only the socket destination changes. The Host header and the TLS server
+  // name keep the original identity, and the hostname is never resolved again.
+  const target = new URL(url.href);
+  target.hash = "";
+  target.username = "";
+  target.password = "";
+  target.hostname = family === 6 ? `[${address}]` : address;
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      method: "GET",
+      redirect: "manual",
+      // Decode here so the caller's byte limit applies to the decoded body.
+      decompress: false,
+      keepalive: false,
+      // Environment proxies would connect by hostname and bypass the pinning.
+      proxy: false,
+      signal,
+      headers: {
+        Host: url.host,
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Encoding": "gzip, deflate, br",
+        // Bun always sends a User-Agent; a fixed one avoids naming the runtime.
+        "User-Agent": "HaruBot/1.0",
+      },
+      tls: {
+        rejectUnauthorized: true,
+        ...(ca ? { ca } : {}),
+        ...(isIP(hostname) ? {} : { serverName: hostname }),
+      },
+    });
+  } catch (error) {
+    throw signal?.aborted ? new DOMException("Aborted", "AbortError") : error;
+  }
+  const headers = new Headers(response.headers);
+  if ([204, 205, 304].includes(response.status)) {
+    await response.body?.cancel().catch(() => {});
+    return new Response(null, { status: response.status, headers });
+  }
+  let body = response.body;
+  const encoding = headers.get("content-encoding")?.trim().toLowerCase();
+  if (body && encoding && encoding !== "identity") {
+    const format = DECODERS.get(encoding);
+    if (!format) {
+      await body.cancel().catch(() => {});
+      throw new Error("Unsupported content encoding");
+    }
+    body = body.pipeThrough(new DecompressionStream(format));
+    headers.delete("content-encoding");
+    headers.delete("content-length");
+  }
+  return new Response(body, { status: response.status, headers });
+}
+
+/** Every invocation validates all DNS answers and pins the actual connection.
+ * Neither redirects, environment proxies, cookies, nor URL credentials are
+ * followed/forwarded by this transport. Redirect policy stays in link_open.
+ */
+export function createPublicFetch(
+  dependencies: {
+    resolve?: ResolveAddresses;
+    request?: PinnedRequest;
+  } = {},
+): LinkFetch {
+  const resolve = dependencies.resolve ?? resolveAddresses;
+  const request = dependencies.request ?? requestPinned;
+  return async (input, init) => {
+    const url = new URL(input);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      isBlockedHost(url)
+    )
+      throw new BlockedDestinationError();
+    const hostname = normalizeHost(url.hostname);
+    const signal = init.signal ?? undefined;
+    signal?.throwIfAborted();
+    const addresses = isIP(hostname) ? [hostname] : await resolve(hostname, signal);
+    signal?.throwIfAborted();
+    if (addresses.length === 0) throw new Error("No addresses found");
+    if (
+      addresses.some((address) => {
+        const family = isIP(address);
+        if (!family) return true;
+        return family === 4
+          ? isBlockedIpv4(aiParseIpv4(address)!)
+          : isBlockedIpv6(aiParseIpv6(address)!);
+      })
+    )
+      throw new BlockedDestinationError();
+    // Pass an IP, never the hostname, to the socket implementation. A DNS
+    // rebind after validation cannot change this destination.
+    return await request(url, addresses[0], signal);
+  };
+}

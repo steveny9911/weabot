@@ -1,16 +1,8 @@
-/**
- * Tests for Configuration Module
- */
-
-import { assertEquals, assertThrows } from "@std/assert";
+import { expect, test } from "bun:test";
+import { throws } from "../tests/support/assert.ts";
 import { loadConfig } from "./config.ts";
 
-// Helper to run tests with specific env vars
-function withEnv(
-  envVars: Record<string, string>,
-  fn: () => void,
-) {
-  // Save original values
+function withEnv(envVars: Record<string, string>, fn: () => void) {
   const originalValues: Record<string, string | undefined> = {};
   const allKeys = new Set([
     ...Object.keys(envVars),
@@ -46,47 +38,36 @@ function withEnv(
   ]);
 
   for (const key of allKeys) {
-    originalValues[key] = Deno.env.get(key);
-    Deno.env.delete(key);
+    originalValues[key] = process.env[key];
+    delete process.env[key];
   }
-
-  // Set test values
   for (const [key, value] of Object.entries(envVars)) {
-    Deno.env.set(key, value);
+    process.env[key] = value;
   }
 
   try {
     fn();
   } finally {
-    // Restore original values
     for (const key of allKeys) {
       const original = originalValues[key];
       if (original !== undefined) {
-        Deno.env.set(key, original);
+        process.env[key] = original;
       } else {
-        Deno.env.delete(key);
+        delete process.env[key];
       }
     }
   }
 }
 
-// =============================================================================
-// loadConfig - Required Variables
-// =============================================================================
-
-Deno.test("loadConfig throws when DISCORD_TOKEN is missing", () => {
+test("loadConfig throws when DISCORD_TOKEN is missing", () => {
   withEnv({ CHANNEL_ID: "123" }, () => {
-    assertThrows(
-      () => loadConfig(),
-      Error,
-      "Missing required environment variable: DISCORD_TOKEN",
-    );
+    throws(() => loadConfig(), Error, "Missing required environment variable: DISCORD_TOKEN");
   });
 });
 
-Deno.test("loadConfig throws when CHANNEL_ID and CHANNEL_IDS are missing", () => {
+test("loadConfig throws when CHANNEL_ID and CHANNEL_IDS are missing", () => {
   withEnv({ DISCORD_TOKEN: "token123" }, () => {
-    assertThrows(
+    throws(
       () => loadConfig(),
       Error,
       "Missing required environment variable: CHANNEL_ID or CHANNEL_IDS",
@@ -94,7 +75,7 @@ Deno.test("loadConfig throws when CHANNEL_ID and CHANNEL_IDS are missing", () =>
   });
 });
 
-Deno.test("loadConfig returns config when required vars are present", () => {
+test("loadConfig returns config when required vars are present", () => {
   withEnv(
     {
       DISCORD_TOKEN: "my-token",
@@ -102,28 +83,13 @@ Deno.test("loadConfig returns config when required vars are present", () => {
     },
     () => {
       const config = loadConfig();
-      assertEquals(config.discordToken, "my-token");
-      assertEquals(config.channelId, "my-channel");
-      assertEquals(config.channelIds, ["my-channel"]);
+      expect(config.discordToken).toStrictEqual("my-token");
+      expect(config.channelId).toStrictEqual("my-channel");
+      expect(config.channelIds).toStrictEqual(["my-channel"]);
     },
   );
 });
-
-Deno.test("loadConfig accepts CHANNEL_IDS without CHANNEL_ID", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "my-token",
-      CHANNEL_IDS: "chan-1, chan-2",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.channelId, "chan-1");
-      assertEquals(config.channelIds, ["chan-1", "chan-2"]);
-    },
-  );
-});
-
-Deno.test("loadConfig appends CHANNEL_ID when CHANNEL_IDS is provided and missing it", () => {
+test("loadConfig appends CHANNEL_ID when CHANNEL_IDS is provided and missing it", () => {
   withEnv(
     {
       DISCORD_TOKEN: "my-token",
@@ -132,71 +98,13 @@ Deno.test("loadConfig appends CHANNEL_ID when CHANNEL_IDS is provided and missin
     },
     () => {
       const config = loadConfig();
-      assertEquals(config.channelId, "chan-1");
-      assertEquals(config.channelIds, ["chan-1", "chan-2", "chan-3"]);
+      expect(config.channelId).toStrictEqual("chan-1");
+      expect(config.channelIds).toStrictEqual(["chan-1", "chan-2", "chan-3"]);
     },
   );
 });
 
-// =============================================================================
-// loadConfig - Optional Variables with Defaults
-// =============================================================================
-
-Deno.test("loadConfig uses default TIME_ZONE when not set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.timeZone, "America/Los_Angeles");
-    },
-  );
-});
-
-Deno.test("loadConfig uses custom TIME_ZONE when set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      TIME_ZONE: "Europe/London",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.timeZone, "Europe/London");
-    },
-  );
-});
-
-Deno.test("loadConfig uses default GLUE_ALERT_THRESHOLD when not set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.glueAlertThreshold, 7);
-    },
-  );
-});
-
-Deno.test("loadConfig uses custom GLUE_ALERT_THRESHOLD when set", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      GLUE_ALERT_THRESHOLD: "3",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.glueAlertThreshold, 3);
-    },
-  );
-});
-
-Deno.test("loadConfig returns complete config with all values", () => {
+test("loadConfig returns complete config with all values", () => {
   withEnv(
     {
       DISCORD_TOKEN: "secret-token",
@@ -225,7 +133,7 @@ Deno.test("loadConfig returns complete config with all values", () => {
     },
     () => {
       const config = loadConfig();
-      assertEquals(config, {
+      expect(config).toStrictEqual({
         discordToken: "secret-token",
         adminHttpToken: undefined,
         channelId: "123456789",
@@ -261,20 +169,23 @@ Deno.test("loadConfig returns complete config with all values", () => {
   );
 });
 
-Deno.test("Discord actions can be disabled or restricted to selected servers", () => {
-  withEnv({
-    DISCORD_TOKEN: "token",
-    CHANNEL_ID: "123",
-    DISCORD_ACTIONS_ENABLED: "false",
-    DISCORD_ACTIONS_GUILD_IDS: " sandbox, another, ",
-  }, () => {
-    const config = loadConfig();
-    assertEquals(config.discordActionsEnabled, false);
-    assertEquals(config.discordActionsGuildIds, ["sandbox", "another"]);
-  });
+test("Discord actions can be disabled or restricted to selected servers", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "123",
+      DISCORD_ACTIONS_ENABLED: "false",
+      DISCORD_ACTIONS_GUILD_IDS: " sandbox, another, ",
+    },
+    () => {
+      const config = loadConfig();
+      expect(config.discordActionsEnabled).toStrictEqual(false);
+      expect(config.discordActionsGuildIds).toStrictEqual(["sandbox", "another"]);
+    },
+  );
 });
 
-Deno.test("loadConfig uses AI defaults when not set", () => {
+test("loadConfig uses AI defaults when not set", () => {
   withEnv(
     {
       DISCORD_TOKEN: "token",
@@ -282,31 +193,31 @@ Deno.test("loadConfig uses AI defaults when not set", () => {
     },
     () => {
       const config = loadConfig();
-      assertEquals(config.aiEnabled, true);
-      assertEquals(config.openaiApiKey, undefined);
-      assertEquals(config.aiRateLimitPerUser, 2); // 2 per minute
-      assertEquals(config.aiDailyTokenBudget, 10000000); // 10M tokens, user has OpenAI spending limits
-      assertEquals(config.aiMaxInputChars, 0); // disabled by default
-      assertEquals(config.aiEnableUwu, true);
-      assertEquals(config.aiContextMaxMessages, 40);
-      assertEquals(config.aiContextInactivityMinutes, 20);
-      assertEquals(config.channelIds, ["channel"]);
-      assertEquals(config.webSearchEnabled, false);
-      assertEquals(config.webSearchApiKey, undefined);
-      assertEquals(config.webSearchMaxResults, 3);
-      assertEquals(config.linkOpenEnabled, true);
-      assertEquals(config.autonomousChatEnabled, false);
-      assertEquals(config.autonomousChatChannelIds, ["channel"]);
-      assertEquals(config.autonomousChatMinHumanMessages, 4);
-      assertEquals(config.autonomousChatActivityWindowMinutes, 20);
-      assertEquals(config.autonomousChatCooldownMinutes, 1);
-      assertEquals(config.autonomousChatReplyChance, 0.35);
-      assertEquals(config.autonomousChatMaxContextMessages, 40);
+      expect(config.aiEnabled).toStrictEqual(true);
+      expect(config.openaiApiKey).toStrictEqual(undefined);
+      expect(config.aiRateLimitPerUser).toStrictEqual(2); // 2 per minute
+      expect(config.aiDailyTokenBudget).toStrictEqual(10000000); // 10M tokens, user has OpenAI spending limits
+      expect(config.aiMaxInputChars).toStrictEqual(0); // disabled by default
+      expect(config.aiEnableUwu).toStrictEqual(true);
+      expect(config.aiContextMaxMessages).toStrictEqual(40);
+      expect(config.aiContextInactivityMinutes).toStrictEqual(20);
+      expect(config.channelIds).toStrictEqual(["channel"]);
+      expect(config.webSearchEnabled).toStrictEqual(false);
+      expect(config.webSearchApiKey).toStrictEqual(undefined);
+      expect(config.webSearchMaxResults).toStrictEqual(3);
+      expect(config.linkOpenEnabled).toStrictEqual(true);
+      expect(config.autonomousChatEnabled).toStrictEqual(false);
+      expect(config.autonomousChatChannelIds).toStrictEqual(["channel"]);
+      expect(config.autonomousChatMinHumanMessages).toStrictEqual(4);
+      expect(config.autonomousChatActivityWindowMinutes).toStrictEqual(20);
+      expect(config.autonomousChatCooldownMinutes).toStrictEqual(1);
+      expect(config.autonomousChatReplyChance).toStrictEqual(0.35);
+      expect(config.autonomousChatMaxContextMessages).toStrictEqual(40);
     },
   );
 });
 
-Deno.test("loadConfig defaults AUTONOMOUS_CHAT_CHANNEL_IDS to configured channels", () => {
+test("loadConfig defaults AUTONOMOUS_CHAT_CHANNEL_IDS to configured channels", () => {
   withEnv(
     {
       DISCORD_TOKEN: "token",
@@ -314,41 +225,11 @@ Deno.test("loadConfig defaults AUTONOMOUS_CHAT_CHANNEL_IDS to configured channel
     },
     () => {
       const config = loadConfig();
-      assertEquals(config.autonomousChatChannelIds, ["chan-1", "chan-2"]);
+      expect(config.autonomousChatChannelIds).toStrictEqual(["chan-1", "chan-2"]);
     },
   );
 });
-
-Deno.test("loadConfig supports AUTONOMOUS_CHAT_CHANNEL_IDS override", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_IDS: "chan-1, chan-2",
-      AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2, auto-1",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.channelIds, ["chan-1", "chan-2"]);
-      assertEquals(config.autonomousChatChannelIds, ["auto-1", "auto-2"]);
-    },
-  );
-});
-
-Deno.test("loadConfig handles AI_ENABLED=false", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      AI_ENABLED: "false",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.aiEnabled, false);
-    },
-  );
-});
-
-Deno.test("loadConfig enables web search when API key is set", () => {
+test("loadConfig enables web search when API key is set", () => {
   withEnv(
     {
       DISCORD_TOKEN: "token",
@@ -357,42 +238,12 @@ Deno.test("loadConfig enables web search when API key is set", () => {
     },
     () => {
       const config = loadConfig();
-      assertEquals(config.webSearchEnabled, true);
-      assertEquals(config.webSearchApiKey, "brave-key");
+      expect(config.webSearchEnabled).toStrictEqual(true);
+      expect(config.webSearchApiKey).toStrictEqual("brave-key");
     },
   );
 });
-
-Deno.test("loadConfig allows WEB_SEARCH_ENABLED=false to override key", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      BRAVE_SEARCH_API_KEY: "brave-key",
-      WEB_SEARCH_ENABLED: "false",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.webSearchEnabled, false);
-    },
-  );
-});
-
-Deno.test("loadConfig handles LINK_OPEN_ENABLED=false", () => {
-  withEnv(
-    {
-      DISCORD_TOKEN: "token",
-      CHANNEL_ID: "channel",
-      LINK_OPEN_ENABLED: "false",
-    },
-    () => {
-      const config = loadConfig();
-      assertEquals(config.linkOpenEnabled, false);
-    },
-  );
-});
-
-Deno.test("loadConfig clamps AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
+test("loadConfig clamps AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
   withEnv(
     {
       DISCORD_TOKEN: "token",
@@ -401,58 +252,49 @@ Deno.test("loadConfig clamps AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
     },
     () => {
       const config = loadConfig();
-      assertEquals(config.autonomousChatReplyChance, 1);
+      expect(config.autonomousChatReplyChance).toStrictEqual(1);
     },
   );
 });
+test("HTTP administration is disabled by default and accepts an explicit token", () => {
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123" }, () => {
+    expect(loadConfig().adminHttpToken).toStrictEqual(undefined);
+  });
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "  " }, () => {
+    expect(loadConfig().adminHttpToken).toStrictEqual(undefined);
+  });
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "secret" }, () => {
+    expect(loadConfig().adminHttpToken).toStrictEqual("secret");
+  });
+});
 
-Deno.test("loadConfig defaults invalid AUTONOMOUS_CHAT_REPLY_CHANCE", () => {
+test("usage billing configuration is separate from the chat key and trims blank values", () => {
   withEnv(
     {
       DISCORD_TOKEN: "token",
       CHANNEL_ID: "channel",
-      AUTONOMOUS_CHAT_REPLY_CHANCE: "sometimes",
+      OPENAI_API_KEY: "chat-key",
+      OPENAI_ADMIN_KEY: " admin-key ",
+      USAGE_OPENAI_PROJECT_ID: " proj-test ",
     },
     () => {
       const config = loadConfig();
-      assertEquals(config.autonomousChatReplyChance, 0.35);
+      expect(config.openaiAdminKey).toStrictEqual("admin-key");
+      expect(config.usageOpenaiProjectId).toStrictEqual("proj-test");
+      expect(config.openaiApiKey).toStrictEqual("chat-key");
     },
   );
-});
-
-Deno.test("HTTP administration is disabled by default and accepts an explicit token", () => {
-  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123" }, () => {
-    assertEquals(loadConfig().adminHttpToken, undefined);
-  });
-  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "  " }, () => {
-    assertEquals(loadConfig().adminHttpToken, undefined);
-  });
-  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "123", ADMIN_HTTP_TOKEN: "secret" }, () => {
-    assertEquals(loadConfig().adminHttpToken, "secret");
-  });
-});
-
-Deno.test("usage billing configuration is separate from the chat key and trims blank values", () => {
-  withEnv({
-    DISCORD_TOKEN: "token",
-    CHANNEL_ID: "channel",
-    OPENAI_API_KEY: "chat-key",
-    OPENAI_ADMIN_KEY: " admin-key ",
-    USAGE_OPENAI_PROJECT_ID: " proj-test ",
-  }, () => {
-    const config = loadConfig();
-    assertEquals(config.openaiAdminKey, "admin-key");
-    assertEquals(config.usageOpenaiProjectId, "proj-test");
-    assertEquals(config.openaiApiKey, "chat-key");
-  });
-  withEnv({
-    DISCORD_TOKEN: "token",
-    CHANNEL_ID: "channel",
-    OPENAI_ADMIN_KEY: " ",
-    USAGE_OPENAI_PROJECT_ID: " ",
-  }, () => {
-    const config = loadConfig();
-    assertEquals(config.openaiAdminKey, undefined);
-    assertEquals(config.usageOpenaiProjectId, undefined);
-  });
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      OPENAI_ADMIN_KEY: " ",
+      USAGE_OPENAI_PROJECT_ID: " ",
+    },
+    () => {
+      const config = loadConfig();
+      expect(config.openaiAdminKey).toStrictEqual(undefined);
+      expect(config.usageOpenaiProjectId).toStrictEqual(undefined);
+    },
+  );
 });

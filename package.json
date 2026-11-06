@@ -1,0 +1,32 @@
+{
+  "name": "weabot",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "bun": "~1.4.4"
+  },
+  "scripts": {
+    "start": "bun --env-file=.env main.ts",
+    "dev": "bun --watch --env-file=.env main.ts",
+    "test": "bun test --isolate",
+    "test:transport": "bun test --isolate ./tests/public_fetch.integration.ts ./tests/link_open.integration.ts",
+    "check": "bun check",
+    "fmt": "bun fmt",
+    "fmt:check": "bun fmt --check",
+    "lint": "bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0",
+    "agent:triage": "bun scripts/issue_agent/triage.ts",
+    "agent:stale-close": "bun scripts/issue_agent/stale_close.ts",
+    "agent:next-issue": "bun scripts/issue_agent/next_issue.ts",
+    "agent:mark-pr-open": "bun scripts/issue_agent/mark_pr_open.ts",
+    "agent:run-once": "bun scripts/issue_agent/run_once.ts",
+    "sandbox:discord": "bun --env-file=.env scripts/sandbox/discord.ts",
+    "sandbox:events": "bun --env-file=.env scripts/sandbox/events.ts",
+    "sandbox:reactions": "bun --env-file=.env scripts/sandbox/reactions.ts",
+    "sandbox:autonomous": "bun --env-file=.env scripts/sandbox/autonomous.ts",
+    "eval:reactions": "bun --env-file=.env scripts/eval/reactions.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "~1.4.4"
+  }
+}

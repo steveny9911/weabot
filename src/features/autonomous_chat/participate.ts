@@ -1,16 +1,16 @@
 /** Shared one-channel path for the production scheduler and explicit sandbox runs. */
-import type { AiService, AutonomousParticipation } from "../../../ai_service.ts";
+import type { AiService, AutonomousParticipation } from "../../ai/types.ts";
 import type { AppConfig } from "../../config.ts";
-import type { DiscordClient } from "../../services/discord.ts";
-import type { StorageService } from "../../services/storage.ts";
+import type { DiscordClient } from "../../discord/client.ts";
+import type { StorageService } from "../../types/storage.ts";
 import type { RateLimitService } from "../../services/rate_limit.ts";
-import { AUTONOMOUS_CHAT_GUIDANCE, decideAutonomousChatReply } from "./mod.ts";
+import { AUTONOMOUS_CHAT_GUIDANCE, decideAutonomousChatReply } from "./decision.ts";
 import {
   availableReactions,
   isAllowedReaction,
   reactionChoices,
   type ReactionContext,
-} from "../reactions/mod.ts";
+} from "../reactions.ts";
 
 export interface ParticipationDeps {
   config: AppConfig;
@@ -64,12 +64,15 @@ export async function participateInChannel(
   const budget = await rateLimit.admitRequest("autonomous-chat", { enforceUserLimit: false });
   if (!budget.allowed) return { status: "daily budget exhausted" };
   const latest = decision.latestHumanMessage;
-  const claimed = await storage.claimAutonomousParticipation({
-    channelId,
-    latestHumanMessageId: latest.id,
-    latestHumanTimestampMs: Date.parse(latest.timestamp),
-    attemptedAt: now(),
-  }, options.cooldownMs);
+  const claimed = await storage.claimAutonomousParticipation(
+    {
+      channelId,
+      latestHumanMessageId: latest.id,
+      latestHumanTimestampMs: Date.parse(latest.timestamp),
+      attemptedAt: now(),
+    },
+    options.cooldownMs,
+  );
   if (!claimed) return { status: "already claimed" };
   let usedEmoji: string | undefined;
   try {
@@ -107,12 +110,13 @@ export async function participateInChannel(
     );
     if (!p || p.action === "silent") return { status: "silent", action: "silent" };
     if (p.action === "react") {
-      const intent = p.intent ??
+      const intent =
+        p.intent ??
         (p.emoji === "🎉"
           ? "celebration"
           : p.emoji === "❤️" || p.emoji === "👍"
-          ? "appreciation"
-          : "amusement");
+            ? "appreciation"
+            : "amusement");
       if (
         !decision.reactionMessageIds?.includes(p.messageId) ||
         !isAllowedReaction(p.emoji, intent, choices)
@@ -142,7 +146,9 @@ export async function participateInChannel(
         ? await discord.getMessage(channelId, p.messageId)
         : freshMessages.find((m) => m.id === p.messageId);
       if (
-        !target || target.authorId !== original.authorId || target.authorBot ||
+        !target ||
+        target.authorId !== original.authorId ||
+        target.authorBot ||
         target.hasOwnReaction ||
         target.content !== original.content ||
         JSON.stringify(target.imageUrls) !== JSON.stringify(original.imageUrls)
@@ -152,7 +158,8 @@ export async function participateInChannel(
       if (discord.getReactionContext) {
         const fresh = await discord.getReactionContext(channelId, botId);
         if (
-          fresh.channelId !== channelId || fresh.guildId !== context?.guildId ||
+          fresh.channelId !== channelId ||
+          fresh.guildId !== context?.guildId ||
           !isAllowedReaction(p.emoji, intent, availableReactions(fresh))
         ) {
           return { status: "expression unavailable before delivery" };
@@ -168,12 +175,13 @@ export async function participateInChannel(
     }
     let response: Response;
     try {
-      response = p.action === "react"
-        ? await discord.addReaction(channelId, p.messageId, p.emoji)
-        : await discord.postMessage(channelId, {
-          content: p.text,
-          allowed_mentions: { parse: [] },
-        });
+      response =
+        p.action === "react"
+          ? await discord.addReaction(channelId, p.messageId, p.emoji)
+          : await discord.postMessage(channelId, {
+              content: p.text,
+              allowed_mentions: { parse: [] },
+            });
     } catch {
       return { status: "delivery unconfirmed", action: p.action };
     }
