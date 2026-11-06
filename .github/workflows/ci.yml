@@ -74,7 +74,7 @@ jobs:
             ghcr.io/steveny9911/weabot:${{ github.sha }}
       - name: Keep the 10 newest images
         if: github.ref == 'refs/heads/master'
-        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        uses: dataaxiom/ghcr-cleanup-action@v1.2.2
         with:
           keep-n-tagged: 10
           dry-run: true
