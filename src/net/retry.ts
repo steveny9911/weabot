@@ -29,7 +29,7 @@ export async function fetchWithRetry(
       if (last) throw failure;
       console.warn(`[RETRY] Request error: ${failure.message}, ${tries}, retrying in ${delay}ms`);
     }
-    await Bun.sleep(delay);
+    await new Promise((resolve) => setTimeout(resolve, delay));
     delay = Math.min(delay * 2, MAX_DELAY_MS);
   }
 }

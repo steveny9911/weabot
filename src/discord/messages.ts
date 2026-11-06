@@ -7,6 +7,11 @@ import { botJsonHeaders, DISCORD_API_BASE } from "./api.ts";
 
 let cachedBotUserId: string | undefined;
 
+/** For tests: Bun runs every test file in one process, so the cache would leak between files. */
+export function clearBotUserIdCache(): void {
+  cachedBotUserId = undefined;
+}
+
 export async function getBotUserId(config: AppConfig): Promise<string | undefined> {
   if (cachedBotUserId) return cachedBotUserId;
 
