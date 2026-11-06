@@ -210,7 +210,7 @@ function createDeps(
         return Promise.resolve(
           overrides.webSearchResult ?? {
             ok: true,
-            results: [{ title: "Deno", url: "https://deno.com", snippet: "A runtime" }],
+            results: [{ title: "Bun", url: "https://bun.sh", snippet: "A runtime" }],
           },
         );
       },
@@ -325,10 +325,10 @@ test("non-open mention still uses auto-search flow", async () => {
     const ctx = createDeps(config, {
       webSearchResult: {
         ok: true,
-        results: [{ title: "Deno Docs", url: "https://deno.com", snippet: "Runtime docs" }],
+        results: [{ title: "Bun Docs", url: "https://bun.sh", snippet: "Runtime docs" }],
       },
     });
-    const message = createMentionMessage("<@12345> what is deno?");
+    const message = createMentionMessage("<@12345> what is bun?");
 
     await handleMessage(message, ctx.deps);
 
@@ -337,7 +337,7 @@ test("non-open mention still uses auto-search flow", async () => {
     expect(ctx.aiCalls.length).toStrictEqual(1);
     const webEntry = ctx.aiCalls[0].find((m) => m["author"] === "web");
     expect(webEntry !== undefined).toStrictEqual(true);
-    expect(String(webEntry?.["content"] ?? "")).toContain('Reference notes for "what is deno?"');
+    expect(String(webEntry?.["content"] ?? "")).toContain('Reference notes for "what is bun?"');
   } finally {
     fetchMock.restore();
   }
@@ -654,7 +654,7 @@ test("handleMessage handles search failure, AI failure, and reply post failure",
       const ctx = createDeps(config, {
         webSearchResult: { ok: false, error: "search offline" },
       });
-      await handleMessage(createMentionMessage("<@12345> what is deno?"), ctx.deps);
+      await handleMessage(createMentionMessage("<@12345> what is bun?"), ctx.deps);
       expect(ctx.webSearchCalls.length).toStrictEqual(1);
       expect(ctx.aiCalls.length).toStrictEqual(1);
       expect(fetchMock.postedMessages.length).toStrictEqual(1);

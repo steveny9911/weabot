@@ -45,8 +45,8 @@ function mockFetch(
 }
 
 test("extractAutoSearchQuery returns query for factual question", () => {
-  const query = extractAutoSearchQuery("<@123> what is deno deploy?");
-  expect(query).toStrictEqual("what is deno deploy?");
+  const query = extractAutoSearchQuery("<@123> what is bun deploy?");
+  expect(query).toStrictEqual("what is bun deploy?");
 });
 
 test("extractAutoSearchQuery ignores small talk", () => {
@@ -56,13 +56,13 @@ test("extractAutoSearchQuery ignores small talk", () => {
 test("extractAutoSearchQuery ignores empty or command-like input", () => {
   expect(extractAutoSearchQuery(undefined)).toStrictEqual(null);
   expect(extractAutoSearchQuery("<@123>")).toStrictEqual(null);
-  expect(extractAutoSearchQuery("<@123> search: deno")).toStrictEqual(null);
+  expect(extractAutoSearchQuery("<@123> search: bun")).toStrictEqual(null);
   expect(extractAutoSearchQuery("<@123> \\reset")).toStrictEqual(null);
-  expect(extractAutoSearchQuery("<@123> tell me about deno")).toStrictEqual(null);
+  expect(extractAutoSearchQuery("<@123> tell me about bun")).toStrictEqual(null);
 });
 test("formatSearchResultsForContext truncates long snippets and fills blank titles", () => {
   const longSnippet = "x".repeat(260);
-  const text = formatSearchResultsForContext("deno", [
+  const text = formatSearchResultsForContext("bun", [
     { title: " ", url: "https://example.com", snippet: longSnippet },
   ]);
 
@@ -72,7 +72,7 @@ test("formatSearchResultsForContext truncates long snippets and fills blank titl
 
 test("web search returns error when disabled", async () => {
   const service = createWebSearchService(createMockConfig({ webSearchEnabled: false }));
-  const result = await service.search("deno");
+  const result = await service.search("bun");
   expect(result.ok).toStrictEqual(false);
 });
 test("web search maps results from Brave API", async () => {
@@ -80,8 +80,8 @@ test("web search maps results from Brave API", async () => {
     web: {
       results: [
         {
-          title: "Deno",
-          url: "https://deno.land",
+          title: "Bun",
+          url: "https://bun.sh",
           description: "A modern runtime",
         },
       ],
@@ -90,12 +90,12 @@ test("web search maps results from Brave API", async () => {
 
   try {
     const service = createWebSearchService(createMockConfig());
-    const result = await service.search("deno");
+    const result = await service.search("bun");
     expect(result.ok).toStrictEqual(true);
     if (result.ok) {
       expect(result.results.length).toStrictEqual(1);
-      expect(result.results[0].title).toStrictEqual("Deno");
-      expect(result.results[0].url).toStrictEqual("https://deno.land");
+      expect(result.results[0].title).toStrictEqual("Bun");
+      expect(result.results[0].url).toStrictEqual("https://bun.sh");
     }
   } finally {
     mock.restore();
@@ -106,13 +106,13 @@ test("web search caps maxResults to [1, 10]", async () => {
 
   try {
     const service = createWebSearchService(createMockConfig());
-    await service.search("deno", 999);
+    await service.search("bun", 999);
     const countCap = mock.getLastUrl()
       ? new URL(mock.getLastUrl() as string).searchParams.get("count")
       : null;
     expect(countCap).toStrictEqual("10");
 
-    await service.search("deno", 0);
+    await service.search("bun", 0);
     const countFloor = mock.getLastUrl()
       ? new URL(mock.getLastUrl() as string).searchParams.get("count")
       : null;
@@ -134,7 +134,7 @@ test("web search filters out results without urls and trims fields", async () =>
 
   try {
     const service = createWebSearchService(createMockConfig());
-    const result = await service.search("deno");
+    const result = await service.search("bun");
     expect(result.ok).toStrictEqual(true);
     if (result.ok) {
       expect(result.results.length).toStrictEqual(1);
@@ -163,7 +163,7 @@ test("web search returns error on non-ok response", async () => {
 
   try {
     const service = createWebSearchService(createMockConfig());
-    const result = await service.search("deno");
+    const result = await service.search("bun");
     expect(result.ok).toStrictEqual(false);
     if (!result.ok) {
       expect(result.error).toContain("Brave Search error 500");

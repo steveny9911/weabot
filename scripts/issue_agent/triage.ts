@@ -52,7 +52,7 @@ function hasActual(text: string): boolean {
 }
 
 function hasEnvironment(text: string): boolean {
-  return /(bun|deno|node|mac|linux|windows|discord|version|browser|os|channel)/i.test(text);
+  return /(bun|node|mac|linux|windows|discord|version|browser|os|channel)/i.test(text);
 }
 
 function hasEvidence(text: string): boolean {
