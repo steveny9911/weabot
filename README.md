@@ -139,6 +139,18 @@ You should see:
 
 ---
 
+## Running with Docker
+
+```bash
+cp .env.sample .env      # fill in DISCORD_TOKEN, CHANNEL_ID, and any optional keys
+mkdir data && sudo chown 1000:1000 data
+docker compose up -d     # builds locally; use `pull` to fetch the published image
+```
+
+The container runs as user `1000` and keeps the SQLite database in `./data`. Run only one instance
+per Discord token. No port is published, because the bot only makes outbound connections. To reach
+the admin API from the host, add `ports: ["127.0.0.1:8000:8000"]` and set `ADMIN_HTTP_TOKEN`.
+
 ## Using Haru in Discord
 
 Mention Haru to chat, or use a command:
