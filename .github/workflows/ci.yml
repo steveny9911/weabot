@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Bun (version from package.json packageManager)
         uses: oven-sh/setup-bun@v2
@@ -54,7 +54,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         if: github.ref == 'refs/heads/master'
