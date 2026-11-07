@@ -97,6 +97,24 @@ test("generateReply sends chat builder prompt id without pinning version", async
     mock.restore();
   }
 });
+test("generateReply tells the model to use web reference notes", async () => {
+  const mock = mockFetch({ output_text: "ok", usage: { total_tokens: 5 } });
+
+  try {
+    const service = createAiService(createMockConfig());
+    await service.generateReply([{ author: "user", content: "who won?" }]);
+    expect(JSON.stringify(mock.getLastRequest()?.body)).not.toContain("reference notes");
+
+    await service.generateReply([
+      { author: "user", content: "who won?" },
+      { author: "web", content: "Reference notes: Verstappen won" },
+    ]);
+    expect(JSON.stringify(mock.getLastRequest()?.body)).toContain("use them to answer");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("generateReply includes image URLs as input_image blocks", async () => {
   const mock = mockFetch({
     output_text: "Looks great!",
