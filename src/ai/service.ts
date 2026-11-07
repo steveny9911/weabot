@@ -117,6 +117,10 @@ export function createAiService(
         participationOptions
           ? "Choose whether to reply, react, or remain silent using the developer instructions."
           : "Respond in-character as the assistant described in the system instructions."
+      }${
+        !participationOptions && messages.some((m) => m.author === "web")
+          ? " If the web author supplied reference notes, use them to answer the question."
+          : ""
       }`;
 
       const session = provider.start({
