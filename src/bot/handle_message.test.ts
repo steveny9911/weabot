@@ -168,6 +168,10 @@ function createDeps(
         if (admission.allowed) requestCount++;
         return Promise.resolve(admission);
       },
+      recordModelCalls(calls = 1): Promise<void> {
+        requestCount += calls - 1;
+        return Promise.resolve();
+      },
       recordTokenUsage(tokens: number): Promise<void> {
         recordedTokens.push(tokens);
         return Promise.resolve();

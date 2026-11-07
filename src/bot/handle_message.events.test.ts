@@ -73,6 +73,7 @@ async function fixture(
     },
     rateLimitService: {
       admitRequest: () => Promise.resolve({ allowed: true, remaining: 1, resetInMs: 1000 }),
+      recordModelCalls: () => Promise.resolve(),
       recordTokenUsage: (tokens) => {
         usage.push(tokens);
         return Promise.resolve();

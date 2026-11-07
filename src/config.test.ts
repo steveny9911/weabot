@@ -20,6 +20,8 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "USAGE_OPENAI_PROJECT_ID",
     "AI_RATE_LIMIT_PER_USER",
     "AI_DAILY_TOKEN_BUDGET",
+    "AI_DAILY_REQUEST_QUOTA",
+    "AI_DAILY_REQUEST_PERCENT",
     "AI_MAX_INPUT_CHARS",
     "ENABLE_UWU",
     "AI_CONTEXT_MAX_MESSAGES",
@@ -37,6 +39,7 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "AUTONOMOUS_CHAT_COOLDOWN_MINUTES",
     "AUTONOMOUS_CHAT_REPLY_CHANCE",
     "AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES",
+    "AUTONOMOUS_CHAT_REQUEST_PERCENT",
   ]);
 
   for (const key of allKeys) {
@@ -149,6 +152,8 @@ test("loadConfig returns complete config with all values", () => {
         usageOpenaiProjectId: undefined,
         aiRateLimitPerUser: 10,
         aiDailyTokenBudget: 50000,
+        aiDailyRequestQuota: undefined,
+        aiDailyRequestPercent: 90,
         aiMaxInputChars: 300,
         aiEnableUwu: false,
         aiContextMaxMessages: 75,
@@ -167,9 +172,31 @@ test("loadConfig returns complete config with all values", () => {
         autonomousChatReplyChance: 0.2,
         autonomousChatMaxContextMessages: 60,
         autonomousChatSettleSeconds: 8,
+        autonomousChatRequestPercent: 30,
       });
     },
   );
+});
+
+test("the daily request quota is unset by default and its percentages fall back when invalid", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "1",
+      AI_DAILY_REQUEST_QUOTA: "100",
+      AI_DAILY_REQUEST_PERCENT: "80",
+      AUTONOMOUS_CHAT_REQUEST_PERCENT: "150",
+    },
+    () => {
+      const config = loadConfig();
+      expect(config.aiDailyRequestQuota).toBe(100);
+      expect(config.aiDailyRequestPercent).toBe(80);
+      expect(config.autonomousChatRequestPercent).toBe(30);
+    },
+  );
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", AI_DAILY_REQUEST_QUOTA: "0" }, () => {
+    expect(loadConfig().aiDailyRequestQuota).toBeUndefined();
+  });
 });
 
 test("Discord actions can be disabled or restricted to selected servers", () => {

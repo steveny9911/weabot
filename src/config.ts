@@ -19,6 +19,10 @@ export interface AppConfig {
   aiRateLimitPerUser: number;
   /** Soft daily token threshold; requests already in flight may exceed it. */
   aiDailyTokenBudget: number;
+  /** Provider model calls allowed per Pacific day; unset means unlimited. */
+  aiDailyRequestQuota?: number;
+  /** Share of the quota, in percent, that mentions may use. */
+  aiDailyRequestPercent: number;
   /** Max characters per input message; 0 disables truncation. */
   aiMaxInputChars: number;
   aiEnableUwu: boolean;
@@ -47,6 +51,8 @@ export interface AppConfig {
   /** Chance in [0, 1] of joining when the channel is eligible. */
   autonomousChatReplyChance: number;
   autonomousChatMaxContextMessages: number;
+  /** Share of the daily request quota, in percent, below which autonomous chat may run. */
+  autonomousChatRequestPercent: number;
   /** Wait for a burst of human messages to finish before reading it. */
   autonomousChatSettleSeconds?: number;
 }
@@ -66,6 +72,11 @@ const list = (value: string | undefined) =>
 function positiveInteger(key: string, fallback: number): number {
   const parsed = parseInt(env[key] ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function percent(key: string, fallback: number): number {
+  const parsed = parseInt(env[key] ?? "", 10);
+  return parsed >= 0 && parsed <= 100 ? parsed : fallback;
 }
 
 export function loadConfig(): AppConfig {
@@ -100,6 +111,8 @@ export function loadConfig(): AppConfig {
     aiApiKey: optional("AI_API_KEY") ?? (aiProvider === "openai" ? env.OPENAI_API_KEY : undefined),
     aiRateLimitPerUser: int("AI_RATE_LIMIT_PER_USER", 2),
     aiDailyTokenBudget: int("AI_DAILY_TOKEN_BUDGET", 10_000_000),
+    aiDailyRequestQuota: positiveInteger("AI_DAILY_REQUEST_QUOTA", 0) || undefined,
+    aiDailyRequestPercent: percent("AI_DAILY_REQUEST_PERCENT", 90),
     aiMaxInputChars: int("AI_MAX_INPUT_CHARS", 0),
     aiEnableUwu: notFalse("ENABLE_UWU"),
     aiContextMaxMessages: Math.min(100, positiveInteger("AI_CONTEXT_MAX_MESSAGES", 40)),
@@ -131,5 +144,6 @@ export function loadConfig(): AppConfig {
     ),
     autonomousChatSettleSeconds: 8,
     autonomousChatMaxContextMessages: int("AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES", 40),
+    autonomousChatRequestPercent: percent("AUTONOMOUS_CHAT_REQUEST_PERCENT", 30),
   };
 }

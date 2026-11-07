@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rejects } from "../../tests/support/assert.ts";
+import { usageDate } from "../db/ai_usage.ts";
 import { type Database, openDatabase } from "../db/database.ts";
 import { createRateLimitService } from "./rate_limit.ts";
 import type { AppConfig } from "../config.ts";
@@ -88,9 +89,10 @@ test("the daily budget is a soft threshold: admitted requests may finish above i
   expect((await service.getUsageStats()).requestsToday).toBe(3);
 });
 
-test("a new UTC day starts a fresh budget; late token reports count toward the day they arrive", async () => {
+test("a new Pacific day starts a fresh budget; late token reports count toward the day they arrive", async () => {
   using db = openDatabase(":memory:");
-  let time = Date.parse("2026-09-05T23:59:59.500Z");
+  // 23:59:59.5 in Los Angeles (PDT).
+  let time = Date.parse("2026-09-06T06:59:59.500Z");
   const service = createRateLimitService(
     db,
     config({ aiRateLimitPerUser: 1, aiDailyTokenBudget: 10 }),
@@ -148,4 +150,46 @@ test("invalid token reports cannot reduce or corrupt the budget counter", async 
     await rejects(() => service.recordTokenUsage(invalid), RangeError, "non-negative safe integer");
   }
   expect((await service.getUsageStats()).dailyTokensUsed).toBe(12);
+});
+
+test("the usage day follows Pacific midnight in summer and winter time", () => {
+  expect(usageDate(Date.parse("2026-07-01T06:59:59Z"))).toBe("2026-06-30");
+  expect(usageDate(Date.parse("2026-07-01T07:00:00Z"))).toBe("2026-07-01");
+  expect(usageDate(Date.parse("2026-11-02T07:59:59Z"))).toBe("2026-11-01");
+  expect(usageDate(Date.parse("2026-11-02T08:00:00Z"))).toBe("2026-11-02");
+});
+
+test("mentions stop at their share of the daily request quota, autonomous chat at its own", async () => {
+  using db = openDatabase(":memory:");
+  const service = createRateLimitService(
+    db,
+    config({ aiDailyRequestQuota: 10, aiDailyRequestPercent: 90 }),
+    () => NOW,
+  );
+  const autonomous = { enforceUserLimit: false, requestPercent: 30 };
+  for (let i = 0; i < 3; i++)
+    expect((await service.admitRequest("bot", autonomous)).allowed).toBe(true);
+  const autonomousRefused = await service.admitRequest("bot", autonomous);
+  expect(!autonomousRefused.allowed && autonomousRefused.reason).toBe("daily_budget");
+  for (let i = 0; i < 6; i++) await service.admitRequest(`user-${i}`);
+  const refused = await service.admitRequest("another-user");
+  expect(!refused.allowed && refused.reason).toBe("daily_budget");
+  expect((await service.getUsageStats()).requestsToday).toBe(9);
+});
+
+test("tool-loop model calls beyond the first count toward the daily requests", async () => {
+  using db = openDatabase(":memory:");
+  const service = createRateLimitService(db, config(), () => NOW);
+  await service.admitRequest("user");
+  await service.recordModelCalls(3);
+  await service.admitRequest("user");
+  await service.recordModelCalls(undefined);
+  expect((await service.getUsageStats()).requestsToday).toBe(4);
+});
+
+test("without a daily request quota, requests are not limited by count", async () => {
+  using db = openDatabase(":memory:");
+  const service = createRateLimitService(db, config(), () => NOW);
+  await service.recordModelCalls(1_000);
+  expect((await service.admitRequest("user")).allowed).toBe(true);
 });

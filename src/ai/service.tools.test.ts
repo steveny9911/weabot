@@ -88,7 +88,12 @@ test("tool replies preserve reasoning, prompt persona, call IDs, and total usage
         [{ author: "user", content: "Create Movie night." }],
         opts,
       );
-      expect(result).toStrictEqual({ ok: true, text: "Created your event.", tokensUsed: 58 });
+      expect(result).toStrictEqual({
+        ok: true,
+        text: "Created your event.",
+        tokensUsed: 58,
+        requestsUsed: 2,
+      });
       expect(executions).toStrictEqual([{ name: "create_event", args: { name: "Movie night" } }]);
       expect(requests.length).toStrictEqual(2);
       for (const request of requests) {
@@ -184,6 +189,7 @@ test("executor failure becomes a matching function output and is cached", async 
         ok: true,
         text: "I cannot create the event: missing permission.",
         tokensUsed: 9,
+        requestsUsed: 3,
       });
       const outputs = (requests[2].input as Array<Record<string, unknown>>).filter(
         (item) => item.type === "function_call_output",
@@ -213,7 +219,12 @@ test("duplicate successful call IDs reuse the receipt instead of repeating write
         }),
       );
       expect(executions).toStrictEqual(1);
-      expect(result).toStrictEqual({ ok: true, text: "Created one event.", tokensUsed: 9 });
+      expect(result).toStrictEqual({
+        ok: true,
+        text: "Created one event.",
+        tokensUsed: 9,
+        requestsUsed: 3,
+      });
     },
   );
 });
@@ -270,6 +281,7 @@ test("the overall deadline stops later model output from executing more tools", 
       ok: false,
       error: "AI tool time limit reached",
       tokensUsed: 10,
+      requestsUsed: 2,
     });
     expect(executions).toStrictEqual(1);
   } finally {
@@ -295,6 +307,7 @@ test("tool loop stops after six responses without executing last response writes
         ok: false,
         error: "AI tool response limit reached",
         tokensUsed: 12,
+        requestsUsed: 6,
       });
       expect(executions).toStrictEqual(5);
       expect(requests.length).toStrictEqual(6);
@@ -321,6 +334,7 @@ test("tool loop rejects over-budget batches before any further writes", async ()
         ok: false,
         error: "AI tool call limit reached",
         tokensUsed: 3,
+        requestsUsed: 2,
       });
       expect(executions).toStrictEqual(8);
       expect(requests.length).toStrictEqual(2);
@@ -344,6 +358,7 @@ test("incomplete or failed model responses cannot execute partial action output"
           ok: false,
           error: `OpenAI response ${status}`,
           tokensUsed: 13,
+          requestsUsed: 1,
         });
         expect(executions).toStrictEqual(0);
         expect(requests.length).toStrictEqual(1);

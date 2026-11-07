@@ -61,7 +61,10 @@ export async function participateInChannel(
     console.log(`[CRON] Autonomous chat skipped in ${channelId}: ${decision.reason}`);
     return { status: decision.reason };
   }
-  const budget = await rateLimit.admitRequest("autonomous-chat", { enforceUserLimit: false });
+  const budget = await rateLimit.admitRequest("autonomous-chat", {
+    enforceUserLimit: false,
+    requestPercent: config.autonomousChatRequestPercent,
+  });
   if (!budget.allowed) return { status: "daily budget exhausted" };
   const latest = decision.latestHumanMessage;
   const claimed = await storage.claimAutonomousParticipation(
@@ -92,6 +95,7 @@ export async function participateInChannel(
       allowedMessageIds: decision.reactionMessageIds ?? [],
       reactionChoices: choices,
     });
+    await rateLimit.recordModelCalls(result.requestsUsed);
     if (result.tokensUsed) await rateLimit.recordTokenUsage(result.tokensUsed);
     if (!result.ok) return { status: "AI failed" };
     const p = result.participation;

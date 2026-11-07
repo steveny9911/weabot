@@ -13,6 +13,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     aiApiKey: "test-key",
     aiRateLimitPerUser: 5,
     aiDailyTokenBudget: 100_000,
+    aiDailyRequestPercent: 90,
     aiMaxInputChars: 0,
     aiEnableUwu: false,
     aiContextMaxMessages: 40,
@@ -28,6 +29,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     autonomousChatCooldownMinutes: 1,
     autonomousChatReplyChance: 0.35,
     autonomousChatMaxContextMessages: 40,
+    autonomousChatRequestPercent: 30,
     ...overrides,
   };
 }

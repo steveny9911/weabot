@@ -508,6 +508,7 @@ test("autonomous reply preserves its text without greeting removal or UwU rewrit
       ok: true,
       text,
       tokensUsed: 30,
+      requestsUsed: 1,
       participation: { action: "reply", text, reason: "no_contribution" },
     });
   } finally {
@@ -531,6 +532,7 @@ test("autonomous reactions accept the fixed Unicode palette and return no fallba
         ok: true,
         text: "",
         tokensUsed: 25,
+        requestsUsed: 1,
         participation: {
           action: "react",
           messageId: "100",
@@ -564,9 +566,16 @@ test("autonomous replies enforce the 280-character boundary without truncating i
               ok: true,
               text,
               tokensUsed: 29,
+              requestsUsed: 1,
               participation: { action: "reply", text, reason: "no_contribution" },
             }
-          : { ok: true, text: "", tokensUsed: 29, participation: { action: "silent" } },
+          : {
+              ok: true,
+              text: "",
+              tokensUsed: 29,
+              requestsUsed: 1,
+              participation: { action: "silent" },
+            },
       );
     } finally {
       mock.restore();
@@ -610,6 +619,7 @@ test("autonomous invalid choices fail closed for content, targets, emojis, and m
           ok: true,
           text: "",
           tokensUsed: 21,
+          requestsUsed: 1,
           participation: { action: "silent" },
         },
       });
@@ -633,6 +643,7 @@ test("autonomous reactions require targets present in both allowed IDs and the a
       ok: true,
       text: "",
       tokensUsed: 9,
+      requestsUsed: 1,
       participation: { action: "silent" },
     });
     const input = mock.getLastRequest()!.body.input as Array<Record<string, unknown>>;
@@ -681,6 +692,7 @@ test("autonomous empty, incomplete, refused, and unexpected outputs remain silen
         ok: true,
         text: "",
         tokensUsed: 19,
+        requestsUsed: 1,
         participation: { action: "silent" },
       });
     } finally {
