@@ -7,7 +7,6 @@ import {
   type ReactionChoice,
   type ReactionIntent,
 } from "../features/reactions.ts";
-import { extractResponseText } from "./responses.ts";
 import type { AutonomousParticipation } from "./types.ts";
 
 export const MAX_AUTONOMOUS_REPLY_CHARS = 280;
@@ -36,36 +35,11 @@ export const AUTONOMOUS_PARTICIPATION_FORMAT = {
 
 /** Structured participation fails closed without generating substitute chatter. */
 export function parseParticipation(
-  data: Record<string, unknown>,
+  text: string | null,
   allowedMessageIds: Set<string>,
   choices: ReactionChoice[],
 ): AutonomousParticipation {
   const silent: AutonomousParticipation = { action: "silent" };
-  if (data.status !== undefined && data.status !== "completed") return silent;
-  if (data.output !== undefined) {
-    if (!Array.isArray(data.output)) return silent;
-    for (const item of data.output) {
-      if (!item || typeof item !== "object") return silent;
-      if (item.type === "reasoning") continue;
-      if (
-        item.type !== "message" ||
-        item.role !== "assistant" ||
-        (item.status !== undefined && item.status !== "completed") ||
-        !Array.isArray(item.content)
-      )
-        return silent;
-      if (
-        item.content.some(
-          (part: unknown) =>
-            !part ||
-            typeof part !== "object" ||
-            (part as Record<string, unknown>).type !== "output_text",
-        )
-      )
-        return silent;
-    }
-  }
-  const text = extractResponseText(data);
   if (!text) return silent;
   try {
     const parsed: unknown = JSON.parse(text);

@@ -15,7 +15,7 @@ import { testConfig } from "../../tests/support/config.ts";
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return testConfig({
     timeZone: "America/Los_Angeles",
-    openaiApiKey: "sk-test-key",
+    aiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
     ...overrides,
@@ -66,7 +66,7 @@ test("generateReply returns error when AI is disabled", async () => {
 });
 
 test("generateReply returns error when API key is missing", async () => {
-  const config = createMockConfig({ openaiApiKey: undefined });
+  const config = createMockConfig({ aiApiKey: undefined });
   const service = createAiService(config);
 
   const result = await service.generateReply([{ author: "user", content: "hello" }]);

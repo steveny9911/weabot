@@ -16,7 +16,7 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     channelId: "text",
     channelIds: ["text"],
     timeZone: "America/Vancouver",
-    openaiApiKey: "test",
+    aiApiKey: "test",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000,
     aiEnableUwu: true,

@@ -12,7 +12,7 @@ import { testConfig } from "../../tests/support/config.ts";
 
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return testConfig({
-    openaiApiKey: "sk-test-key",
+    aiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
     ...overrides,

@@ -107,6 +107,8 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `CHANNEL_IDS`                   | Yes*     | Comma-separated channel IDs for multi-server posting          |
 | `TIME_ZONE`                     | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
 | `GLUE_ALERT_THRESHOLD`          | No       | Days of consecutive "glue" before alert (default: `7`)        |
+| `AI_PROVIDER`                   | No       | AI provider, one at a time (default: `openai`)                |
+| `AI_API_KEY`                    | No       | Key for the AI provider; AI chat is off without one           |
 | `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
 | `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
 | `AI_CONTEXT_INACTIVITY_MINUTES` | No       | Silence that starts a new context (default: `20`)             |
@@ -358,9 +360,9 @@ valid empty results show zero. Reports are cached for five minutes, share concur
 refresh on month rollover, and use a fifteen-second deadline. The command works with AI disabled or
 its budget exhausted, without spending model tokens.
 
-Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `OPENAI_API_KEY`. Optionally
-set `USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. The report
-is visible to channel members.
+Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `AI_API_KEY`. Optionally set
+`USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. The report is
+visible to channel members.
 
 Source:
 [OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage).
@@ -466,7 +468,7 @@ weabot/
 │   ├── app/                    # Gateway, HTTP server and cron schedule (started by main.ts)
 │   ├── jobs/                   # Work shared by cron jobs and admin HTTP triggers
 │   ├── bot/                    # Message handling: mentions, \usage, \reset, \open, AI replies
-│   ├── ai/                     # OpenAI Responses client, autonomous participation, reply text
+│   ├── ai/                     # AI service, providers/ (one adapter each), participation, reply text
 │   ├── features/               # Bot logic (polls, stats, chat context, reactions, Discord actions)
 │   ├── services/               # Storage, rate limits and usage reporting
 │   ├── discord/                # The only code that calls the Discord REST API

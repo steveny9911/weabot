@@ -9,7 +9,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     channelId: "chan-1",
     channelIds: ["chan-1"],
     timeZone: "America/Los_Angeles",
-    openaiApiKey: "sk-test-key",
+    aiApiKey: "sk-test-key",
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
     webSearchEnabled: true,

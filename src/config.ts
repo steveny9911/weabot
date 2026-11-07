@@ -1,3 +1,5 @@
+import { type AiProviderName, isAiProviderName } from "./ai/providers/index.ts";
+
 /** Configuration read from environment variables. Missing required values fail at startup. */
 export interface AppConfig {
   discordToken: string;
@@ -10,7 +12,9 @@ export interface AppConfig {
   glueAlertThreshold: number;
 
   aiEnabled: boolean;
-  openaiApiKey: string | undefined;
+  /** Unset means OpenAI. */
+  aiProvider?: AiProviderName;
+  aiApiKey: string | undefined;
   /** AI requests per user per minute. */
   aiRateLimitPerUser: number;
   /** Soft daily token threshold; requests already in flight may exceed it. */
@@ -74,6 +78,11 @@ export function loadConfig(): AppConfig {
   const discordToken = env.DISCORD_TOKEN;
   if (!discordToken) throw new Error("FATAL: Missing required environment variable: DISCORD_TOKEN");
 
+  const aiProvider = env.AI_PROVIDER?.trim().toLowerCase() || "openai";
+  if (!isAiProviderName(aiProvider)) {
+    throw new Error(`FATAL: Unknown AI_PROVIDER: ${aiProvider}`);
+  }
+
   const webSearchApiKey = env.BRAVE_SEARCH_API_KEY;
   const replyChance = parseFloat(env.AUTONOMOUS_CHAT_REPLY_CHANCE ?? "0.35");
 
@@ -86,7 +95,9 @@ export function loadConfig(): AppConfig {
     glueAlertThreshold: int("GLUE_ALERT_THRESHOLD", 7),
 
     aiEnabled: notFalse("AI_ENABLED"),
-    openaiApiKey: env.OPENAI_API_KEY,
+    aiProvider,
+    // OPENAI_API_KEY is the original name, still accepted for OpenAI.
+    aiApiKey: optional("AI_API_KEY") ?? (aiProvider === "openai" ? env.OPENAI_API_KEY : undefined),
     aiRateLimitPerUser: int("AI_RATE_LIMIT_PER_USER", 2),
     aiDailyTokenBudget: int("AI_DAILY_TOKEN_BUDGET", 10_000_000),
     aiMaxInputChars: int("AI_MAX_INPUT_CHARS", 0),
