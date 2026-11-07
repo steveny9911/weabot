@@ -109,6 +109,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `GLUE_ALERT_THRESHOLD`          | No       | Days of consecutive "glue" before alert (default: `7`)        |
 | `AI_PROVIDER`                   | No       | AI provider, one at a time (default: `openai`)                |
 | `AI_API_KEY`                    | No       | Key for the AI provider; AI chat is off without one           |
+| `AI_DAILY_REQUEST_QUOTA`        | No       | Model calls per Pacific day, e.g. a free tier (default: none) |
 | `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
 | `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
 | `AI_CONTEXT_INACTIVITY_MINUTES` | No       | Silence that starts a new context (default: `20`)             |
@@ -240,9 +241,18 @@ threshold; there are no token reservations or strict limits on in-flight usage. 
 requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget
 by 199. Use provider spending controls if a strict spending limit is required.
 
-Reported tokens, including usage returned with failed generations, are recorded atomically. Tokens
-are charged to the UTC day when the response is recorded; requests count on their admission day.
-Requests spanning midnight may therefore appear in different daily request and token buckets.
+`AI_DAILY_REQUEST_QUOTA` is a soft limit on model calls per day, for providers with a daily request
+quota such as a free tier. It is unset (unlimited) by default. Mentions are admitted while today's
+calls are below `AI_DAILY_REQUEST_PERCENT` (default `90`) of the quota, and autonomous chat while
+they are below `AUTONOMOUS_CHAT_REQUEST_PERCENT` (default `30`), so the bot leaves headroom and
+autonomous chat cannot use up the day. Admission counts one call; a tool reply that needs more model
+calls records the rest when it finishes. Refusals use the same "brain power" reply as the token
+budget.
+
+Days follow midnight in `America/Los_Angeles`, when provider free-tier quotas reset. Reported
+tokens, including usage returned with failed generations, are recorded atomically. Tokens and extra
+tool-loop calls are charged to the day when the response is recorded; admitted requests count on
+their admission day. Requests spanning midnight may therefore appear in different daily buckets.
 Autonomous chat uses the same budget check and request accounting, but remains exempt from the human
 per-user limit. Per-minute user counts are kept in memory, so a restart resets them (at most one
 extra minute of allowance). Daily request and token totals are stored in the database for 30 days,

@@ -141,7 +141,7 @@ export async function handleMessage(
       channelId,
       "I've used up all my brain power for today!~ Let's chat tomorrow~",
     );
-    console.log("Daily token budget exhausted");
+    console.log("Daily AI budget exhausted");
     return;
   }
 
@@ -229,6 +229,7 @@ export async function handleMessage(
       : undefined;
   const aiResult = await aiService.generateReply(ctxForAi, actionSession);
   const actionReply = actionSession ? formatActionResults(actionSession.results) : null;
+  await rateLimitService.recordModelCalls(aiResult.requestsUsed);
 
   if (!aiResult.ok) {
     console.error("AI generation failed:", aiResult.error);

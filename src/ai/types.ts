@@ -16,6 +16,8 @@ export interface AiSuccessResult {
   ok: true;
   text: string;
   tokensUsed: number;
+  /** Model calls made, including tool-loop steps; absent counts as one. */
+  requestsUsed?: number;
   /** Present only for autonomous participation; reactions and silence have empty text. */
   participation?: AutonomousParticipation;
 }
@@ -25,6 +27,7 @@ export interface AiErrorResult {
   error: string;
   /** Tokens reported before an action or autonomous request failed. */
   tokensUsed?: number;
+  requestsUsed?: number;
 }
 
 export type AiResult = AiSuccessResult | AiErrorResult;

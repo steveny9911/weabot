@@ -1,6 +1,6 @@
 import { type Database, SQLiteError } from "bun:sqlite";
 import type { AppConfig } from "../config.ts";
-import { createAiUsageQueries } from "../db/ai_usage.ts";
+import { createAiUsageQueries, usageDate } from "../db/ai_usage.ts";
 
 export type RequestAdmission = { remaining: number; resetInMs: number } & (
   { allowed: true } | { allowed: false; reason: "user_limit" | "daily_budget" }
@@ -13,16 +13,24 @@ export interface UsageStats {
 }
 
 export interface RateLimitService {
-  /** Atomically checks the limits and counts one accepted request. */
-  admitRequest(userId: string, options?: { enforceUserLimit?: boolean }): Promise<RequestAdmission>;
-  /** Records reported tokens in the current UTC day. */
+  /**
+   * Atomically checks the limits and counts one model call. `requestPercent` is the share of
+   * AI_DAILY_REQUEST_QUOTA this caller may use; it defaults to AI_DAILY_REQUEST_PERCENT.
+   */
+  admitRequest(
+    userId: string,
+    options?: { enforceUserLimit?: boolean; requestPercent?: number },
+  ): Promise<RequestAdmission>;
+  /** Records model calls beyond the one counted at admission, e.g. tool-loop steps. */
+  recordModelCalls(calls: number | undefined): Promise<void>;
+  /** Records reported tokens in the current usage day. */
   recordTokenUsage(tokens: number): Promise<void>;
   getUsageStats(): Promise<UsageStats>;
 }
 
 /**
  * Per-user counts live in memory for the current UTC minute; daily totals are in SQLite. The daily
- * budget is a soft threshold: requests already admitted may finish above it.
+ * token budget and request quota are soft thresholds: requests already admitted may finish above.
  */
 export function createRateLimitService(
   db: Database,
@@ -34,10 +42,9 @@ export function createRateLimitService(
   let prunedMinute = "";
 
   function bucket(time = now()) {
-    const iso = new Date(time).toISOString();
     return {
-      minute: iso.slice(0, 16),
-      date: iso.slice(0, 10),
+      minute: new Date(time).toISOString().slice(0, 16),
+      date: usageDate(time),
       resetInMs: 60_000 - (time % 60_000),
     };
   }
@@ -58,6 +65,7 @@ export function createRateLimitService(
     (
       userId: string,
       enforceUserLimit: boolean,
+      requestPercent: number,
     ): { admission: RequestAdmission; minute: string; count: number } => {
       const current = bucket();
       prune(current.minute);
@@ -72,10 +80,15 @@ export function createRateLimitService(
         count,
       });
       if (enforceUserLimit && count >= config.aiRateLimitPerUser) return refused("user_limit");
-      if (usage.get(current.date).tokens >= config.aiDailyTokenBudget) {
+      const today = usage.get(current.date);
+      const quota = config.aiDailyRequestQuota;
+      if (
+        today.tokens >= config.aiDailyTokenBudget ||
+        (quota !== undefined && today.requests >= Math.floor((quota * requestPercent) / 100))
+      ) {
         return refused("daily_budget");
       }
-      usage.addRequest(current.date);
+      usage.addRequests(current.date, 1);
       return {
         admission: { ...result, allowed: true, remaining: Math.max(0, result.remaining - 1) },
         minute: current.minute,
@@ -89,9 +102,14 @@ export function createRateLimitService(
       const { admission, minute, count } = admitTransaction.immediate(
         userId,
         options?.enforceUserLimit ?? true,
+        options?.requestPercent ?? config.aiDailyRequestPercent,
       );
       if (admission.allowed) minuteCounts.set(userId, { minute, count });
       return admission;
+    },
+
+    async recordModelCalls(calls = 1) {
+      if (calls > 1) usage.addRequests(bucket().date, calls - 1);
     },
 
     async recordTokenUsage(tokens) {
