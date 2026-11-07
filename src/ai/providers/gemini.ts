@@ -1,8 +1,9 @@
-/** Google Gemini through @google/genai, for replies and tools. Haru's persona comes from a prompt file. */
+/** Google Gemini through @google/genai for every AI feature. Haru's persona comes from a prompt file. */
 import { readFileSync } from "node:fs";
-import { ApiError, type Content, GoogleGenAI } from "@google/genai";
+import { ApiError, type Content, FinishReason, GoogleGenAI } from "@google/genai";
 import type { AppConfig } from "../../config.ts";
 import type { Fetcher } from "../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
 import type { AiProvider, ProviderStep } from "./types.ts";
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -41,7 +42,7 @@ export function createGeminiProvider(
   return {
     label: "Gemini",
     missingKeyError: "AI_API_KEY not set",
-    capabilities: { tools: true, autonomous: false },
+    capabilities: { tools: true, autonomous: true },
     start(request) {
       let calls = 0;
       let contents: Content[] | undefined;
@@ -60,14 +61,12 @@ export function createGeminiProvider(
           : [],
       );
       const systemInstruction = [persona, request.instructions].filter(Boolean).join("\n\n");
+      const participation = request.format === "participation";
       return {
         get calls() {
           return calls;
         },
         async step(signal): Promise<ProviderStep> {
-          if (request.format === "participation") {
-            return { ok: false, error: "Gemini does not support this request yet", tokens: 0 };
-          }
           if (!contents) {
             const images = await Promise.all(
               request.imageUrls.map((url) =>
@@ -99,6 +98,12 @@ export function createGeminiProvider(
                 config: {
                   systemInstruction,
                   ...(tools ? { tools: [{ functionDeclarations: tools }] } : {}),
+                  ...(participation
+                    ? {
+                        responseMimeType: "application/json",
+                        responseJsonSchema: AUTONOMOUS_PARTICIPATION_FORMAT.schema,
+                      }
+                    : {}),
                   abortSignal: AbortSignal.any([signal, AbortSignal.timeout(attemptMs)]),
                   automaticFunctionCalling: { disable: true },
                 },
@@ -122,10 +127,13 @@ export function createGeminiProvider(
                   : [],
               );
               if (toolCalls.length > 0) pinned = model;
+              // A decision cut short or filtered is no decision, even if its JSON parses.
+              const finished =
+                !participation || response.candidates?.[0]?.finishReason === FinishReason.STOP;
               console.log("[AI] model:", model);
               return {
                 ok: true,
-                text: text || null,
+                text: finished ? text || null : null,
                 toolCalls,
                 tokens: response.usageMetadata?.totalTokenCount ?? 0,
               };
