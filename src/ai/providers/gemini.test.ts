@@ -144,11 +144,11 @@ test("startup stops without a model, a prompt file, or prompt text", () => {
   throws(() => createGeminiProvider(config()), Error, "is empty");
 });
 
-test("Gemini turns off Discord actions and autonomous chat for now", () => {
+test("Gemini keeps Discord actions and turns off autonomous chat for now", () => {
   const limited = withProviderLimits(
     config({ discordActionsEnabled: true, autonomousChatEnabled: true }),
   );
-  expect(limited.discordActionsEnabled).toBe(false);
+  expect(limited.discordActionsEnabled).toBe(true);
   expect(limited.autonomousChatEnabled).toBe(false);
 
   const openai = withProviderLimits(
@@ -272,4 +272,76 @@ test("the service reports every attempt as a request", async () => {
   } finally {
     globalThis.fetch = original;
   }
+});
+
+const callReply = (name: string, args: unknown) =>
+  new Response(
+    JSON.stringify({
+      candidates: [
+        {
+          content: {
+            role: "model",
+            parts: [{ functionCall: { name, args }, thoughtSignature: "sig" }],
+          },
+        },
+      ],
+      usageMetadata: { totalTokenCount: 5 },
+    }),
+  );
+
+test("a tool call is returned, answered, and the same model finishes the reply", async () => {
+  const bodies: Array<{ tools?: unknown; contents: Array<{ role: string; parts: unknown[] }> }> =
+    [];
+  const called: string[] = [];
+  const fetcher: Fetcher = async (input, init) => {
+    const model = /models\/([^:]+):/.exec(String(input))?.[1] ?? "";
+    called.push(model);
+    bodies.push(JSON.parse(String(init?.body)));
+    if (model === "a") return failWith(503)();
+    return called.length === 2 ? callReply("get_time", { zone: "UTC" }) : reply("It is noon.");
+  };
+  const tool = {
+    type: "function",
+    name: "get_time",
+    description: "Returns the time.",
+    strict: true,
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  };
+  const session = createGeminiProvider(config({ aiModel: "a,b" }), { fetch: fetcher }).start({
+    userText: "What time is it?",
+    currentUserMessage: "What time is it?",
+    imageUrls: [],
+    tools: [tool],
+    format: "text",
+  });
+
+  const first = await session.step(new AbortController().signal);
+  assert(first.ok);
+  expect(first.toolCalls).toMatchObject([{ name: "get_time", arguments: '{"zone":"UTC"}' }]);
+  expect(first.toolCalls[0]!.id).not.toBe("");
+
+  session.addToolResults(first.toolCalls, ['{"time":"12:00"}']);
+  expect(await session.step(new AbortController().signal)).toMatchObject({
+    ok: true,
+    text: "It is noon.",
+  });
+
+  expect(called).toEqual(["a", "b", "b"]);
+  expect(bodies[0]!.tools).toEqual([
+    {
+      functionDeclarations: [
+        {
+          name: "get_time",
+          description: "Returns the time.",
+          parametersJsonSchema: tool.parameters,
+        },
+      ],
+    },
+  ]);
+  const history = bodies[2]!.contents;
+  expect(history.map((turn) => turn.role)).toEqual(["user", "model", "user"]);
+  expect(history[1]!.parts).toMatchObject([{ thoughtSignature: "sig" }]);
+  expect(history[2]!.parts).toEqual([
+    { functionResponse: { name: "get_time", response: { time: "12:00" } } },
+  ]);
 });
