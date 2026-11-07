@@ -16,9 +16,14 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
     start(request) {
       const input = buildInput(request);
       let lastOutput: unknown[] = [];
+      let calls = 0;
       return {
+        get calls() {
+          return calls;
+        },
         async step(signal): Promise<ProviderStep> {
           const participation = request.format === "participation";
+          calls++;
           const res = await fetch(OPENAI_URL, {
             method: "POST",
             headers: {

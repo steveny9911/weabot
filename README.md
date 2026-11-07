@@ -109,7 +109,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `GLUE_ALERT_THRESHOLD`          | No       | Days of consecutive "glue" before alert (default: `7`)        |
 | `AI_PROVIDER`                   | No       | AI provider, one at a time (default: `openai`)                |
 | `AI_API_KEY`                    | No       | Key for the AI provider; AI chat is off without one           |
-| `AI_MODEL`                      | Gemini   | Gemini model, e.g. `models/gemini-3.8-flash`                  |
+| `AI_MODEL`                      | Gemini   | Gemini models, comma-separated, tried in order                |
 | `AI_SYSTEM_PROMPT_FILE`         | Gemini   | File with Haru's persona (OpenAI uses its saved prompt)       |
 | `AI_DAILY_REQUEST_QUOTA`        | No       | Model calls per Pacific day, e.g. a free tier (default: none) |
 | `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |

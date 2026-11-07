@@ -7,16 +7,20 @@ import type { AiProvider, ProviderStep } from "./types.ts";
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_IMAGE_BYTES = 5_000_000;
+const ATTEMPT_TIMEOUT_MS = 20_000;
+/** Errors that retrying another model cannot fix. */
+const STOP_STATUSES = [400, 401, 403];
 
 export function createGeminiProvider(
   config: AppConfig,
-  deps: { fetch?: Fetcher } = {},
+  deps: { fetch?: Fetcher; attemptTimeoutMs?: number } = {},
 ): AiProvider {
   if (!config.aiModel) throw new Error("FATAL: AI_MODEL is required for the gemini provider");
   if (!config.aiSystemPromptFile) {
     throw new Error("FATAL: AI_SYSTEM_PROMPT_FILE is required for the gemini provider");
   }
-  const model = config.aiModel;
+  const models = [...new Set(config.aiModel.split(",").map((name) => name.trim()))].filter(Boolean);
+  if (models.length === 0) throw new Error("FATAL: AI_MODEL has no model names");
   const persona = readFileSync(config.aiSystemPromptFile, "utf8").trim();
   if (!persona) throw new Error(`FATAL: ${config.aiSystemPromptFile} is empty`);
 
@@ -31,7 +35,11 @@ export function createGeminiProvider(
     missingKeyError: "AI_API_KEY not set",
     capabilities: { tools: false, autonomous: false },
     start(request) {
+      let calls = 0;
       return {
+        get calls() {
+          return calls;
+        },
         async step(signal): Promise<ProviderStep> {
           if (request.tools || request.format === "participation") {
             return { ok: false, error: "Gemini does not support this request yet", tokens: 0 };
@@ -39,42 +47,62 @@ export function createGeminiProvider(
           const images = await Promise.all(
             request.imageUrls.map((url) => inlineImage(fetchImpl, url, signal)),
           );
-          try {
-            const response = await client.models.generateContent({
-              model,
-              contents: [
-                {
-                  role: "user",
-                  parts: [{ text: request.userText }, ...images.filter((image) => image !== null)],
+          const statuses: number[] = [];
+          let lastError = "";
+          for (const model of models) {
+            calls++;
+            try {
+              const response = await client.models.generateContent({
+                model,
+                contents: [
+                  {
+                    role: "user",
+                    parts: [
+                      { text: request.userText },
+                      ...images.filter((image) => image !== null),
+                    ],
+                  },
+                ],
+                config: {
+                  systemInstruction: [persona, request.instructions].filter(Boolean).join("\n\n"),
+                  abortSignal: AbortSignal.any([
+                    signal,
+                    AbortSignal.timeout(deps.attemptTimeoutMs ?? ATTEMPT_TIMEOUT_MS),
+                  ]),
+                  automaticFunctionCalling: { disable: true },
                 },
-              ],
-              config: {
-                systemInstruction: [persona, request.instructions].filter(Boolean).join("\n\n"),
-                abortSignal: signal,
-                automaticFunctionCalling: { disable: true },
-              },
-            });
-            const parts = response.candidates?.[0]?.content?.parts ?? [];
-            const text = parts
-              .filter((part) => !part.thought)
-              .map((part) => part.text ?? "")
-              .join("")
-              .trim();
-            return {
-              ok: true,
-              text: text || null,
-              toolCalls: [],
-              tokens: response.usageMetadata?.totalTokenCount ?? 0,
-            };
-          } catch (error) {
-            if (!(error instanceof ApiError)) throw error;
-            return {
-              ok: false,
-              error: `Gemini error ${error.status}: ${error.message}`,
-              tokens: 0,
-              quotaExhausted: error.status === 429,
-            };
+              });
+              const parts = response.candidates?.[0]?.content?.parts ?? [];
+              const text = parts
+                .filter((part) => !part.thought)
+                .map((part) => part.text ?? "")
+                .join("")
+                .trim();
+              console.log("[AI] model:", model);
+              return {
+                ok: true,
+                text: text || null,
+                toolCalls: [],
+                tokens: response.usageMetadata?.totalTokenCount ?? 0,
+              };
+            } catch (error) {
+              // The caller gave up, so stop rather than spend calls on more models.
+              if (signal.aborted) throw error;
+              const status = error instanceof ApiError ? error.status : 0;
+              lastError = `Gemini error ${status || String(error)}: ${(error as Error).message}`;
+              if (STOP_STATUSES.includes(status)) return { ok: false, error: lastError, tokens: 0 };
+              console.warn(
+                `[AI] ${model} failed (${status || "no response"}); trying the next model`,
+              );
+              statuses.push(status);
+            }
           }
+          return {
+            ok: false,
+            error: lastError,
+            tokens: 0,
+            quotaExhausted: statuses.every((status) => status === 429),
+          };
         },
         addToolResults() {
           throw new Error("Gemini does not support tools yet");

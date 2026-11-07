@@ -197,3 +197,124 @@ test("Gemini turns off Discord actions and autonomous chat for now", () => {
   expect(openai.discordActionsEnabled).toBe(true);
   expect(openai.autonomousChatEnabled).toBe(true);
 });
+
+/** Serves a reply or error per model, in the order given, and records which models were called. */
+function fakeModels(byModel: Record<string, () => Response | Promise<Response>>) {
+  const called: string[] = [];
+  const fetcher: Fetcher = async (input) => {
+    const model = /models\/([^:]+):/.exec(String(input))?.[1] ?? "";
+    called.push(model);
+    return byModel[model]!();
+  };
+  return { called, fetcher };
+}
+
+const failWith = (status: number) => () =>
+  new Response(JSON.stringify({ error: { message: "nope" } }), { status });
+
+const runModels = (fetcher: Fetcher, attemptTimeoutMs = 20_000) => {
+  const session = createGeminiProvider(config({ aiModel: "a, b ,a,c" }), {
+    fetch: fetcher,
+    attemptTimeoutMs,
+  }).start({ userText: "hi", imageUrls: [], format: "text" });
+  return { session, step: session.step(new AbortController().signal) };
+};
+
+test("a retryable failure falls back to the next model and every attempt is counted", async () => {
+  for (const status of [408, 429, 500, 503, 504]) {
+    const { called, fetcher } = fakeModels({ a: failWith(status), b: () => reply("from b") });
+    const { session, step } = runModels(fetcher);
+
+    expect(await step).toMatchObject({ ok: true, text: "from b" });
+    expect(called).toEqual(["a", "b"]);
+    expect(session.calls).toBe(2);
+  }
+});
+
+test("a 400, 401 or 403 stops without trying other models", async () => {
+  for (const status of [400, 401, 403]) {
+    const { called, fetcher } = fakeModels({ a: failWith(status), b: () => reply("no") });
+    const { step } = runModels(fetcher);
+
+    const result = await step;
+    assert(!result.ok);
+    expect(result.error).toContain(`Gemini error ${status}`);
+    expect(result.quotaExhausted).toBeFalsy();
+    expect(called).toEqual(["a"]);
+  }
+});
+
+test("it is a quota error only when every model returned 429", async () => {
+  const allLimited = fakeModels({ a: failWith(429), b: failWith(429), c: failWith(429) });
+  expect(await runModels(allLimited.fetcher).step).toMatchObject({
+    ok: false,
+    quotaExhausted: true,
+  });
+  expect(allLimited.called).toEqual(["a", "b", "c"]);
+
+  const mixed = fakeModels({ a: failWith(429), b: failWith(503), c: failWith(429) });
+  expect(await runModels(mixed.fetcher).step).toMatchObject({ ok: false, quotaExhausted: false });
+});
+
+test("a model that hangs is abandoned after its time slice", async () => {
+  const hang = (init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) =>
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("x", "AbortError"))),
+    );
+  const called: string[] = [];
+  const fetcher: Fetcher = (input, init) => {
+    const model = /models\/([^:]+):/.exec(String(input))?.[1] ?? "";
+    called.push(model);
+    return model === "a" ? hang(init) : Promise.resolve(reply("from b"));
+  };
+  const { session, step } = runModels(fetcher, 30);
+
+  expect(await step).toMatchObject({ ok: true, text: "from b" });
+  expect(session.calls).toBe(2);
+});
+
+test("a network error falls back, but a caller abort stops the chain", async () => {
+  const flaky = fakeModels({
+    a: () => {
+      throw new TypeError("fetch failed");
+    },
+    b: () => reply("from b"),
+  });
+  expect(await runModels(flaky.fetcher).step).toMatchObject({ ok: true, text: "from b" });
+
+  const controller = new AbortController();
+  const called: string[] = [];
+  const fetcher: Fetcher = async (input) => {
+    called.push(String(input));
+    controller.abort();
+    throw new DOMException("x", "AbortError");
+  };
+  const session = createGeminiProvider(config({ aiModel: "a,b" }), { fetch: fetcher }).start({
+    userText: "hi",
+    imageUrls: [],
+    format: "text",
+  });
+  await session.step(controller.signal).catch(() => {});
+  expect(called).toHaveLength(1);
+  expect(session.calls).toBe(1);
+});
+
+test("the service reports every attempt as a request", async () => {
+  const original = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = Object.assign(async () => (++n < 3 ? failWith(503)() : reply("finally")), {
+    preconnect() {},
+  }) as typeof fetch;
+  try {
+    const result = await createAiService(config({ aiModel: "a,b,c" })).generateReply([
+      { author: "Alice", content: "hi" },
+    ]);
+    expect(result).toMatchObject({ ok: true, text: "finally", requestsUsed: 3 });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("startup stops when the model list has no names", () => {
+  throws(() => createGeminiProvider(config({ aiModel: " , " })), Error, "no model names");
+});

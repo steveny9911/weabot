@@ -38,6 +38,8 @@ export type ProviderStep =
 
 /** One conversation with the model, including its native history. */
 export interface ProviderSession {
+  /** Model calls made so far; read after a step even when it failed or timed out. */
+  readonly calls: number;
   step(signal: AbortSignal): Promise<ProviderStep>;
   /** Adds the last step's output and one result per call, in order, before the next step. */
   addToolResults(calls: ToolCall[], results: string[]): void;
