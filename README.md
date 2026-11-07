@@ -156,8 +156,9 @@ docker compose up -d     # builds locally; use `pull` to fetch the published ima
 ```
 
 The container runs as user `1000` and keeps the SQLite database in `./data`. Run only one instance
-per Discord token. No port is published, because the bot only makes outbound connections. To reach
-the admin API from the host, add `ports: ["127.0.0.1:8000:8000"]` and set `ADMIN_HTTP_TOKEN`.
+per Discord token. Container logs are capped at three 10 MB files. No port is published, because the
+bot only makes outbound connections. To reach the admin API from the host, add
+`ports: ["127.0.0.1:8000:8000"]` and set `ADMIN_HTTP_TOKEN`.
 
 ## Using Haru in Discord
 
