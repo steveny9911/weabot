@@ -2,9 +2,13 @@ import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { createTweetService, extractTweetId } from "./tweet.ts";
 
-const photo = (name: string, altText?: string) => ({
+const photo = (
+  name: string,
+  altText?: string,
+  url = `https://pbs.twimg.com/media/${name}.jpg?name=orig`,
+) => ({
   type: "photo",
-  url: `https://pbs.twimg.com/media/${name}.jpg?name=orig`,
+  url,
   altText,
 });
 
@@ -31,6 +35,7 @@ test("extractTweetId accepts tweet links on known hosts", () => {
 test("extractTweetId ignores other links", () => {
   expect(extractTweetId("https://x.com/someone")).toBeNull();
   expect(extractTweetId("https://x.com.evil.io/someone/status/123")).toBeNull();
+  expect(extractTweetId("https://x.com@evil.io/someone/status/123")).toBeNull();
   expect(extractTweetId("no link here")).toBeNull();
 });
 
@@ -67,7 +72,8 @@ test("read returns text, large photos, alt text and a quoted tweet", async () =>
 
 test("read keeps at most 4 photos, only from pbs.twimg.com, and flags videos", async () => {
   const media = [1, 2, 3, 4, 5].map((n) => photo(`p${n}`));
-  media.push({ type: "photo", url: "https://evil.example/x.jpg", altText: undefined });
+  media.push(photo("x", undefined, "https://pbs.twimg.com@evil.example/x.jpg"));
+  media.push(photo("y", undefined, "https://"));
   media.push({ type: "video", url: "https://video.twimg.com/v.mp4", altText: undefined });
   const { fetchImpl } = fakeFetch(json({ tweet: { text: "t", media: { all: media } } }));
 
@@ -102,6 +108,11 @@ test("read falls back when FxTwitter answers 200 with a non-JSON page", async ()
   const result = await createTweetService(fetchImpl).read("1");
   expect(urls).toHaveLength(2);
   expect(result.ok && result.tweet.text).toBe("from vx");
+});
+
+test("read ignores a 200 body that is not a tweet", async () => {
+  const { fetchImpl } = fakeFetch(json({ error: "x" }), json({ error: "y" }));
+  expect(await createTweetService(fetchImpl).read("1")).toEqual({ ok: false, error: "failed" });
 });
 
 test("read reports not_found without trying the fallback", async () => {

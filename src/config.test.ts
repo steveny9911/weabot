@@ -32,7 +32,7 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "BRAVE_SEARCH_API_KEY",
     "WEB_SEARCH_MAX_RESULTS",
     "LINK_OPEN_ENABLED",
-    "TWEET_EMBED_ENABLED",
+    "TWEET_READ_ENABLED",
     "DISCORD_ACTIONS_ENABLED",
     "DISCORD_ACTIONS_GUILD_IDS",
     "AUTONOMOUS_CHAT_ENABLED",
@@ -131,7 +131,7 @@ test("loadConfig returns complete config with all values", () => {
       BRAVE_SEARCH_API_KEY: "brave-key",
       WEB_SEARCH_MAX_RESULTS: "5",
       LINK_OPEN_ENABLED: "false",
-      TWEET_EMBED_ENABLED: "false",
+      TWEET_READ_ENABLED: "false",
       AUTONOMOUS_CHAT_ENABLED: "true",
       AUTONOMOUS_CHAT_CHANNEL_IDS: "auto-1, auto-2",
       AUTONOMOUS_CHAT_MIN_HUMAN_MESSAGES: "6",
@@ -169,7 +169,7 @@ test("loadConfig returns complete config with all values", () => {
         webSearchApiKey: "brave-key",
         webSearchMaxResults: 5,
         linkOpenEnabled: false,
-        tweetEmbedEnabled: false,
+        tweetReadEnabled: false,
         discordActionsEnabled: true,
         discordActionsGuildIds: [],
         autonomousChatEnabled: true,
@@ -244,7 +244,7 @@ test("loadConfig uses AI defaults when not set", () => {
       expect(config.webSearchApiKey).toStrictEqual(undefined);
       expect(config.webSearchMaxResults).toStrictEqual(3);
       expect(config.linkOpenEnabled).toStrictEqual(true);
-      expect(config.tweetEmbedEnabled).toStrictEqual(true);
+      expect(config.tweetReadEnabled).toStrictEqual(true);
       expect(config.autonomousChatEnabled).toStrictEqual(false);
       expect(config.autonomousChatChannelIds).toStrictEqual(["channel"]);
       expect(config.autonomousChatMinHumanMessages).toStrictEqual(4);

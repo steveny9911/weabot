@@ -328,9 +328,13 @@ test("tweet link adds the tweet text and photos to the AI context", async () => 
   const fetchMock = mockDiscordApiFetch();
   try {
     const ctx = createDeps(createMockConfig({ webSearchEnabled: true }));
-    const tweet = { author: "kay", text: "a cat", photoUrls: ["https://pbs.twimg.com/a.jpg"] };
+    const photoUrls = ["https://pbs.twimg.com/a.jpg"];
     ctx.deps.tweetService = {
-      read: () => Promise.resolve({ ok: true, tweet: { altTexts: [], hasVideo: true, ...tweet } }),
+      read: () =>
+        Promise.resolve({
+          ok: true,
+          tweet: { author: "kay", text: "a cat", photoUrls, altTexts: [], hasVideo: true },
+        }),
     };
 
     await handleMessage(createMentionMessage(tweetMention), ctx.deps);
@@ -338,7 +342,7 @@ test("tweet link adds the tweet text and photos to the AI context", async () => 
     const webEntry = ctx.aiCalls[0].find((m) => m["author"] === "web");
     expect(String(webEntry?.["content"])).toContain("Text: a cat");
     expect(String(webEntry?.["content"])).toContain("video (not viewed)");
-    expect(webEntry?.["imageUrls"]).toStrictEqual(tweet.photoUrls);
+    expect(webEntry?.["imageUrls"]).toStrictEqual(photoUrls);
     expect(ctx.webSearchCalls.length).toStrictEqual(0);
   } finally {
     fetchMock.restore();
@@ -360,10 +364,10 @@ test("unreadable tweet sends a fallback message and skips AI", async () => {
   }
 });
 
-test("tweet links are plain text when TWEET_EMBED_ENABLED is off", async () => {
+test("tweet links are plain text when TWEET_READ_ENABLED is off", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
-    const ctx = createDeps(createMockConfig({ tweetEmbedEnabled: false }));
+    const ctx = createDeps(createMockConfig({ tweetReadEnabled: false }));
     ctx.deps.tweetService = { read: () => Promise.reject(new Error("should not be called")) };
 
     await handleMessage(createMentionMessage(tweetMention), ctx.deps);

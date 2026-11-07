@@ -44,7 +44,7 @@ export interface AppConfig {
   webSearchApiKey: string | undefined;
   webSearchMaxResults: number;
   linkOpenEnabled: boolean;
-  tweetEmbedEnabled: boolean;
+  tweetReadEnabled: boolean;
 
   discordActionsEnabled?: boolean;
   /** Servers allowed to use event/invite actions; empty allows all. */
@@ -135,7 +135,7 @@ export function loadConfig(): AppConfig {
     webSearchApiKey,
     webSearchMaxResults: int("WEB_SEARCH_MAX_RESULTS", 3),
     linkOpenEnabled: notFalse("LINK_OPEN_ENABLED"),
-    tweetEmbedEnabled: notFalse("TWEET_EMBED_ENABLED"),
+    tweetReadEnabled: notFalse("TWEET_READ_ENABLED"),
 
     discordActionsEnabled: isTrue("DISCORD_ACTIONS_ENABLED", "true"),
     discordActionsGuildIds: list(env.DISCORD_ACTIONS_GUILD_IDS),
