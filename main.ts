@@ -12,6 +12,7 @@ import { createMaintenanceJob } from "./src/jobs/maintenance.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
 import { createWebSearchService } from "./src/net/web_search.ts";
+import { createTweetService } from "./src/net/tweet.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
 import { withProviderLimits } from "./src/ai/providers/index.ts";
@@ -34,6 +35,7 @@ const rateLimit = createRateLimitService(db, config);
 const aiService = createAiService(config);
 const webSearch = createWebSearchService(config);
 const linkOpen = createLinkOpenService(config);
+const tweets = createTweetService();
 
 const botDeps: BotDependencies = {
   config,
@@ -43,6 +45,7 @@ const botDeps: BotDependencies = {
   linkOpenService: linkOpen,
   storageService: storage,
   webSearchService: webSearch,
+  tweetService: tweets,
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
     db,

@@ -6,6 +6,7 @@ import { formatActionResults } from "../features/discord_actions/results.ts";
 import type { DiscordActionService } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
+import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
 import {
   formatSearchResultsForContext,
   extractAutoSearchQuery,
@@ -33,6 +34,7 @@ export interface BotDependencies {
   linkOpenService: LinkOpenService;
   storageService: ContextStorageService;
   webSearchService?: WebSearchService;
+  tweetService?: TweetService;
   discordActionService?: DiscordActionService;
 }
 
@@ -160,7 +162,8 @@ export async function handleMessage(
   const ctx = getContext(channelId) ?? [];
 
   const ctxForAi = [...ctx];
-  let stripUrlsFromReply = false;
+  let readLinkedContent = false;
+  const tweetId = config.tweetReadEnabled && content ? extractTweetId(content) : null;
 
   if (openRequested) {
     if (!config.linkOpenEnabled) {
@@ -195,7 +198,22 @@ export async function handleMessage(
       lines.push(`User request: ${openCommand.userRequest}`);
     }
     ctxForAi.push({ author: "web", content: lines.join("\n") });
-    stripUrlsFromReply = true;
+    readLinkedContent = true;
+  } else if (tweetId && deps.tweetService) {
+    const tweetResult = await deps.tweetService.read(tweetId);
+    if (!tweetResult.ok) {
+      console.error(`[TWEET] read failed: ${tweetResult.error}`);
+      await sendMessage(config, channelId, "Ehehe~ I couldn't read that tweet.");
+      return;
+    }
+    const { tweet } = tweetResult;
+    ctxForAi.push({
+      author: "web",
+      content: formatTweetNotes(tweet),
+      imageUrls: [...tweet.photoUrls, ...(tweet.quoted?.photoUrls ?? [])],
+    });
+    readLinkedContent = true;
+    console.log(`[TWEET] read ${tweetId}`);
   } else {
     const autoQuery =
       webSearchService && config.webSearchEnabled ? extractAutoSearchQuery(content) : null;
@@ -212,14 +230,14 @@ export async function handleMessage(
     }
   }
 
-  // Tools exist only for explicit human mention handling, never autonomous jobs or opened links.
+  // Tools exist only for explicit human mention handling, never autonomous jobs, opened links or tweets.
   const guildId = typeof message["guild_id"] === "string" ? message["guild_id"] : "";
   const messageId = typeof message["id"] === "string" ? message["id"] : "";
   const allowedGuilds = config.discordActionsGuildIds ?? [];
   const actionSession =
     config.discordActionsEnabled &&
     deps.discordActionService &&
-    !openRequested &&
+    !readLinkedContent &&
     guildId &&
     messageId &&
     userId !== "unknown" &&
@@ -252,7 +270,7 @@ export async function handleMessage(
   await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
 
   let finalReply = actionReply ?? aiResult.text;
-  if (stripUrlsFromReply) {
+  if (readLinkedContent) {
     const stripped = stripUrls(finalReply);
     finalReply = stripped || "I read it! Tell me what part you want me to focus on~";
   }

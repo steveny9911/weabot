@@ -92,6 +92,7 @@ CHANNEL_ID=your_channel_id_here
 TIME_ZONE=America/Los_Angeles
 GLUE_ALERT_THRESHOLD=7
 LINK_OPEN_ENABLED=true
+TWEET_READ_ENABLED=true
 AI_CONTEXT_MAX_MESSAGES=40
 AI_CONTEXT_INACTIVITY_MINUTES=20
 HARU_DB_PATH=./data/haru.sqlite3
@@ -116,6 +117,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `AI_DAILY_REQUEST_PERCENT`        | No       | Share of the quota mentions may use (default: `90`)                    |
 | `AUTONOMOUS_CHAT_REQUEST_PERCENT` | No       | Share of the quota autonomous chat may use (default: `30`)             |
 | `LINK_OPEN_ENABLED`               | No       | Enable `\open` link command (default: `true`)                          |
+| `TWEET_READ_ENABLED`              | No       | Read tweet links in mentions (default: `true`)                         |
 | `AI_CONTEXT_MAX_MESSAGES`         | No       | Max messages from the current conversation (default: `40`)             |
 | `AI_CONTEXT_INACTIVITY_MINUTES`   | No       | Silence that starts a new context (default: `20`)                      |
 | `HARU_DB_PATH`                    | No       | SQLite database file (default: `./data/haru.sqlite3`)                  |
@@ -198,6 +200,8 @@ Mention Haru to chat, or use a command:
 - `@Haru \usage` (month-to-date costs and token totals)
 - `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
+- `@Haru https://x.com/user/status/123 what is this?` (reads the tweet's text, up to 4 photos per
+  tweet and a quoted tweet via FxTwitter/VxTwitter; videos are skipped)
 
 ### Activity-triggered participation
 
@@ -542,7 +546,7 @@ weabot/
 │   ├── features/               # Bot logic (polls, stats, chat context, reactions, Discord actions)
 │   ├── services/               # Storage, rate limits and usage reporting
 │   ├── discord/                # The only code that calls the Discord REST API
-│   ├── net/                    # Public-web fetches: link opening, web search, retry
+│   ├── net/                    # Public-web fetches: link opening, tweets, web search, retry
 │   ├── db/                     # SQLite: opening, migrations, queries per table group
 │   └── types/                  # Shared domain types
 ├── tests/

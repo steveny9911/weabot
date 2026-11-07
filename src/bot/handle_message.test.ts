@@ -322,6 +322,62 @@ test("\\open failure sends fallback message and skips AI", async () => {
   }
 });
 
+const tweetMention = "<@12345> what do you think? https://x.com/kay/status/123";
+
+test("tweet link adds the tweet text and photos to the AI context", async () => {
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const ctx = createDeps(createMockConfig({ webSearchEnabled: true }));
+    const photoUrls = ["https://pbs.twimg.com/a.jpg"];
+    ctx.deps.tweetService = {
+      read: () =>
+        Promise.resolve({
+          ok: true,
+          tweet: { author: "kay", text: "a cat", photoUrls, altTexts: [], hasVideo: true },
+        }),
+    };
+
+    await handleMessage(createMentionMessage(tweetMention), ctx.deps);
+
+    const webEntry = ctx.aiCalls[0].find((m) => m["author"] === "web");
+    expect(String(webEntry?.["content"])).toContain("Text: a cat");
+    expect(String(webEntry?.["content"])).toContain("video (not viewed)");
+    expect(webEntry?.["imageUrls"]).toStrictEqual(photoUrls);
+    expect(ctx.webSearchCalls.length).toStrictEqual(0);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("unreadable tweet sends a fallback message and skips AI", async () => {
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const ctx = createDeps(createMockConfig());
+    ctx.deps.tweetService = { read: () => Promise.resolve({ ok: false, error: "not_found" }) };
+
+    await handleMessage(createMentionMessage(tweetMention), ctx.deps);
+
+    expect(ctx.aiCalls.length).toStrictEqual(0);
+    expect(fetchMock.postedMessages[0]).toContain("couldn't read that tweet");
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("tweet links are plain text when TWEET_READ_ENABLED is off", async () => {
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const ctx = createDeps(createMockConfig({ tweetReadEnabled: false }));
+    ctx.deps.tweetService = { read: () => Promise.reject(new Error("should not be called")) };
+
+    await handleMessage(createMentionMessage(tweetMention), ctx.deps);
+
+    expect(ctx.aiCalls.length).toStrictEqual(1);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
 test("non-open mention still uses auto-search flow", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {

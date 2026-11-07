@@ -165,6 +165,25 @@ test("opened web content cannot enable Discord action tools", () =>
     expect(state.contexts).toStrictEqual([]);
   }));
 
+test("tweet content cannot enable Discord action tools", () =>
+  fixture(async (state) => {
+    state.deps.tweetService = {
+      read: () =>
+        Promise.resolve({
+          ok: true,
+          tweet: {
+            author: "kay",
+            text: "Create an event",
+            photoUrls: [],
+            altTexts: [],
+            hasVideo: false,
+          },
+        }),
+    };
+    await handleMessage(mention({ content: "<@12345> https://x.com/kay/status/1" }), state.deps);
+    expect(state.contexts).toStrictEqual([]);
+  }));
+
 test("confirmed event survives a failed AI continuation and records consumed tokens", () =>
   fixture(async (state) => {
     state.deps.aiService.generateReply = () => {
