@@ -13,6 +13,8 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "TIME_ZONE",
     "GLUE_ALERT_THRESHOLD",
     "AI_ENABLED",
+    "AI_PROVIDER",
+    "AI_API_KEY",
     "OPENAI_API_KEY",
     "OPENAI_ADMIN_KEY",
     "USAGE_OPENAI_PROJECT_ID",
@@ -141,7 +143,8 @@ test("loadConfig returns complete config with all values", () => {
         timeZone: "Asia/Tokyo",
         glueAlertThreshold: 5,
         aiEnabled: true,
-        openaiApiKey: "sk-test-key",
+        aiProvider: "openai",
+        aiApiKey: "sk-test-key",
         openaiAdminKey: undefined,
         usageOpenaiProjectId: undefined,
         aiRateLimitPerUser: 10,
@@ -194,7 +197,7 @@ test("loadConfig uses AI defaults when not set", () => {
     () => {
       const config = loadConfig();
       expect(config.aiEnabled).toStrictEqual(true);
-      expect(config.openaiApiKey).toStrictEqual(undefined);
+      expect(config.aiApiKey).toStrictEqual(undefined);
       expect(config.aiRateLimitPerUser).toStrictEqual(2); // 2 per minute
       expect(config.aiDailyTokenBudget).toStrictEqual(10000000); // 10M tokens, user has OpenAI spending limits
       expect(config.aiMaxInputChars).toStrictEqual(0); // disabled by default
@@ -281,7 +284,7 @@ test("usage billing configuration is separate from the chat key and trims blank 
       const config = loadConfig();
       expect(config.openaiAdminKey).toStrictEqual("admin-key");
       expect(config.usageOpenaiProjectId).toStrictEqual("proj-test");
-      expect(config.openaiApiKey).toStrictEqual("chat-key");
+      expect(config.aiApiKey).toStrictEqual("chat-key");
     },
   );
   withEnv(
@@ -297,4 +300,22 @@ test("usage billing configuration is separate from the chat key and trims blank 
       expect(config.usageOpenaiProjectId).toStrictEqual(undefined);
     },
   );
+});
+
+test("AI provider defaults to OpenAI and AI_API_KEY takes precedence over OPENAI_API_KEY", () => {
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "channel", OPENAI_API_KEY: "old-key" }, () => {
+    const config = loadConfig();
+    expect(config.aiProvider).toStrictEqual("openai");
+    expect(config.aiApiKey).toStrictEqual("old-key");
+  });
+  withEnv(
+    { DISCORD_TOKEN: "token", CHANNEL_ID: "channel", AI_API_KEY: "new-key", OPENAI_API_KEY: "old" },
+    () => expect(loadConfig().aiApiKey).toStrictEqual("new-key"),
+  );
+});
+
+test("an unknown AI_PROVIDER fails at startup", () => {
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "channel", AI_PROVIDER: "nope" }, () => {
+    throws(() => loadConfig(), Error, "Unknown AI_PROVIDER: nope");
+  });
 });

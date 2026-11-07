@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     discordActionsEnabled: true,
     discordActionsGuildIds: [SANDBOX_ID],
   };
-  if (!config.openaiApiKey) throw new Error("OPENAI_API_KEY is required.");
+  if (!config.aiApiKey) throw new Error("AI_API_KEY is required.");
   const events = createDiscordEventsClient(config.discordToken);
   const guild = await events.getGuild(SANDBOX_ID);
   if (guild.id !== SANDBOX_ID || (guild as unknown as { name: string }).name !== "Bot Sandbox") {

@@ -15,7 +15,7 @@ export function createAutonomousChatJob(
 
   return async () => {
     if (!config.autonomousChatEnabled) return;
-    if (!config.aiEnabled || !config.openaiApiKey) {
+    if (!config.aiEnabled || !config.aiApiKey) {
       console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
       return;
     }

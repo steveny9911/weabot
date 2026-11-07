@@ -67,7 +67,7 @@ async function main() {
     autonomousChatReplyChance: 1,
     autonomousChatSettleSeconds: 8,
   };
-  if (!config.openaiApiKey) throw new Error("OPENAI_API_KEY is required.");
+  if (!config.aiApiKey) throw new Error("AI_API_KEY is required.");
   const real = createDiscordClient(config.discordToken);
   const r = await fetch(`${DISCORD_API_BASE}/users/@me`, {
     headers: { Authorization: "Bot " + config.discordToken },

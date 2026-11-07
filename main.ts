@@ -78,6 +78,7 @@ console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");
 console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
+console.log(`   Provider: ${config.aiProvider ?? "openai"}`);
 console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
 const maxInputLabel = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
@@ -86,8 +87,8 @@ console.log(`   UwU Mode: ${config.aiEnableUwu}`);
 console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
 console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);
 console.log(`   Discord Event/Invite Actions: ${config.discordActionsEnabled}`);
-if (!config.openaiApiKey) {
-  console.log("   ⚠️  OPENAI_API_KEY not set - AI chat disabled");
+if (!config.aiApiKey) {
+  console.log("   ⚠️  AI_API_KEY not set - AI chat disabled");
 }
 
 console.log("");
