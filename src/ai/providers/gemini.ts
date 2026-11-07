@@ -146,7 +146,8 @@ export function createGeminiProvider(
               const status = error instanceof ApiError ? error.status : 0;
               lastError = `Gemini error ${status || "no response"}: ${(error as Error).message}`;
               // A model that cannot think this little may be followed by one that can.
-              if (STOP_STATUSES.includes(status) && !/thinking/i.test(lastError)) {
+              const thinkingRejected = status === 400 && /thinking/i.test(lastError);
+              if (STOP_STATUSES.includes(status) && !thinkingRejected) {
                 return { ok: false, error: lastError, tokens: 0 };
               }
               console.warn(

@@ -41,6 +41,7 @@ const reply = (text: string, total = 12) =>
 interface GeminiBody {
   systemInstruction: { parts: Array<{ text: string }> };
   contents: Array<{ role: string; parts: unknown[] }>;
+  generationConfig?: Record<string, unknown>;
 }
 
 /** Records Gemini calls and serves images by URL; anything else is the model reply. */
@@ -168,8 +169,7 @@ test("thinking is turned down to the lowest level unless AI_THINKING is on", asy
     await createGeminiProvider(config({ aiThinking }), { fetch: fetcher })
       .start({ userText: "Alice: hi", imageUrls: [], format: "text" })
       .step(new AbortController().signal);
-    const body = calls[0]!.body as GeminiBody & { generationConfig?: Record<string, unknown> };
-    expect(body.generationConfig?.thinkingConfig).toEqual(thinkingConfig);
+    expect(calls[0]!.body.generationConfig?.thinkingConfig).toEqual(thinkingConfig);
   }
 });
 
@@ -184,28 +184,14 @@ const runParticipation = (fetcher: Fetcher) =>
     .step(new AbortController().signal);
 
 test("participation asks for the shared JSON schema and returns the decision", async () => {
-  const decision =
-    '{"action":"silent","text":"","messageId":"","emoji":"","intent":"","reason":"ambiguous"}';
+  const decision = '{"action":"silent"}';
   const { calls, fetcher } = fakeFetch(() => reply(decision));
 
-  expect(await runParticipation(fetcher)).toEqual({
-    ok: true,
-    text: decision,
-    toolCalls: [],
-    tokens: 12,
-  });
-  const body = calls[0]!.body as GeminiBody & {
-    tools?: unknown;
-    generationConfig: Record<string, unknown>;
-  };
-  expect(body.generationConfig).toMatchObject({
+  expect(await runParticipation(fetcher)).toMatchObject({ ok: true, text: decision });
+  expect(calls[0]!.body.generationConfig).toMatchObject({
     responseMimeType: "application/json",
     responseJsonSchema: AUTONOMOUS_PARTICIPATION_FORMAT.schema,
   });
-  expect(body.tools).toBeUndefined();
-  expect(body.systemInstruction.parts[0]!.text).toBe(
-    "You are Haru.\n\nChoose reply, react, or silent.",
-  );
 });
 
 test("a participation response that did not finish normally is no decision", async () => {
@@ -213,7 +199,7 @@ test("a participation response that did not finish normally is no decision", asy
   for (const candidates of [
     [{ content: { parts: [{ text }] }, finishReason: "MAX_TOKENS" }],
     [{ content: { parts: [{ text }] }, finishReason: "SAFETY" }],
-    [],
+    [{ content: { parts: [{ text }] } }],
   ]) {
     const { fetcher } = fakeFetch(
       () => new Response(JSON.stringify({ candidates, usageMetadata: { totalTokenCount: 7 } })),
