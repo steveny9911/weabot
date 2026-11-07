@@ -151,6 +151,7 @@ test("loadConfig returns complete config with all values", () => {
         aiProvider: "openai",
         aiModel: undefined,
         aiSystemPromptFile: undefined,
+        aiThinking: false,
         aiApiKey: "sk-test-key",
         openaiAdminKey: undefined,
         usageOpenaiProjectId: undefined,
@@ -351,7 +352,7 @@ test("an unknown AI_PROVIDER fails at startup", () => {
   });
 });
 
-test("AI_MODEL and AI_SYSTEM_PROMPT_FILE are read and trimmed", () => {
+test("AI_MODEL, AI_SYSTEM_PROMPT_FILE and AI_THINKING are read", () => {
   withEnv(
     {
       DISCORD_TOKEN: "token",
@@ -359,10 +360,12 @@ test("AI_MODEL and AI_SYSTEM_PROMPT_FILE are read and trimmed", () => {
       AI_PROVIDER: "gemini",
       AI_MODEL: " models/gemini-test ",
       AI_SYSTEM_PROMPT_FILE: "data/system_prompt.md",
+      AI_THINKING: "true",
     },
     () => {
       const config = loadConfig();
       expect(config.aiProvider).toStrictEqual("gemini");
+      expect(config.aiThinking).toBe(true);
       expect(config.aiModel).toStrictEqual("models/gemini-test");
       expect(config.aiSystemPromptFile).toStrictEqual("data/system_prompt.md");
     },

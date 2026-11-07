@@ -111,6 +111,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `AI_API_KEY`                      | No       | Provider key (`OPENAI_API_KEY` also works for OpenAI); off without one |
 | `AI_MODEL`                        | Gemini   | Gemini models, comma-separated, tried in order                         |
 | `AI_SYSTEM_PROMPT_FILE`           | Gemini   | File with Haru's persona (OpenAI uses its saved prompt)                |
+| `AI_THINKING`                     | No       | Let Gemini models think before answering (default: `false`)            |
 | `AI_DAILY_REQUEST_QUOTA`          | No       | Model calls per Pacific day, e.g. a free tier (default: none)          |
 | `AI_DAILY_REQUEST_PERCENT`        | No       | Share of the quota mentions may use (default: `90`)                    |
 | `AUTONOMOUS_CHAT_REQUEST_PERCENT` | No       | Share of the quota autonomous chat may use (default: `30`)             |
@@ -398,6 +399,12 @@ reply fails.
 Any failure other than a bad key or request (400, 401, 403) moves on to the next model, and every
 attempt counts toward the daily request quota. If all fail, Haru says her brain is fuzzy. Put the
 most reliable model first, since there is no cooldown for a model that is down.
+
+Thinking is off by default: each request asks for the lowest thinking level (`minimal`), which on
+Gemini 3 models keeps thinking to little or none rather than turning it off. Some models, such as
+gemini-3.7-flash and gemini-3.8-flash, reject `minimal`; while thinking is off they are skipped and
+the next model is tried. Set `AI_THINKING=true` to send no thinking setting and use each model's
+default, which is slower and spends more tokens.
 
 With Gemini, `\usage` shows the requests and tokens Haru counted today instead of a billing report.
 The request limit shown is the share of the quota that mentions may use.

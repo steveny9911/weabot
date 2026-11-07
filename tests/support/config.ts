@@ -10,6 +10,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     glueAlertThreshold: 7,
     aiEnabled: true,
     aiProvider: "openai",
+    aiThinking: false,
     aiApiKey: "test-key",
     aiRateLimitPerUser: 5,
     aiDailyTokenBudget: 100_000,

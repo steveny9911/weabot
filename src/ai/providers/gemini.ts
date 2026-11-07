@@ -1,6 +1,6 @@
 /** Google Gemini through @google/genai for every AI feature. Haru's persona comes from a prompt file. */
 import { readFileSync } from "node:fs";
-import { ApiError, type Content, FinishReason, GoogleGenAI } from "@google/genai";
+import { ApiError, type Content, FinishReason, GoogleGenAI, ThinkingLevel } from "@google/genai";
 import type { AppConfig } from "../../config.ts";
 import type { Fetcher } from "../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
@@ -104,6 +104,9 @@ export function createGeminiProvider(
                         responseJsonSchema: AUTONOMOUS_PARTICIPATION_FORMAT.schema,
                       }
                     : {}),
+                  ...(config.aiThinking
+                    ? {}
+                    : { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }),
                   abortSignal: AbortSignal.any([signal, AbortSignal.timeout(attemptMs)]),
                   automaticFunctionCalling: { disable: true },
                 },
@@ -142,7 +145,11 @@ export function createGeminiProvider(
               if (signal.aborted) throw error;
               const status = error instanceof ApiError ? error.status : 0;
               lastError = `Gemini error ${status || "no response"}: ${(error as Error).message}`;
-              if (STOP_STATUSES.includes(status)) return { ok: false, error: lastError, tokens: 0 };
+              // A model that cannot think this little may be followed by one that can.
+              const thinkingRejected = status === 400 && /thinking/i.test(lastError);
+              if (STOP_STATUSES.includes(status) && !thinkingRejected) {
+                return { ok: false, error: lastError, tokens: 0 };
+              }
               console.warn(
                 `[AI] ${model} failed (${status || "no response"}); trying the next model`,
               );
