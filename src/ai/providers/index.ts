@@ -1,5 +1,6 @@
 /** The registry of AI providers selectable with AI_PROVIDER. */
 import type { AppConfig } from "../../config.ts";
+import type { AiProviderName } from "../../config.ts";
 import { createGeminiProvider } from "./gemini.ts";
 import { createOpenAiProvider } from "./openai.ts";
 import type { AiProvider } from "./types.ts";
@@ -7,16 +8,10 @@ import type { AiProvider } from "./types.ts";
 export const AI_PROVIDERS = {
   openai: createOpenAiProvider,
   gemini: createGeminiProvider,
-} satisfies Record<string, (config: AppConfig) => AiProvider>;
-
-export type AiProviderName = keyof typeof AI_PROVIDERS;
-
-export function isAiProviderName(name: string): name is AiProviderName {
-  return Object.hasOwn(AI_PROVIDERS, name);
-}
+} satisfies Record<AiProviderName, (config: AppConfig) => AiProvider>;
 
 export function createAiProvider(config: AppConfig): AiProvider {
-  return AI_PROVIDERS[config.aiProvider ?? "openai"](config);
+  return AI_PROVIDERS[config.aiProvider](config);
 }
 
 /** Turns off the features the selected provider cannot do. */

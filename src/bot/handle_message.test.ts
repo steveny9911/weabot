@@ -684,21 +684,6 @@ test("handleMessage handles search failure, AI failure, and reply post failure",
   }
 
   {
-    const fetchMock = mockDiscordApiFetch();
-    try {
-      const config = createMockConfig();
-      const ctx = createDeps(config, {
-        aiResult: { ok: false, error: "Gemini error 429", quotaExhausted: true },
-      });
-      await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
-      expect(fetchMock.postedMessages.length).toStrictEqual(1);
-      expect(fetchMock.postedMessages[0]).toContain("brain power");
-    } finally {
-      fetchMock.restore();
-    }
-  }
-
-  {
     const fetchMock = mockDiscordApiFetch({ postStatus: 500 });
     try {
       const config = createMockConfig();

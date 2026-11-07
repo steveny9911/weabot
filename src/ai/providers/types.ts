@@ -32,8 +32,6 @@ export type ProviderStep =
       ok: false;
       error: string;
       tokens: number;
-      /** The provider's own rate or quota limit was hit. */
-      quotaExhausted?: boolean;
     };
 
 /** One conversation with the model, including its native history. */

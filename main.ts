@@ -79,7 +79,7 @@ console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");
 console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
-console.log(`   Provider: ${config.aiProvider ?? "openai"}`);
+console.log(`   Provider: ${config.aiProvider}`);
 console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
 const maxInputLabel = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";

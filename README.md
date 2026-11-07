@@ -100,22 +100,24 @@ HARU_DB_PATH=./data/haru.sqlite3
 # CHANNEL_IDS=channel_id_1,channel_id_2
 ```
 
-| Variable                        | Required | Description                                                   |
-| ------------------------------- | -------- | ------------------------------------------------------------- |
-| `DISCORD_TOKEN`                 | Yes      | Your Discord bot token                                        |
-| `CHANNEL_ID`                    | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)            |
-| `CHANNEL_IDS`                   | Yes*     | Comma-separated channel IDs for multi-server posting          |
-| `TIME_ZONE`                     | No       | Timezone for date formatting (default: `America/Los_Angeles`) |
-| `GLUE_ALERT_THRESHOLD`          | No       | Days of consecutive "glue" before alert (default: `7`)        |
-| `AI_PROVIDER`                   | No       | AI provider, one at a time (default: `openai`)                |
-| `AI_API_KEY`                    | No       | Key for the AI provider; AI chat is off without one           |
-| `AI_MODEL`                      | Gemini   | Gemini models, comma-separated, tried in order                |
-| `AI_SYSTEM_PROMPT_FILE`         | Gemini   | File with Haru's persona (OpenAI uses its saved prompt)       |
-| `AI_DAILY_REQUEST_QUOTA`        | No       | Model calls per Pacific day, e.g. a free tier (default: none) |
-| `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
-| `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
-| `AI_CONTEXT_INACTIVITY_MINUTES` | No       | Silence that starts a new context (default: `20`)             |
-| `HARU_DB_PATH`                  | No       | SQLite database file (default: `./data/haru.sqlite3`)         |
+| Variable                          | Required | Description                                                            |
+| --------------------------------- | -------- | ---------------------------------------------------------------------- |
+| `DISCORD_TOKEN`                   | Yes      | Your Discord bot token                                                 |
+| `CHANNEL_ID`                      | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)                     |
+| `CHANNEL_IDS`                     | Yes*     | Comma-separated channel IDs for multi-server posting                   |
+| `TIME_ZONE`                       | No       | Timezone for date formatting (default: `America/Los_Angeles`)          |
+| `GLUE_ALERT_THRESHOLD`            | No       | Days of consecutive "glue" before alert (default: `7`)                 |
+| `AI_PROVIDER`                     | No       | AI provider, one at a time (default: `openai`)                         |
+| `AI_API_KEY`                      | No       | Provider key (`OPENAI_API_KEY` also works for OpenAI); off without one |
+| `AI_MODEL`                        | Gemini   | Gemini models, comma-separated, tried in order                         |
+| `AI_SYSTEM_PROMPT_FILE`           | Gemini   | File with Haru's persona (OpenAI uses its saved prompt)                |
+| `AI_DAILY_REQUEST_QUOTA`          | No       | Model calls per Pacific day, e.g. a free tier (default: none)          |
+| `AI_DAILY_REQUEST_PERCENT`        | No       | Share of the quota mentions may use (default: `90`)                    |
+| `AUTONOMOUS_CHAT_REQUEST_PERCENT` | No       | Share of the quota autonomous chat may use (default: `30`)             |
+| `LINK_OPEN_ENABLED`               | No       | Enable `\open` link command (default: `true`)                          |
+| `AI_CONTEXT_MAX_MESSAGES`         | No       | Max messages from the current conversation (default: `40`)             |
+| `AI_CONTEXT_INACTIVITY_MINUTES`   | No       | Silence that starts a new context (default: `20`)                      |
+| `HARU_DB_PATH`                    | No       | SQLite database file (default: `./data/haru.sqlite3`)                  |
 
 _Set either `CHANNEL_ID` or `CHANNEL_IDS`._
 
@@ -247,9 +249,10 @@ by 199. Use provider spending controls if a strict spending limit is required.
 quota such as a free tier. It is unset (unlimited) by default. Mentions are admitted while today's
 calls are below `AI_DAILY_REQUEST_PERCENT` (default `90`) of the quota, and autonomous chat while
 they are below `AUTONOMOUS_CHAT_REQUEST_PERCENT` (default `30`), so the bot leaves headroom and
-autonomous chat cannot use up the day. Admission counts one call; a tool reply that needs more model
-calls records the rest when it finishes. Refusals use the same "brain power" reply as the token
-budget.
+autonomous chat cannot use up the day. Admission counts one call; a reply that needs more model
+calls (tool steps, or Gemini trying another model) records the rest when it finishes, so the day can
+overshoot slightly. This applies to every provider. Refusals use the same "brain power" reply as the
+token budget.
 
 Days follow midnight in `America/Los_Angeles`, when provider free-tier quotas reset. Reported
 tokens, including usage returned with failed generations, are recorded atomically. Tokens and extra
@@ -354,11 +357,18 @@ scheduled jobs and can respond in any server the bot can access.
 ### Gemini
 
 Set `AI_PROVIDER=gemini`, `AI_API_KEY`, `AI_MODEL` and `AI_SYSTEM_PROMPT_FILE`. The persona is read
-from the file at startup. PNG, JPEG and WebP images are sent; other attachments are skipped. Gemini
-currently answers plain mentions only, so Discord event actions and autonomous chat are turned off
-while it is selected. When Gemini reports its own rate or quota limit (HTTP 429), Haru replies that
-it is out of brain power. With Gemini, `\usage` shows the requests and tokens Haru counted today
-instead of a billing report.
+from the file at startup, and startup stops if it or `AI_MODEL` is missing, even when AI chat is
+off. PNG, JPEG and WebP images are sent; other attachments are skipped. Gemini currently answers
+plain mentions only, so Discord event actions and autonomous chat are turned off while it is
+selected.
+
+`AI_MODEL` is a comma-separated list. Each reply tries the models in order, giving each 20 seconds.
+Any failure other than a bad key or request (400, 401, 403) moves on to the next model, and every
+attempt counts toward the daily request quota. If all fail, Haru says her brain is fuzzy. Put the
+most reliable model first, since there is no cooldown for a model that is down.
+
+With Gemini, `\usage` shows the requests and tokens Haru counted today instead of a billing report.
+The request limit shown is the share of the quota that mentions may use.
 
 ### Month-to-date usage
 

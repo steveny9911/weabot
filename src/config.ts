@@ -1,4 +1,5 @@
-import { type AiProviderName, isAiProviderName } from "./ai/providers/index.ts";
+export const AI_PROVIDER_NAMES = ["openai", "gemini"] as const;
+export type AiProviderName = (typeof AI_PROVIDER_NAMES)[number];
 
 /** Configuration read from environment variables. Missing required values fail at startup. */
 export interface AppConfig {
@@ -12,8 +13,7 @@ export interface AppConfig {
   glueAlertThreshold: number;
 
   aiEnabled: boolean;
-  /** Unset means OpenAI. */
-  aiProvider?: AiProviderName;
+  aiProvider: AiProviderName;
   aiApiKey: string | undefined;
   /** Model name for providers that have no saved prompt. */
   aiModel?: string;
@@ -94,7 +94,7 @@ export function loadConfig(): AppConfig {
   if (!discordToken) throw new Error("FATAL: Missing required environment variable: DISCORD_TOKEN");
 
   const aiProvider = env.AI_PROVIDER?.trim().toLowerCase() || "openai";
-  if (!isAiProviderName(aiProvider)) {
+  if (!AI_PROVIDER_NAMES.includes(aiProvider as AiProviderName)) {
     throw new Error(`FATAL: Unknown AI_PROVIDER: ${aiProvider}`);
   }
 
@@ -110,7 +110,7 @@ export function loadConfig(): AppConfig {
     glueAlertThreshold: int("GLUE_ALERT_THRESHOLD", 7),
 
     aiEnabled: notFalse("AI_ENABLED"),
-    aiProvider,
+    aiProvider: aiProvider as AiProviderName,
     // OPENAI_API_KEY is the original name, still accepted for OpenAI.
     aiApiKey: optional("AI_API_KEY") ?? (aiProvider === "openai" ? env.OPENAI_API_KEY : undefined),
     aiModel: optional("AI_MODEL"),

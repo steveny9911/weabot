@@ -28,8 +28,6 @@ export interface AiErrorResult {
   /** Tokens reported before an action or autonomous request failed. */
   tokensUsed?: number;
   requestsUsed?: number;
-  /** The provider's own limit was hit, so the day's allowance is gone. */
-  quotaExhausted?: boolean;
 }
 
 export type AiResult = AiSuccessResult | AiErrorResult;

@@ -66,7 +66,7 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
               ? [
                   {
                     id: typeof item.call_id === "string" ? item.call_id : "",
-                    name: String(item.name),
+                    name: typeof item.name === "string" ? item.name : "",
                     arguments: typeof item.arguments === "string" ? item.arguments : undefined,
                   },
                 ]

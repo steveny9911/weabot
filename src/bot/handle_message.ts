@@ -25,8 +25,6 @@ import {
 } from "./commands.ts";
 import { clearContext, getContext, saveContext } from "./context.ts";
 
-const OUT_OF_BRAIN_POWER = "I've used up all my brain power for today!~ Let's chat tomorrow~";
-
 export interface BotDependencies {
   config: AppConfig;
   usageService?: UsageService;
@@ -144,7 +142,11 @@ export async function handleMessage(
   }
 
   if (!rateLimitResult.allowed) {
-    await sendMessage(config, channelId, OUT_OF_BRAIN_POWER);
+    await sendMessage(
+      config,
+      channelId,
+      "I've used up all my brain power for today!~ Let's chat tomorrow~",
+    );
     console.log("Daily AI budget exhausted");
     return;
   }
@@ -241,10 +243,7 @@ export async function handleMessage(
     await sendMessage(
       config,
       channelId,
-      actionReply ??
-        (aiResult.quotaExhausted
-          ? OUT_OF_BRAIN_POWER
-          : "Hmm, my brain's a bit fuzzy right now. Try again in a moment~"),
+      actionReply ?? "Hmm, my brain's a bit fuzzy right now. Try again in a moment~",
       Boolean(actionSession),
     );
     return;
