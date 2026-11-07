@@ -23,6 +23,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webSearchApiKey: undefined,
     webSearchMaxResults: 3,
     linkOpenEnabled: true,
+    tweetEmbedEnabled: true,
     autonomousChatEnabled: false,
     autonomousChatChannelIds: ["test-channel"],
     autonomousChatMinHumanMessages: 4,
