@@ -159,6 +159,20 @@ test("Gemini keeps Discord actions and autonomous chat", () => {
   expect(openai.autonomousChatEnabled).toBe(true);
 });
 
+test("thinking is turned down to the lowest level unless AI_THINKING is on", async () => {
+  for (const [aiThinking, thinkingConfig] of [
+    [false, { thinkingLevel: "MINIMAL" }],
+    [true, undefined],
+  ] as const) {
+    const { calls, fetcher } = fakeFetch(() => reply("Hi"));
+    await createGeminiProvider(config({ aiThinking }), { fetch: fetcher })
+      .start({ userText: "Alice: hi", imageUrls: [], format: "text" })
+      .step(new AbortController().signal);
+    const body = calls[0]!.body as GeminiBody & { generationConfig?: Record<string, unknown> };
+    expect(body.generationConfig?.thinkingConfig).toEqual(thinkingConfig);
+  }
+});
+
 const runParticipation = (fetcher: Fetcher) =>
   createGeminiProvider(config(), { fetch: fetcher })
     .start({
@@ -256,6 +270,21 @@ test("a 400, 401 or 403 stops without trying other models", async () => {
     expect(result.error).toContain(`Gemini error ${status}`);
     expect(called).toEqual(["a"]);
   }
+});
+
+test("a model that rejects the thinking level falls back to the next model", async () => {
+  const { called, fetcher } = fakeModels({
+    a: () =>
+      new Response(
+        JSON.stringify({
+          error: { message: "Thinking level MINIMAL is not supported for this model." },
+        }),
+        { status: 400 },
+      ),
+    b: () => reply("from b"),
+  });
+  expect(await runModels(fetcher).step).toMatchObject({ ok: true, text: "from b" });
+  expect(called).toEqual(["a", "b"]);
 });
 
 test("when every model fails, the last error is reported", async () => {
