@@ -6,9 +6,9 @@ import type { Fetcher } from "../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
 import type { AiProvider, ProviderStep } from "./types.ts";
 
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const MAX_IMAGE_BYTES = 5_000_000;
-const TIMEOUT_MS = 20_000;
+const TIMEOUT_MS = 8_000;
 /** Errors that retrying another model cannot fix. */
 const STOP_STATUSES = [400, 401, 403];
 
