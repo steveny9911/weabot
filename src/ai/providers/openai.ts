@@ -12,12 +12,18 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
   return {
     label: "OpenAI",
     missingKeyError: "OPENAI_API_KEY not set",
+    capabilities: { tools: true, autonomous: true },
     start(request) {
       const input = buildInput(request);
       let lastOutput: unknown[] = [];
+      let calls = 0;
       return {
+        get calls() {
+          return calls;
+        },
         async step(signal): Promise<ProviderStep> {
           const participation = request.format === "participation";
+          calls++;
           const res = await fetch(OPENAI_URL, {
             method: "POST",
             headers: {
@@ -60,7 +66,7 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
               ? [
                   {
                     id: typeof item.call_id === "string" ? item.call_id : "",
-                    name: String(item.name),
+                    name: typeof item.name === "string" ? item.name : "",
                     arguments: typeof item.arguments === "string" ? item.arguments : undefined,
                   },
                 ]

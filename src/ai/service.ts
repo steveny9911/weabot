@@ -153,12 +153,11 @@ export function createAiService(
       );
       const toolResults = new Map<string, string>();
       let tokensUsed = 0;
-      let requestsUsed = 0;
       let toolCallsUsed = 0;
       const failure = (error: string): AiErrorResult => ({
         ok: false,
         error,
-        requestsUsed,
+        requestsUsed: session.calls,
         ...(options ? { tokensUsed: tokensUsed } : {}),
       });
       const toolDeadline = now() + toolLoopTimeoutMs;
@@ -169,7 +168,6 @@ export function createAiService(
         for (let responseIndex = 0; responseIndex < maxResponses; responseIndex++) {
           if (toolTimeExpired()) return failure("AI tool time limit reached");
           const remainingMs = actionOptions ? toolDeadline - now() : requestTimeoutMs;
-          requestsUsed++;
           const step = await withResponseDeadline(
             Math.min(requestTimeoutMs, remainingMs),
             actionOptions && remainingMs <= requestTimeoutMs
@@ -188,7 +186,7 @@ export function createAiService(
               ok: true,
               text: participation.action === "reply" ? participation.text : "",
               tokensUsed: tokensUsed,
-              requestsUsed,
+              requestsUsed: session.calls,
               participation,
             };
           }
@@ -247,7 +245,7 @@ export function createAiService(
           console.log("[AI] tokens used:", tokensUsed);
           console.log("[AI] raw reply:", raw);
           console.log("[AI] final reply:", finalText);
-          return { ok: true, text: finalText, tokensUsed: tokensUsed, requestsUsed };
+          return { ok: true, text: finalText, tokensUsed: tokensUsed, requestsUsed: session.calls };
         }
         return failure("AI tool response limit reached");
       } catch (err) {

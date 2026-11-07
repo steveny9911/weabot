@@ -1,5 +1,5 @@
 import type { UsageService } from "../services/usage.ts";
-import { formatUsageMessage } from "../features/usage.ts";
+import { formatDailyUsageMessage, formatUsageMessage } from "../features/usage.ts";
 import type { AppConfig } from "../config.ts";
 import type { AiService } from "../ai/types.ts";
 import { formatActionResults } from "../features/discord_actions/results.ts";
@@ -78,12 +78,18 @@ export async function handleMessage(
       return;
     }
     try {
-      const report = await deps.usageService?.getMonthToDate();
-      await sendMessage(
-        config,
-        channelId,
-        report ? formatUsageMessage(report) : "Usage reporting is unavailable right now.",
-      );
+      let text = "Usage reporting is unavailable right now.";
+      if (config.aiProvider === "gemini") {
+        const quota = config.aiDailyRequestQuota;
+        text = formatDailyUsageMessage(
+          await rateLimitService.getUsageStats(),
+          quota && Math.floor((quota * config.aiDailyRequestPercent) / 100),
+        );
+      } else {
+        const report = await deps.usageService?.getMonthToDate();
+        if (report) text = formatUsageMessage(report);
+      }
+      await sendMessage(config, channelId, text);
     } catch {
       await sendMessage(config, channelId, "Usage reporting is unavailable right now.");
     }

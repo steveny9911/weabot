@@ -761,6 +761,25 @@ test("usage command bypasses AI budgets and does not mutate conversation context
   }
 });
 
+test("usage shows Haru's own daily counts when the provider has no billing report", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(
+    createMockConfig({ aiProvider: "gemini", aiDailyRequestQuota: 100, aiDailyRequestPercent: 90 }),
+  );
+  state.deps.usageService = {
+    getMonthToDate() {
+      throw new Error("unexpected");
+    },
+  };
+  try {
+    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
+    expect(mock.postedMessages[0]).toContain("**Requests:** 0 / 90");
+    expect(mock.postedMessages[0]).toContain("**Tokens:** 0");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("usage requires a mention and configured channel and ignores bots", async () => {
   const mock = mockDiscordApiFetch();
   const state = createDeps(createMockConfig({ aiEnabled: false }));

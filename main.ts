@@ -14,12 +14,13 @@ import { createRateLimitService } from "./src/services/rate_limit.ts";
 import { createWebSearchService } from "./src/net/web_search.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
+import { withProviderLimits } from "./src/ai/providers/index.ts";
 import { createServer } from "./src/app/server.ts";
 import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
 import { startGateway } from "./src/app/gateway.ts";
 import type { BotDependencies } from "./src/bot/handle_message.ts";
 
-const config = loadConfig();
+const config = withProviderLimits(loadConfig());
 
 const dbPath = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
 const db = openDatabase(dbPath);
@@ -78,7 +79,7 @@ console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");
 console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
-console.log(`   Provider: ${config.aiProvider ?? "openai"}`);
+console.log(`   Provider: ${config.aiProvider}`);
 console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
 const maxInputLabel = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";

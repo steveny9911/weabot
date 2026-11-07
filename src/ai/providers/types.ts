@@ -28,13 +28,25 @@ export type ProviderStep =
       toolCalls: ToolCall[];
       tokens: number;
     }
-  | { ok: false; error: string; tokens: number };
+  | {
+      ok: false;
+      error: string;
+      tokens: number;
+    };
 
 /** One conversation with the model, including its native history. */
 export interface ProviderSession {
+  /** Model calls made so far; read after a step even when it failed or timed out. */
+  readonly calls: number;
   step(signal: AbortSignal): Promise<ProviderStep>;
   /** Adds the last step's output and one result per call, in order, before the next step. */
   addToolResults(calls: ToolCall[], results: string[]): void;
+}
+
+/** What a provider can do; the bot turns off features the selected provider lacks. */
+export interface ProviderCapabilities {
+  tools: boolean;
+  autonomous: boolean;
 }
 
 export interface AiProvider {
@@ -42,5 +54,6 @@ export interface AiProvider {
   label: string;
   /** Error returned when no API key is configured. */
   missingKeyError: string;
+  capabilities: ProviderCapabilities;
   start(request: ProviderRequest): ProviderSession;
 }

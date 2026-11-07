@@ -15,6 +15,8 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "AI_ENABLED",
     "AI_PROVIDER",
     "AI_API_KEY",
+    "AI_MODEL",
+    "AI_SYSTEM_PROMPT_FILE",
     "OPENAI_API_KEY",
     "OPENAI_ADMIN_KEY",
     "USAGE_OPENAI_PROJECT_ID",
@@ -147,6 +149,8 @@ test("loadConfig returns complete config with all values", () => {
         glueAlertThreshold: 5,
         aiEnabled: true,
         aiProvider: "openai",
+        aiModel: undefined,
+        aiSystemPromptFile: undefined,
         aiApiKey: "sk-test-key",
         openaiAdminKey: undefined,
         usageOpenaiProjectId: undefined,
@@ -345,4 +349,22 @@ test("an unknown AI_PROVIDER fails at startup", () => {
   withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "channel", AI_PROVIDER: "nope" }, () => {
     throws(() => loadConfig(), Error, "Unknown AI_PROVIDER: nope");
   });
+});
+
+test("AI_MODEL and AI_SYSTEM_PROMPT_FILE are read and trimmed", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "channel",
+      AI_PROVIDER: "gemini",
+      AI_MODEL: " models/gemini-test ",
+      AI_SYSTEM_PROMPT_FILE: "data/system_prompt.md",
+    },
+    () => {
+      const config = loadConfig();
+      expect(config.aiProvider).toStrictEqual("gemini");
+      expect(config.aiModel).toStrictEqual("models/gemini-test");
+      expect(config.aiSystemPromptFile).toStrictEqual("data/system_prompt.md");
+    },
+  );
 });
