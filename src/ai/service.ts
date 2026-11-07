@@ -155,10 +155,11 @@ export function createAiService(
       let tokensUsed = 0;
       let requestsUsed = 0;
       let toolCallsUsed = 0;
-      const failure = (error: string): AiErrorResult => ({
+      const failure = (error: string, quotaExhausted?: boolean): AiErrorResult => ({
         ok: false,
         error,
         requestsUsed,
+        ...(quotaExhausted ? { quotaExhausted } : {}),
         ...(options ? { tokensUsed: tokensUsed } : {}),
       });
       const toolDeadline = now() + toolLoopTimeoutMs;
@@ -178,7 +179,7 @@ export function createAiService(
             (signal) => session.step(signal),
           );
           tokensUsed += step.tokens;
-          if (!step.ok) return failure(step.error);
+          if (!step.ok) return failure(step.error, step.quotaExhausted);
           if (toolTimeExpired()) return failure("AI tool time limit reached");
           if (participationOptions) {
             const participation = parseParticipation(step.text, allowedMessageIds, choices);

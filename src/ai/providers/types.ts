@@ -28,7 +28,13 @@ export type ProviderStep =
       toolCalls: ToolCall[];
       tokens: number;
     }
-  | { ok: false; error: string; tokens: number };
+  | {
+      ok: false;
+      error: string;
+      tokens: number;
+      /** The provider's own rate or quota limit was hit. */
+      quotaExhausted?: boolean;
+    };
 
 /** One conversation with the model, including its native history. */
 export interface ProviderSession {
@@ -37,10 +43,17 @@ export interface ProviderSession {
   addToolResults(calls: ToolCall[], results: string[]): void;
 }
 
+/** What a provider can do; the bot turns off features the selected provider lacks. */
+export interface ProviderCapabilities {
+  tools: boolean;
+  autonomous: boolean;
+}
+
 export interface AiProvider {
   /** Name used in error messages, e.g. "OpenAI". */
   label: string;
   /** Error returned when no API key is configured. */
   missingKeyError: string;
+  capabilities: ProviderCapabilities;
   start(request: ProviderRequest): ProviderSession;
 }

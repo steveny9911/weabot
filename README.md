@@ -109,6 +109,8 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `GLUE_ALERT_THRESHOLD`          | No       | Days of consecutive "glue" before alert (default: `7`)        |
 | `AI_PROVIDER`                   | No       | AI provider, one at a time (default: `openai`)                |
 | `AI_API_KEY`                    | No       | Key for the AI provider; AI chat is off without one           |
+| `AI_MODEL`                      | Gemini   | Gemini model, e.g. `models/gemini-3.8-flash`                  |
+| `AI_SYSTEM_PROMPT_FILE`         | Gemini   | File with Haru's persona (OpenAI uses its saved prompt)       |
 | `AI_DAILY_REQUEST_QUOTA`        | No       | Model calls per Pacific day, e.g. a free tier (default: none) |
 | `LINK_OPEN_ENABLED`             | No       | Enable `\open` link command (default: `true`)                 |
 | `AI_CONTEXT_MAX_MESSAGES`       | No       | Max messages from the current conversation (default: `40`)    |
@@ -349,10 +351,19 @@ that the bot cannot delete expires after 60 seconds. Use the sandbox runner abov
 testing, or use a separate test bot identity with `dev`. The normal `dev` command also starts
 scheduled jobs and can respond in any server the bot can access.
 
+### Gemini
+
+Set `AI_PROVIDER=gemini`, `AI_API_KEY`, `AI_MODEL` and `AI_SYSTEM_PROMPT_FILE`. The persona is read
+from the file at startup. PNG, JPEG and WebP images are sent; other attachments are skipped. Gemini
+currently answers plain mentions only, so Discord event actions and autonomous chat are turned off
+while it is selected. When Gemini reports its own rate or quota limit (HTTP 429), Haru replies that
+it is out of brain power. With Gemini, `\usage` shows the requests and tokens Haru counted today
+instead of a billing report.
+
 ### Month-to-date usage
 
-`@Haru \usage` in a configured bot channel reports UTC month-to-date OpenAI API cost and
-input/cache/output tokens. The reply shows its date range and scope, for example:
+With OpenAI, `@Haru \usage` in a configured bot channel reports UTC month-to-date OpenAI API cost
+and input/cache/output tokens. The reply shows its date range and scope, for example:
 
 ```text
 📊 Usage — October 2026 (month to date)

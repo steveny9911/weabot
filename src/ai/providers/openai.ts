@@ -12,6 +12,7 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
   return {
     label: "OpenAI",
     missingKeyError: "OPENAI_API_KEY not set",
+    capabilities: { tools: true, autonomous: true },
     start(request) {
       const input = buildInput(request);
       let lastOutput: unknown[] = [];

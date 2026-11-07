@@ -684,6 +684,21 @@ test("handleMessage handles search failure, AI failure, and reply post failure",
   }
 
   {
+    const fetchMock = mockDiscordApiFetch();
+    try {
+      const config = createMockConfig();
+      const ctx = createDeps(config, {
+        aiResult: { ok: false, error: "Gemini error 429", quotaExhausted: true },
+      });
+      await handleMessage(createMentionMessage("<@12345> hi"), ctx.deps);
+      expect(fetchMock.postedMessages.length).toStrictEqual(1);
+      expect(fetchMock.postedMessages[0]).toContain("brain power");
+    } finally {
+      fetchMock.restore();
+    }
+  }
+
+  {
     const fetchMock = mockDiscordApiFetch({ postStatus: 500 });
     try {
       const config = createMockConfig();
@@ -756,6 +771,25 @@ test("usage command bypasses AI budgets and does not mutate conversation context
     expect(state.recordedTokens).toStrictEqual([]);
     expect(getContext("chan-1")).toStrictEqual(context);
     expect(mock.postedMessages[0]).toContain("**OpenAI API cost:** $2.00");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("usage shows Haru's own daily counts when the provider has no billing report", async () => {
+  const mock = mockDiscordApiFetch();
+  const state = createDeps(
+    createMockConfig({ aiProvider: "gemini", aiDailyRequestQuota: 100, aiDailyRequestPercent: 90 }),
+  );
+  state.deps.usageService = {
+    getMonthToDate() {
+      throw new Error("unexpected");
+    },
+  };
+  try {
+    await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
+    expect(mock.postedMessages[0]).toContain("**Requests:** 0 / 90");
+    expect(mock.postedMessages[0]).toContain("**Tokens:** 0");
   } finally {
     mock.restore();
   }

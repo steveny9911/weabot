@@ -1,5 +1,5 @@
 import type { UsageService } from "../services/usage.ts";
-import { formatUsageMessage } from "../features/usage.ts";
+import { formatDailyUsageMessage, formatUsageMessage } from "../features/usage.ts";
 import type { AppConfig } from "../config.ts";
 import type { AiService } from "../ai/types.ts";
 import { formatActionResults } from "../features/discord_actions/results.ts";
@@ -24,6 +24,8 @@ import {
   stripUrls,
 } from "./commands.ts";
 import { clearContext, getContext, saveContext } from "./context.ts";
+
+const OUT_OF_BRAIN_POWER = "I've used up all my brain power for today!~ Let's chat tomorrow~";
 
 export interface BotDependencies {
   config: AppConfig;
@@ -78,12 +80,18 @@ export async function handleMessage(
       return;
     }
     try {
-      const report = await deps.usageService?.getMonthToDate();
-      await sendMessage(
-        config,
-        channelId,
-        report ? formatUsageMessage(report) : "Usage reporting is unavailable right now.",
-      );
+      let text = "Usage reporting is unavailable right now.";
+      if (config.aiProvider === "gemini") {
+        const quota = config.aiDailyRequestQuota;
+        text = formatDailyUsageMessage(
+          await rateLimitService.getUsageStats(),
+          quota && Math.floor((quota * config.aiDailyRequestPercent) / 100),
+        );
+      } else {
+        const report = await deps.usageService?.getMonthToDate();
+        if (report) text = formatUsageMessage(report);
+      }
+      await sendMessage(config, channelId, text);
     } catch {
       await sendMessage(config, channelId, "Usage reporting is unavailable right now.");
     }
@@ -136,11 +144,7 @@ export async function handleMessage(
   }
 
   if (!rateLimitResult.allowed) {
-    await sendMessage(
-      config,
-      channelId,
-      "I've used up all my brain power for today!~ Let's chat tomorrow~",
-    );
+    await sendMessage(config, channelId, OUT_OF_BRAIN_POWER);
     console.log("Daily AI budget exhausted");
     return;
   }
@@ -237,7 +241,10 @@ export async function handleMessage(
     await sendMessage(
       config,
       channelId,
-      actionReply ?? "Hmm, my brain's a bit fuzzy right now. Try again in a moment~",
+      actionReply ??
+        (aiResult.quotaExhausted
+          ? OUT_OF_BRAIN_POWER
+          : "Hmm, my brain's a bit fuzzy right now. Try again in a moment~"),
       Boolean(actionSession),
     );
     return;

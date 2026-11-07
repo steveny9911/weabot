@@ -15,6 +15,10 @@ export interface AppConfig {
   /** Unset means OpenAI. */
   aiProvider?: AiProviderName;
   aiApiKey: string | undefined;
+  /** Model name for providers that have no saved prompt. */
+  aiModel?: string;
+  /** File holding the persona for providers that have no saved prompt. */
+  aiSystemPromptFile?: string;
   /** AI requests per user per minute. */
   aiRateLimitPerUser: number;
   /** Soft daily token threshold; requests already in flight may exceed it. */
@@ -109,6 +113,8 @@ export function loadConfig(): AppConfig {
     aiProvider,
     // OPENAI_API_KEY is the original name, still accepted for OpenAI.
     aiApiKey: optional("AI_API_KEY") ?? (aiProvider === "openai" ? env.OPENAI_API_KEY : undefined),
+    aiModel: optional("AI_MODEL"),
+    aiSystemPromptFile: optional("AI_SYSTEM_PROMPT_FILE"),
     aiRateLimitPerUser: int("AI_RATE_LIMIT_PER_USER", 2),
     aiDailyTokenBudget: int("AI_DAILY_TOKEN_BUDGET", 10_000_000),
     aiDailyRequestQuota: positiveInteger("AI_DAILY_REQUEST_QUOTA", 0) || undefined,
