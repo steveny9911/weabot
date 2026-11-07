@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { assert, throws } from "../../../tests/support/assert.ts";
 import { testConfig } from "../../../tests/support/config.ts";
 import type { Fetcher } from "../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
 import { createAiService } from "../service.ts";
 import { createGeminiProvider } from "./gemini.ts";
 import { withProviderLimits } from "./index.ts";
@@ -144,18 +145,72 @@ test("startup stops without a model, a prompt file, or prompt text", () => {
   throws(() => createGeminiProvider(config()), Error, "is empty");
 });
 
-test("Gemini keeps Discord actions and turns off autonomous chat for now", () => {
+test("Gemini keeps Discord actions and autonomous chat", () => {
   const limited = withProviderLimits(
     config({ discordActionsEnabled: true, autonomousChatEnabled: true }),
   );
   expect(limited.discordActionsEnabled).toBe(true);
-  expect(limited.autonomousChatEnabled).toBe(false);
+  expect(limited.autonomousChatEnabled).toBe(true);
 
   const openai = withProviderLimits(
     testConfig({ discordActionsEnabled: true, autonomousChatEnabled: true }),
   );
   expect(openai.discordActionsEnabled).toBe(true);
   expect(openai.autonomousChatEnabled).toBe(true);
+});
+
+const runParticipation = (fetcher: Fetcher) =>
+  createGeminiProvider(config(), { fetch: fetcher })
+    .start({
+      instructions: "Choose reply, react, or silent.",
+      userText: "Alice: hi",
+      imageUrls: [],
+      format: "participation",
+    })
+    .step(new AbortController().signal);
+
+test("participation asks for the shared JSON schema and returns the decision", async () => {
+  const decision =
+    '{"action":"silent","text":"","messageId":"","emoji":"","intent":"","reason":"ambiguous"}';
+  const { calls, fetcher } = fakeFetch(() => reply(decision));
+
+  expect(await runParticipation(fetcher)).toEqual({
+    ok: true,
+    text: decision,
+    toolCalls: [],
+    tokens: 12,
+  });
+  const body = calls[0]!.body as GeminiBody & {
+    tools?: unknown;
+    generationConfig: Record<string, unknown>;
+  };
+  expect(body.generationConfig).toMatchObject({
+    responseMimeType: "application/json",
+    responseJsonSchema: AUTONOMOUS_PARTICIPATION_FORMAT.schema,
+  });
+  expect(body.tools).toBeUndefined();
+  expect(body.systemInstruction.parts[0]!.text).toBe(
+    "You are Haru.\n\nChoose reply, react, or silent.",
+  );
+});
+
+test("a participation response that did not finish normally is no decision", async () => {
+  const text = '{"action":"silent"}';
+  for (const candidates of [
+    [{ content: { parts: [{ text }] }, finishReason: "MAX_TOKENS" }],
+    [{ content: { parts: [{ text }] }, finishReason: "SAFETY" }],
+    [],
+  ]) {
+    const { fetcher } = fakeFetch(
+      () => new Response(JSON.stringify({ candidates, usageMetadata: { totalTokenCount: 7 } })),
+    );
+    expect(await runParticipation(fetcher)).toEqual({
+      ok: true,
+      text: null,
+      toolCalls: [],
+      tokens: 7,
+    });
+  }
 });
 
 /** Serves a reply or error per model, in the order given, and records which models were called. */

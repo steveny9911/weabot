@@ -79,9 +79,7 @@ function validateChoice(
 
 async function main(): Promise<void> {
   if (process.argv.slice(2).includes("--help")) {
-    console.log(
-      "Always dry-run: three synthetic conversations, real OpenAI calls, no Discord access.",
-    );
+    console.log("Always dry-run: three synthetic conversations, real AI calls, no Discord access.");
     return;
   }
   if (process.argv.slice(2).some((arg) => arg !== "--dry-run")) {
