@@ -150,15 +150,44 @@ You should see:
 ## Running with Docker
 
 ```bash
-cp .env.sample .env      # fill in DISCORD_TOKEN, CHANNEL_ID, and any optional keys
+cp .env.sample .env      # fill in DISCORD_TOKEN, a channel ID, and any optional keys
 mkdir data && sudo chown 1000:1000 data
-docker compose up -d     # builds locally; use `pull` to fetch the published image
+docker compose pull      # fetch the published image (or skip it to build locally)
+docker compose up -d
+docker compose logs -f haru
 ```
 
-The container runs as user `1000` and keeps the SQLite database in `./data`. Run only one instance
-per Discord token. Container logs are capped at three 10 MB files. No port is published, because the
-bot only makes outbound connections. To reach the admin API from the host, add
-`ports: ["127.0.0.1:8000:8000"]` and set `ADMIN_HTTP_TOKEN`.
+The log should show `🐴 Haru is running!`. The container runs as user `1000` and keeps the SQLite
+database in `./data`. Run only one instance per Discord token, so stop `bun run dev` first.
+Container logs are capped at three 10 MB files. No port is published, because the bot only makes
+outbound connections. To reach the admin API from the host, add `ports: ["127.0.0.1:8000:8000"]` and
+set `ADMIN_HTTP_TOKEN`.
+
+Everyday commands, from the repository directory:
+
+- After editing `.env`: `docker compose up -d --force-recreate`
+- Stop: `docker compose down` (the database stays in `./data`)
+- Update by hand: `docker compose pull && docker compose up -d`
+
+### Updating automatically with systemd
+
+`deploy/systemd/` holds a user service and timer that pull the latest image every 6 hours and
+recreate the container only when the image changed. Install them from the repository directory:
+
+```bash
+mkdir -p ~/.config/systemd/user
+sed "s#@PROJECT_DIR@#$PWD#" deploy/systemd/haru-update.service > ~/.config/systemd/user/haru-update.service
+cp deploy/systemd/haru-update.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now haru-update.timer
+```
+
+Check it with `systemctl --user list-timers haru-update.timer`, run an update now with
+`systemctl --user start haru-update.service`, and read the result with
+`journalctl --user -u haru-update.service -n 20`. The update also starts a stopped stack, so enable
+the timer only when you want Haru running. To keep it running while you are logged out, run
+`sudo loginctl enable-linger $USER` once. Remove it with
+`systemctl --user disable --now haru-update.timer`.
 
 ## Using Haru in Discord
 

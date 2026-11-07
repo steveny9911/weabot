@@ -1,0 +1,9 @@
+[Unit]
+Description=Pull the latest Haru image and restart the container if it changed
+
+[Service]
+Type=oneshot
+WorkingDirectory=@PROJECT_DIR@
+ExecStart=/usr/bin/env docker compose pull --quiet
+ExecStart=/usr/bin/env docker compose up -d --no-build
+ExecStart=/usr/bin/env docker image prune -f

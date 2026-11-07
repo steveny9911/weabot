@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new Haru image every 6 hours
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
