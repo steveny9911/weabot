@@ -118,6 +118,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `AI_CONTEXT_MAX_MESSAGES`         | No       | Max messages from the current conversation (default: `40`)             |
 | `AI_CONTEXT_INACTIVITY_MINUTES`   | No       | Silence that starts a new context (default: `20`)                      |
 | `HARU_DB_PATH`                    | No       | SQLite database file (default: `./data/haru.sqlite3`)                  |
+| `HTTP_PORT`                       | No       | Port for the health and admin HTTP server (default: `8000`)            |
 
 _Set either `CHANNEL_ID` or `CHANNEL_IDS`._
 
@@ -358,9 +359,9 @@ scheduled jobs and can respond in any server the bot can access.
 
 Set `AI_PROVIDER=gemini`, `AI_API_KEY`, `AI_MODEL` and `AI_SYSTEM_PROMPT_FILE`. The persona is read
 from the file at startup, and startup stops if it or `AI_MODEL` is missing, even when AI chat is
-off. PNG, JPEG and WebP images are sent; other attachments are skipped. Gemini currently answers
-plain mentions only, so Discord event actions and autonomous chat are turned off while it is
-selected.
+off. PNG, JPEG and WebP images are sent; other attachments are skipped. Gemini replies and runs
+Discord event actions, but autonomous chat is turned off while it is selected. A reply that calls
+tools stays on the model that made the first call; if that model fails midway, the reply fails.
 
 `AI_MODEL` is a comma-separated list. Each reply tries the models in order, giving each 20 seconds.
 Any failure other than a bad key or request (400, 401, 403) moves on to the next model, and every

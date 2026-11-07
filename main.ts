@@ -23,6 +23,7 @@ import type { BotDependencies } from "./src/bot/handle_message.ts";
 const config = withProviderLimits(loadConfig());
 
 const dbPath = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
+const httpPort = Number(process.env.HTTP_PORT) || 8000;
 const db = openDatabase(dbPath);
 const storage = createStorageService(db);
 const actionTurns = new TurnStore<PendingRequest>();
@@ -69,7 +70,7 @@ registerCronJobs(
   rateLimit,
   createMaintenanceJob(db, actionTurns),
 );
-createServer(config, discord, storage, dateFormatter, rateLimit);
+createServer(config, discord, storage, dateFormatter, rateLimit, httpPort);
 
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);

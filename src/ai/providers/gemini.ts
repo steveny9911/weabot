@@ -1,6 +1,6 @@
-/** Google Gemini through @google/genai, for plain replies. Haru's persona comes from a prompt file. */
+/** Google Gemini through @google/genai, for replies and tools. Haru's persona comes from a prompt file. */
 import { readFileSync } from "node:fs";
-import { ApiError, GoogleGenAI } from "@google/genai";
+import { ApiError, type Content, GoogleGenAI } from "@google/genai";
 import type { AppConfig } from "../../config.ts";
 import type { Fetcher } from "../../types/fetch.ts";
 import type { AiProvider, ProviderStep } from "./types.ts";
@@ -41,35 +41,56 @@ export function createGeminiProvider(
   return {
     label: "Gemini",
     missingKeyError: "AI_API_KEY not set",
-    capabilities: { tools: false, autonomous: false },
+    capabilities: { tools: true, autonomous: false },
     start(request) {
       let calls = 0;
+      let contents: Content[] | undefined;
+      let reply: Content | undefined;
+      // Tool results only make sense to the model that asked for them.
+      let pinned: string | undefined;
+      const tools = request.tools?.flatMap((tool) =>
+        typeof tool.name === "string"
+          ? [
+              {
+                name: tool.name,
+                description: String(tool.description ?? ""),
+                parametersJsonSchema: tool.parameters,
+              },
+            ]
+          : [],
+      );
+      const systemInstruction = [persona, request.instructions].filter(Boolean).join("\n\n");
       return {
         get calls() {
           return calls;
         },
         async step(signal): Promise<ProviderStep> {
-          if (request.tools || request.format === "participation") {
+          if (request.format === "participation") {
             return { ok: false, error: "Gemini does not support this request yet", tokens: 0 };
           }
-          const images = await Promise.all(
-            request.imageUrls.map((url) =>
-              inlineImage(
-                fetchImpl,
-                url,
-                AbortSignal.any([signal, AbortSignal.timeout(attemptMs)]),
+          if (!contents) {
+            const images = await Promise.all(
+              request.imageUrls.map((url) =>
+                inlineImage(
+                  fetchImpl,
+                  url,
+                  AbortSignal.any([signal, AbortSignal.timeout(attemptMs)]),
+                ),
               ),
-            ),
-          );
-          const contents = [
-            {
-              role: "user",
-              parts: [{ text: request.userText }, ...images.filter((image) => image !== null)],
-            },
-          ];
-          const systemInstruction = [persona, request.instructions].filter(Boolean).join("\n\n");
+            );
+            contents = [
+              {
+                role: "user",
+                parts: [
+                  { text: request.userText },
+                  ...images.filter((image) => image !== null),
+                  ...(request.currentUserMessage ? [{ text: request.currentUserMessage }] : []),
+                ],
+              },
+            ];
+          }
           let lastError = "";
-          for (const model of models) {
+          for (const model of pinned ? [pinned] : models) {
             calls++;
             try {
               const response = await client.models.generateContent({
@@ -77,21 +98,35 @@ export function createGeminiProvider(
                 contents,
                 config: {
                   systemInstruction,
+                  ...(tools ? { tools: [{ functionDeclarations: tools }] } : {}),
                   abortSignal: AbortSignal.any([signal, AbortSignal.timeout(attemptMs)]),
                   automaticFunctionCalling: { disable: true },
                 },
               });
-              const parts = response.candidates?.[0]?.content?.parts ?? [];
+              reply = response.candidates?.[0]?.content;
+              const parts = reply?.parts ?? [];
               const text = parts
                 .filter((part) => !part.thought)
                 .map((part) => part.text ?? "")
                 .join("")
                 .trim();
+              const toolCalls = parts.flatMap((part, index) =>
+                part.functionCall?.name
+                  ? [
+                      {
+                        id: part.functionCall.id ?? `call_${calls}_${index}`,
+                        name: part.functionCall.name,
+                        arguments: JSON.stringify(part.functionCall.args ?? {}),
+                      },
+                    ]
+                  : [],
+              );
+              if (toolCalls.length > 0) pinned = model;
               console.log("[AI] model:", model);
               return {
                 ok: true,
                 text: text || null,
-                toolCalls: [],
+                toolCalls,
                 tokens: response.usageMetadata?.totalTokenCount ?? 0,
               };
             } catch (error) {
@@ -107,12 +142,27 @@ export function createGeminiProvider(
           }
           return { ok: false, error: lastError, tokens: 0 };
         },
-        addToolResults() {
-          throw new Error("Gemini does not support tools yet");
+        addToolResults(toolCalls, results) {
+          if (!contents || !reply) throw new Error("No tool calls to answer");
+          // Keep the model's own turn: Gemini 3 needs its thought signatures back.
+          contents.push(reply, {
+            role: "user",
+            parts: toolCalls.map((call, index) => ({
+              functionResponse: { name: call.name, response: toResponse(results[index]!) },
+            })),
+          });
         },
       };
     },
   };
+}
+
+/** A function response must be an object; tool results are JSON text. */
+function toResponse(result: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(result);
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : { result: value };
 }
 
 /** Gemini cannot fetch Discord links itself, so images go inline; unusable ones are skipped. */
