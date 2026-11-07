@@ -390,12 +390,12 @@ scheduled jobs and can respond in any server the bot can access.
 
 Set `AI_PROVIDER=gemini`, `AI_API_KEY`, `AI_MODEL` and `AI_SYSTEM_PROMPT_FILE`. The persona is read
 from the file at startup, and startup stops if it or `AI_MODEL` is missing, even when AI chat is
-off. PNG, JPEG and WebP images are sent; other attachments are skipped. Gemini replies and runs
+off. PNG, JPEG, WebP and GIF images are sent; other attachments are skipped. Gemini replies and runs
 Discord event actions, and autonomous chat asks it for the same structured decision as OpenAI. A
 reply that calls tools stays on the model that made the first call; if that model fails midway, the
 reply fails.
 
-`AI_MODEL` is a comma-separated list. Each reply tries the models in order, giving each 20 seconds.
+`AI_MODEL` is a comma-separated list. Each reply tries the models in order, giving each 8 seconds.
 Any failure other than a bad key or request (400, 401, 403) moves on to the next model, and every
 attempt counts toward the daily request quota. If all fail, Haru says her brain is fuzzy. Put the
 most reliable model first, since there is no cooldown for a model that is down.

@@ -78,12 +78,13 @@ test("a plain reply sends the persona and the conversation to the model", async 
   expect(call.body.contents).toEqual([{ role: "user", parts: [{ text: "Alice: hi" }] }]);
 });
 
-test("only PNG, JPEG and WebP images are sent, inline", async () => {
+test("only PNG, JPEG, WebP and GIF images are sent, inline", async () => {
   const image = (type: string, size = 3) =>
     new Response(new Uint8Array(size), { headers: { "content-type": type } });
   const { calls, fetcher } = fakeFetch(() => reply("ok"), {
     "https://cdn/a.png": image("image/png"),
     "https://cdn/b.gif": image("image/gif"),
+    "https://cdn/d.bmp": image("image/bmp"),
     "https://cdn/c.jpg": image("image/jpeg; charset=binary"),
     "https://cdn/big.webp": image("image/webp", 5_000_001),
     "https://cdn/gone.png": new Response("no", { status: 404 }),
@@ -91,6 +92,7 @@ test("only PNG, JPEG and WebP images are sent, inline", async () => {
   await run(fetcher, [
     "https://cdn/a.png",
     "https://cdn/b.gif",
+    "https://cdn/d.bmp",
     "https://cdn/c.jpg",
     "https://cdn/big.webp",
     "https://cdn/gone.png",
@@ -100,6 +102,7 @@ test("only PNG, JPEG and WebP images are sent, inline", async () => {
   expect(parts).toEqual([
     { text: "Alice: hi" },
     { inlineData: { mimeType: "image/png", data: "AAAA" } },
+    { inlineData: { mimeType: "image/gif", data: "AAAA" } },
     { inlineData: { mimeType: "image/jpeg", data: "AAAA" } },
   ]);
 });
@@ -227,7 +230,7 @@ function fakeModels(byModel: Record<string, () => Response | Promise<Response>>)
 const failWith = (status: number) => () =>
   new Response(JSON.stringify({ error: { message: "nope" } }), { status });
 
-const runModels = (fetcher: Fetcher, attemptTimeoutMs = 20_000) => {
+const runModels = (fetcher: Fetcher, attemptTimeoutMs = 8_000) => {
   const session = createGeminiProvider(config({ aiModel: "a, b ,a,c" }), {
     fetch: fetcher,
     attemptTimeoutMs,
