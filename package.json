@@ -28,5 +28,8 @@
   },
   "devDependencies": {
     "@types/bun": "~1.4.4"
+  },
+  "dependencies": {
+    "@google/genai": "3.0.0"
   }
 }
