@@ -118,6 +118,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `AI_CONTEXT_MAX_MESSAGES`         | No       | Max messages from the current conversation (default: `40`)             |
 | `AI_CONTEXT_INACTIVITY_MINUTES`   | No       | Silence that starts a new context (default: `20`)                      |
 | `HARU_DB_PATH`                    | No       | SQLite database file (default: `./data/haru.sqlite3`)                  |
+| `HTTP_PORT`                       | No       | Port for the health and admin HTTP server (default: `8000`)            |
 
 _Set either `CHANNEL_ID` or `CHANNEL_IDS`._
 
