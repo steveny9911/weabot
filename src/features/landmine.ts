@@ -1,11 +1,11 @@
-/** Landmines: any message may be one, and its author is timed out for stepping on it. */
+/** Landmines: any message may be one. Haru announces who stepped on it and can time them out. */
 import type { AppConfig } from "../config.ts";
 import { formatTime, isCommand } from "../bot/commands.ts";
 import { sendMessage, timeoutMember } from "../discord/messages.ts";
 import type { createLandmineQueries } from "../db/landmines.ts";
 
 export interface LandmineService {
-  /** Rolls one message; on a landmine times the author out and announces it. Never throws. */
+  /** Rolls one message; on a landmine announces it, and times the author out if enabled. Never throws. */
   step(message: Record<string, unknown>): Promise<void>;
 }
 
@@ -39,21 +39,26 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         const remaining = mines.claim();
         if (remaining === null) return;
 
-        const seconds = config.landmineTimeoutSeconds;
-        const result = await timeout(config, guildId, userId, seconds, "Stepped on a landmine");
-        if (!result.ok) {
-          mines.refund();
-          console.error(`[LANDMINE] Could not time out ${userId}: ${result.error}`);
-          return;
+        let timedOut = "";
+        if (config.landmineTimeoutEnabled) {
+          const seconds = config.landmineTimeoutSeconds;
+          const result = await timeout(config, guildId, userId, seconds, "Stepped on a landmine");
+          if (!result.ok) {
+            mines.refund();
+            console.error(`[LANDMINE] Could not time out ${userId}: ${result.error}`);
+            return;
+          }
+          timedOut = ` and has been timed out for ${formatTime(seconds * 1000)}`;
         }
 
-        const duration = formatTime(seconds * 1000);
+        const gif = config.landmineGifs[Math.floor(random() * config.landmineGifs.length)];
         console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
         await send(
           config,
           channelId,
-          `💥<@${userId}>💥 stepped on a landmine and has been timed out for ${duration}! ` +
-            `(${remaining.toLocaleString("en-US")} landmines remaining)`,
+          `💥<@${userId}>💥 stepped on a landmine${timedOut}! ` +
+            `(${remaining.toLocaleString("en-US")} landmines remaining)` +
+            (gif ? `\n${gif}` : ""),
         );
       } catch (error) {
         console.error("[LANDMINE] Failed:", error);

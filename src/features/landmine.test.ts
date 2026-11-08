@@ -45,6 +45,27 @@ test("a message that is a landmine times out its author and announces it", async
   ]);
 });
 
+test("with timeouts off a landmine only announces, and the user is not timed out", async () => {
+  const { service, timeouts, sent, mines } = setup({ landmineTimeoutEnabled: false });
+  await service.step(message());
+  expect(timeouts).toHaveLength(0);
+  expect(sent).toStrictEqual([
+    "test-channel: 💥<@user-1>💥 stepped on a landmine! (99,999 landmines remaining)",
+  ]);
+  expect(mines.claim()).toBe(99_998);
+});
+
+test("the announcement ends with a GIF picked from the list", async () => {
+  const gifs = ["https://a.gif", "https://b.gif"];
+  const first = setup({ landmineGifs: gifs }, { random: 0 });
+  await first.service.step(message());
+  expect(first.sent[0]).toEndWith("landmines remaining)\nhttps://a.gif");
+  // 0.6 is below the 90% chance, and 0.6 * 2 rounds down to the second GIF
+  const second = setup({ landmineGifs: gifs, landmineChance: 0.9 }, { random: 0.6 });
+  await second.service.step(message());
+  expect(second.sent[0]).toEndWith("\nhttps://b.gif");
+});
+
 test("the announcement uses the configured timeout", async () => {
   const { service, sent } = setup({ landmineTimeoutSeconds: 30 });
   await service.step(message());
