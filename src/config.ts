@@ -68,6 +68,8 @@ export interface AppConfig {
   landmineChannelIds: string[];
   /** Chance in [0, 1] that a message is a landmine. */
   landmineChance: number;
+  /** Whether stepping on a landmine also times the user out. */
+  landmineTimeoutEnabled: boolean;
   landmineTimeoutSeconds: number;
 }
 
@@ -172,6 +174,7 @@ export function loadConfig(): AppConfig {
       1,
       Math.max(0, Number.isFinite(landmineChance) ? landmineChance : 0.1),
     ),
+    landmineTimeoutEnabled: notFalse("LANDMINE_TIMEOUT_ENABLED"),
     // Discord allows timeouts of up to 28 days.
     landmineTimeoutSeconds: Math.min(28 * 86_400, positiveInteger("LANDMINE_TIMEOUT_SECONDS", 60)),
   };

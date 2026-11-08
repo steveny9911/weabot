@@ -46,6 +46,7 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "LANDMINE_ENABLED",
     "LANDMINE_CHANNEL_IDS",
     "LANDMINE_CHANCE",
+    "LANDMINE_TIMEOUT_ENABLED",
     "LANDMINE_TIMEOUT_SECONDS",
   ]);
 
@@ -188,6 +189,7 @@ test("loadConfig returns complete config with all values", () => {
         landmineEnabled: false,
         landmineChannelIds: ["123456789"],
         landmineChance: 0.1,
+        landmineTimeoutEnabled: true,
         landmineTimeoutSeconds: 60,
       });
     },
@@ -390,6 +392,7 @@ test("landmines are off by default and use the bot channels, 10% and 60 seconds"
     expect(config.landmineEnabled).toBe(false);
     expect(config.landmineChannelIds).toStrictEqual(["1", "2"]);
     expect(config.landmineChance).toBe(0.1);
+    expect(config.landmineTimeoutEnabled).toBe(true);
     expect(config.landmineTimeoutSeconds).toBe(60);
   });
 });
@@ -425,5 +428,11 @@ test("landmine settings are read, and invalid values fall back or are clamped", 
   }
   withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_CHANNEL_IDS: " , " }, () => {
     expect(loadConfig().landmineChannelIds).toStrictEqual(["1"]);
+  });
+});
+
+test("landmine timeouts can be turned off", () => {
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_TIMEOUT_ENABLED: "false" }, () => {
+    expect(loadConfig().landmineTimeoutEnabled).toBe(false);
   });
 });

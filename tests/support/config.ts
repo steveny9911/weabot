@@ -35,6 +35,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     landmineEnabled: false,
     landmineChannelIds: ["test-channel"],
     landmineChance: 0.1,
+    landmineTimeoutEnabled: true,
     landmineTimeoutSeconds: 60,
     ...overrides,
   };
