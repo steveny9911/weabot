@@ -27,6 +27,17 @@ export function messageMentionsBot(message: Record<string, unknown>, botId: stri
   return false;
 }
 
+/** A `\\` command (`\\usage`, `\\open ...`, `\\reset`), with or without a leading mention. */
+export function isCommand(content: string | undefined): boolean {
+  if (!content) return false;
+  return (
+    content
+      .replace(/<@!?\d+>/g, " ")
+      .trim()
+      .startsWith("\\") || isResetCommand(content)
+  );
+}
+
 /** `@Haru \\reset` */
 export function isResetCommand(content: string | undefined): boolean {
   if (!content) return false;

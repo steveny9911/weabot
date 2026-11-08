@@ -86,3 +86,13 @@ test("no timeout happens once the landmines run out", async () => {
   await service.step(message());
   expect(timeouts).toHaveLength(0);
 });
+
+test("\\ commands are never landmines", async () => {
+  const { service, timeouts } = setup();
+  for (const content of ["\\usage", "<@123> \\open https://example.com", "<@123> hi \\reset"]) {
+    await service.step(message({ content }));
+  }
+  expect(timeouts).toHaveLength(0);
+  await service.step(message({ content: "an a\\b message" }));
+  expect(timeouts).toHaveLength(1);
+});

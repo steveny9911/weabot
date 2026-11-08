@@ -1,6 +1,6 @@
 /** Landmines: any message may be one, and its author is timed out for stepping on it. */
 import type { AppConfig } from "../config.ts";
-import { formatTime } from "../bot/commands.ts";
+import { formatTime, isCommand } from "../bot/commands.ts";
 import { sendMessage, timeoutMember } from "../discord/messages.ts";
 import type { createLandmineQueries } from "../db/landmines.ts";
 
@@ -29,6 +29,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
       if (typeof guildId !== "string" || typeof channelId !== "string") return;
       if (typeof userId !== "string") return;
       if (!config.landmineChannelIds.includes(channelId)) return;
+      if (isCommand(message["content"] as string | undefined)) return;
       if (random() >= config.landmineChance) return;
 
       try {
