@@ -40,7 +40,7 @@ export interface BotDependencies {
   landmineService?: LandmineService;
 }
 
-/** Rolls landmines for every message, then answers mentions: \\usage, \\reset, \\open, and otherwise an AI reply within the rate limits. */
+/** Answers mentions: \\usage, \\reset, \\open, and otherwise an AI reply within the rate limits. */
 export async function handleMessage(
   message: Record<string, unknown>,
   deps: BotDependencies,
@@ -68,7 +68,8 @@ export async function handleMessage(
     return;
   }
 
-  await deps.landmineService?.step(message);
+  // Landmines roll for every human message. Not awaited, so a slow Discord call cannot delay replies.
+  void deps.landmineService?.step(message);
 
   if (!messageMentionsBot(message, botId)) {
     return;

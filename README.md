@@ -120,7 +120,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `LANDMINE_ENABLED`                | No       | Turn on landmines (default: `false`)                                   |
 | `LANDMINE_CHANNEL_IDS`            | No       | Landmine channels (default: the bot's channels)                        |
 | `LANDMINE_CHANCE`                 | No       | Chance a message is a landmine, 0 to 1 (default: `0.1`)                |
-| `LANDMINE_TIMEOUT_SECONDS`        | No       | Timeout for stepping on one (default: `60`)                            |
+| `LANDMINE_TIMEOUT_SECONDS`        | No       | Timeout for stepping on one (default: `60`, max 28 days)               |
 | `LINK_OPEN_ENABLED`               | No       | Enable `\open` link command (default: `true`)                          |
 | `TWEET_READ_ENABLED`              | No       | Read tweet links in mentions (default: `true`)                         |
 | `AI_CONTEXT_MAX_MESSAGES`         | No       | Max messages from the current conversation (default: `40`)             |
@@ -560,7 +560,7 @@ weabot/
 │   ├── jobs/                   # Work shared by cron jobs and admin HTTP triggers
 │   ├── bot/                    # Message handling: mentions, \usage, \reset, \open, AI replies
 │   ├── ai/                     # AI service, providers/ (one adapter each), participation, reply text
-│   ├── features/               # Bot logic (polls, stats, chat context, reactions, Discord actions)
+│   ├── features/               # Bot logic (polls, stats, chat context, reactions, landmines, Discord actions)
 │   ├── services/               # Storage, rate limits and usage reporting
 │   ├── discord/                # The only code that calls the Discord REST API
 │   ├── net/                    # Public-web fetches: link opening, tweets, web search, retry

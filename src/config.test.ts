@@ -418,4 +418,12 @@ test("landmine settings are read, and invalid values fall back or are clamped", 
   withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_CHANCE: "oops" }, () => {
     expect(loadConfig().landmineChance).toBe(0.1);
   });
+  for (const timeout of ["0", "-5", "abc"]) {
+    withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_TIMEOUT_SECONDS: timeout }, () => {
+      expect(loadConfig().landmineTimeoutSeconds).toBe(60);
+    });
+  }
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_CHANNEL_IDS: " , " }, () => {
+    expect(loadConfig().landmineChannelIds).toStrictEqual(["1"]);
+  });
 });

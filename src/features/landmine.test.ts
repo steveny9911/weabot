@@ -40,7 +40,7 @@ test("a message that is a landmine times out its author and announces it", async
   await service.step(message());
   expect(timeouts).toStrictEqual([["guild-1", "user-1", 60, "Stepped on a landmine"]]);
   expect(sent).toStrictEqual([
-    "test-channel: 💥<@user-1> 💥 stepped on a landmine and has been timed out for 1 minute! " +
+    "test-channel: 💥<@user-1>💥stepped on a landmine and has been timed out for 1 minute! " +
       "(99,999 landmines remaining)",
   ]);
 });
@@ -80,11 +80,43 @@ test("a failed timeout puts the landmine back and announces nothing", async () =
   expect(mines.claim()).toBe(99_999);
 });
 
+test("only normal messages and replies are landmines, not system messages", async () => {
+  const { service, timeouts } = setup();
+  for (const type of [7, 6, 8, 18]) await service.step(message({ type }));
+  expect(timeouts).toHaveLength(0);
+  await service.step(message({ type: 0 }));
+  await service.step(message({ type: 19 }));
+  expect(timeouts).toHaveLength(2);
+});
+
+test("a chance of 0 is never a landmine", async () => {
+  const { service, timeouts } = setup({ landmineChance: 0 });
+  await service.step(message());
+  expect(timeouts).toHaveLength(0);
+});
+
+test("a failed announcement does not put the landmine back", async () => {
+  const { db, mines } = setup();
+  const failing = createLandmineService({
+    config: testConfig({ landmineEnabled: true, landmineChance: 0.5 }),
+    mines,
+    random: () => 0,
+    timeout: async () => ({ ok: true }),
+    send: async () => {
+      throw new Error("send failed");
+    },
+  });
+  await failing.step(message());
+  expect(mines.claim()).toBe(99_998);
+  db.close();
+});
+
 test("no timeout happens once the landmines run out", async () => {
-  const { db, service, timeouts } = setup();
+  const { db, service, timeouts, sent } = setup();
   db.run("UPDATE landmines SET remaining = 0");
   await service.step(message());
   expect(timeouts).toHaveLength(0);
+  expect(sent).toHaveLength(0);
 });
 
 test("\\ commands are never landmines", async () => {

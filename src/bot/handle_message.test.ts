@@ -886,3 +886,27 @@ test("landmines are rolled for every message, mention or not", async () => {
     mock.restore();
   }
 });
+
+test("landmines are not rolled for bot messages", async () => {
+  const config = createMockConfig();
+  const { deps } = createDeps(config);
+  let stepped = 0;
+  deps.landmineService = {
+    step() {
+      stepped++;
+      return Promise.resolve();
+    },
+  };
+  const mock = mockDiscordApiFetch();
+  try {
+    const fromBot = {
+      ...createMentionMessage("beep"),
+      mentions: [],
+      author: { id: "bot-1", bot: true },
+    };
+    await handleMessage(fromBot, deps);
+    expect(stepped).toBe(0);
+  } finally {
+    mock.restore();
+  }
+});

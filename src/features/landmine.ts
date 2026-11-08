@@ -25,7 +25,10 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
       const guildId = message["guild_id"];
       const channelId = message["channel_id"];
       const userId = (message["author"] as { id?: unknown } | undefined)?.id;
+      // Only what a person typed: a normal message (0) or a reply (19), not joins, pins, boosts...
+      const type = message["type"] ?? 0;
       if (!config.landmineEnabled) return;
+      if (type !== 0 && type !== 19) return;
       if (typeof guildId !== "string" || typeof channelId !== "string") return;
       if (typeof userId !== "string") return;
       if (!config.landmineChannelIds.includes(channelId)) return;
@@ -49,7 +52,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         await send(
           config,
           channelId,
-          `💥<@${userId}> 💥 stepped on a landmine and has been timed out for ${duration}! ` +
+          `💥<@${userId}>💥stepped on a landmine and has been timed out for ${duration}! ` +
             `(${remaining.toLocaleString("en-US")} landmines remaining)`,
         );
       } catch (error) {
