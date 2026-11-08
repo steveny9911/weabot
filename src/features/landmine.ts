@@ -52,7 +52,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         await send(
           config,
           channelId,
-          `💥<@${userId}>💥stepped on a landmine and has been timed out for ${duration}! ` +
+          `💥<@${userId}>💥 stepped on a landmine and has been timed out for ${duration}! ` +
             `(${remaining.toLocaleString("en-US")} landmines remaining)`,
         );
       } catch (error) {

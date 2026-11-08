@@ -40,7 +40,7 @@ test("a message that is a landmine times out its author and announces it", async
   await service.step(message());
   expect(timeouts).toStrictEqual([["guild-1", "user-1", 60, "Stepped on a landmine"]]);
   expect(sent).toStrictEqual([
-    "test-channel: 💥<@user-1>💥stepped on a landmine and has been timed out for 1 minute! " +
+    "test-channel: 💥<@user-1>💥 stepped on a landmine and has been timed out for 1 minute! " +
       "(99,999 landmines remaining)",
   ]);
 });
