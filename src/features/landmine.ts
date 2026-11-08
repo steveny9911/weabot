@@ -1,11 +1,11 @@
-/** Landmines: any message may be one, and its author is timed out for stepping on it. */
+/** Landmines: any message may be one. Haru announces who stepped on it and can time them out. */
 import type { AppConfig } from "../config.ts";
 import { formatTime, isCommand } from "../bot/commands.ts";
 import { sendMessage, timeoutMember } from "../discord/messages.ts";
 import type { createLandmineQueries } from "../db/landmines.ts";
 
 export interface LandmineService {
-  /** Rolls one message; on a landmine times the author out and announces it. Never throws. */
+  /** Rolls one message; on a landmine announces it, and times the author out if enabled. Never throws. */
   step(message: Record<string, unknown>): Promise<void>;
 }
 
