@@ -63,6 +63,7 @@ bun install
    - `Send Messages`
    - `Read Messages/View Channels`
    - `Embed Links`
+   - `Timeout Members` (only for landmines)
 4. Copy the generated URL and open it in your browser.
 5. Select your server and authorize the bot.
 
@@ -116,6 +117,10 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `AI_DAILY_REQUEST_QUOTA`          | No       | Model calls per Pacific day, e.g. a free tier (default: none)          |
 | `AI_DAILY_REQUEST_PERCENT`        | No       | Share of the quota mentions may use (default: `90`)                    |
 | `AUTONOMOUS_CHAT_REQUEST_PERCENT` | No       | Share of the quota autonomous chat may use (default: `30`)             |
+| `LANDMINE_ENABLED`                | No       | Turn on landmines (default: `false`)                                   |
+| `LANDMINE_CHANNEL_IDS`            | No       | Landmine channels (default: the bot's channels)                        |
+| `LANDMINE_CHANCE`                 | No       | Chance a message is a landmine, 0 to 1 (default: `0.1`)                |
+| `LANDMINE_TIMEOUT_SECONDS`        | No       | Timeout for stepping on one (default: `60`)                            |
 | `LINK_OPEN_ENABLED`               | No       | Enable `\open` link command (default: `true`)                          |
 | `TWEET_READ_ENABLED`              | No       | Read tweet links in mentions (default: `true`)                         |
 | `AI_CONTEXT_MAX_MESSAGES`         | No       | Max messages from the current conversation (default: `40`)             |
@@ -202,6 +207,18 @@ Mention Haru to chat, or use a command:
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
 - `@Haru https://x.com/user/status/123 what is this?` (reads the tweet's text, up to 4 photos per
   tweet and a quoted tweet via FxTwitter/VxTwitter; videos are skipped)
+
+### Landmines
+
+With `LANDMINE_ENABLED=true`, every message in the landmine channels has a `LANDMINE_CHANCE` of
+being a landmine. Its author is timed out for `LANDMINE_TIMEOUT_SECONDS` and Haru announces it with
+the number of landmines left. There are 100,000 landmines in total, shared by all servers and saved
+in the database; once they are gone, nothing happens.
+
+This is Discord's own timeout, so the user cannot send messages in **any** channel of the server
+until it ends. The bot needs the **Timeout Members** permission and a role above the members it
+times out. Discord never lets a bot time out the server owner or administrators, so they are immune:
+nothing is announced and the landmine is not used up.
 
 ### Activity-triggered participation
 

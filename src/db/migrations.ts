@@ -64,4 +64,11 @@ CREATE TABLE discord_event_guards (
   PRIMARY KEY (guild_id, kind, guard_key)
 ) STRICT;
 `,
+  `
+CREATE TABLE landmines (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  remaining  INTEGER NOT NULL CHECK (remaining >= 0)
+) STRICT;
+INSERT INTO landmines (id, remaining) VALUES (1, 100000);
+`,
 ];

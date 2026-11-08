@@ -43,6 +43,10 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "AUTONOMOUS_CHAT_REPLY_CHANCE",
     "AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES",
     "AUTONOMOUS_CHAT_REQUEST_PERCENT",
+    "LANDMINE_ENABLED",
+    "LANDMINE_CHANNEL_IDS",
+    "LANDMINE_CHANCE",
+    "LANDMINE_TIMEOUT_SECONDS",
   ]);
 
   for (const key of allKeys) {
@@ -181,6 +185,10 @@ test("loadConfig returns complete config with all values", () => {
         autonomousChatMaxContextMessages: 60,
         autonomousChatSettleSeconds: 8,
         autonomousChatRequestPercent: 30,
+        landmineEnabled: false,
+        landmineChannelIds: ["123456789"],
+        landmineChance: 0.1,
+        landmineTimeoutSeconds: 60,
       });
     },
   );
@@ -374,4 +382,40 @@ test("AI_MODEL, AI_SYSTEM_PROMPT_FILE and AI_THINKING are read", () => {
       expect(config.aiSystemPromptFile).toStrictEqual("data/system_prompt.md");
     },
   );
+});
+
+test("landmines are off by default and use the bot channels, 10% and 60 seconds", () => {
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_IDS: "1,2" }, () => {
+    const config = loadConfig();
+    expect(config.landmineEnabled).toBe(false);
+    expect(config.landmineChannelIds).toStrictEqual(["1", "2"]);
+    expect(config.landmineChance).toBe(0.1);
+    expect(config.landmineTimeoutSeconds).toBe(60);
+  });
+});
+
+test("landmine settings are read, and invalid values fall back or are clamped", () => {
+  withEnv(
+    {
+      DISCORD_TOKEN: "token",
+      CHANNEL_ID: "1",
+      LANDMINE_ENABLED: "true",
+      LANDMINE_CHANNEL_IDS: "7, 8",
+      LANDMINE_CHANCE: "0.5",
+      LANDMINE_TIMEOUT_SECONDS: "9999999",
+    },
+    () => {
+      const config = loadConfig();
+      expect(config.landmineEnabled).toBe(true);
+      expect(config.landmineChannelIds).toStrictEqual(["7", "8"]);
+      expect(config.landmineChance).toBe(0.5);
+      expect(config.landmineTimeoutSeconds).toBe(28 * 86_400);
+    },
+  );
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_CHANCE: "2" }, () => {
+    expect(loadConfig().landmineChance).toBe(1);
+  });
+  withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_CHANCE: "oops" }, () => {
+    expect(loadConfig().landmineChance).toBe(0.1);
+  });
 });

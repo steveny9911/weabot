@@ -62,6 +62,13 @@ export interface AppConfig {
   autonomousChatRequestPercent: number;
   /** Wait for a burst of human messages to finish before reading it. */
   autonomousChatSettleSeconds?: number;
+
+  landmineEnabled: boolean;
+  /** Channels with landmines: LANDMINE_CHANNEL_IDS, or the bot's channels when that is empty. */
+  landmineChannelIds: string[];
+  /** Chance in [0, 1] that a message is a landmine. */
+  landmineChance: number;
+  landmineTimeoutSeconds: number;
 }
 
 const env = process.env;
@@ -103,6 +110,8 @@ export function loadConfig(): AppConfig {
 
   const webSearchApiKey = env.BRAVE_SEARCH_API_KEY;
   const replyChance = parseFloat(env.AUTONOMOUS_CHAT_REPLY_CHANCE ?? "0.35");
+  const landmineChance = parseFloat(env.LANDMINE_CHANCE ?? "0.1");
+  const landmineChannelIds = list(env.LANDMINE_CHANNEL_IDS);
 
   return {
     discordToken,
@@ -156,5 +165,14 @@ export function loadConfig(): AppConfig {
     autonomousChatSettleSeconds: 8,
     autonomousChatMaxContextMessages: int("AUTONOMOUS_CHAT_MAX_CONTEXT_MESSAGES", 40),
     autonomousChatRequestPercent: percent("AUTONOMOUS_CHAT_REQUEST_PERCENT", 30),
+
+    landmineEnabled: isTrue("LANDMINE_ENABLED"),
+    landmineChannelIds: landmineChannelIds.length ? [...new Set(landmineChannelIds)] : channelIds,
+    landmineChance: Math.min(
+      1,
+      Math.max(0, Number.isFinite(landmineChance) ? landmineChance : 0.1),
+    ),
+    // Discord allows timeouts of up to 28 days.
+    landmineTimeoutSeconds: Math.min(28 * 86_400, positiveInteger("LANDMINE_TIMEOUT_SECONDS", 60)),
   };
 }

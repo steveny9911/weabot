@@ -5,6 +5,7 @@ import type { AiService } from "../ai/types.ts";
 import { formatActionResults } from "../features/discord_actions/results.ts";
 import type { DiscordActionService } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
+import type { LandmineService } from "../features/landmine.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
 import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
 import {
@@ -36,9 +37,10 @@ export interface BotDependencies {
   webSearchService?: WebSearchService;
   tweetService?: TweetService;
   discordActionService?: DiscordActionService;
+  landmineService?: LandmineService;
 }
 
-/** Answers mentions: \\usage, \\reset, \\open, and otherwise an AI reply within the rate limits. */
+/** Rolls landmines for every message, then answers mentions: \\usage, \\reset, \\open, and otherwise an AI reply within the rate limits. */
 export async function handleMessage(
   message: Record<string, unknown>,
   deps: BotDependencies,
@@ -65,6 +67,8 @@ export async function handleMessage(
     console.error("No channel id available on incoming message");
     return;
   }
+
+  await deps.landmineService?.step(message);
 
   if (!messageMentionsBot(message, botId)) {
     return;

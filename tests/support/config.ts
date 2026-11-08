@@ -32,6 +32,10 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     autonomousChatReplyChance: 0.35,
     autonomousChatMaxContextMessages: 40,
     autonomousChatRequestPercent: 30,
+    landmineEnabled: false,
+    landmineChannelIds: ["test-channel"],
+    landmineChance: 0.1,
+    landmineTimeoutSeconds: 60,
     ...overrides,
   };
 }
