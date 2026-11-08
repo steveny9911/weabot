@@ -866,3 +866,47 @@ test("usage requires a mention and configured channel and ignores bots", async (
     mock.restore();
   }
 });
+
+test("landmines are rolled for every message, mention or not", async () => {
+  const config = createMockConfig();
+  const { deps } = createDeps(config);
+  const stepped: Array<Record<string, unknown>> = [];
+  deps.landmineService = {
+    step(message) {
+      stepped.push(message);
+      return Promise.resolve();
+    },
+  };
+  const mock = mockDiscordApiFetch();
+  try {
+    const plain = { ...createMentionMessage("just chatting"), mentions: [] };
+    await handleMessage(plain, deps);
+    expect(stepped).toStrictEqual([plain]);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("landmines are not rolled for bot messages", async () => {
+  const config = createMockConfig();
+  const { deps } = createDeps(config);
+  let stepped = 0;
+  deps.landmineService = {
+    step() {
+      stepped++;
+      return Promise.resolve();
+    },
+  };
+  const mock = mockDiscordApiFetch();
+  try {
+    const fromBot = {
+      ...createMentionMessage("beep"),
+      mentions: [],
+      author: { id: "bot-1", bot: true },
+    };
+    await handleMessage(fromBot, deps);
+    expect(stepped).toBe(0);
+  } finally {
+    mock.restore();
+  }
+});

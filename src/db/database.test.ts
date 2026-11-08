@@ -19,7 +19,7 @@ function withDirectory(run: (dir: string) => void) {
 const pragma = (db: Database, name: string) =>
   Object.values(db.query(`PRAGMA ${name}`).get() as Record<string, unknown>)[0];
 
-test("a new database is migrated to the latest version with all seven tables", () => {
+test("a new database is migrated to the latest version with all eight tables", () => {
   using db = openDatabase(":memory:");
   expect(pragma(db, "user_version")).toBe(MIGRATIONS.length);
   const tables = db
@@ -34,6 +34,7 @@ test("a new database is migrated to the latest version with all seven tables", (
     "context_resets",
     "discord_action_operations",
     "discord_event_guards",
+    "landmines",
     "polls",
     "votes",
   ]);

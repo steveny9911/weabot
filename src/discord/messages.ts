@@ -95,3 +95,35 @@ export async function fetchChannelMessages(
       )
     : [];
 }
+
+/** Times a member out (needs Timeout Members). One attempt, no retry. */
+export async function timeoutMember(
+  config: AppConfig,
+  guildId: string,
+  userId: string,
+  seconds: number,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const response = await fetch(
+      `${DISCORD_API_BASE}/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: "PATCH",
+        headers: { ...botJsonHeaders(config.discordToken), "X-Audit-Log-Reason": reason },
+        body: JSON.stringify({
+          communication_disabled_until: new Date(Date.now() + seconds * 1000).toISOString(),
+        }),
+      },
+    );
+    if (response.ok) {
+      await response.body?.cancel();
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: `Discord timeout error ${response.status}: ${await response.text()}`,
+    };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}

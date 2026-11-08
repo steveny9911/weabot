@@ -13,6 +13,8 @@ import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
 import { createWebSearchService } from "./src/net/web_search.ts";
 import { createTweetService } from "./src/net/tweet.ts";
+import { createLandmineQueries } from "./src/db/landmines.ts";
+import { createLandmineService } from "./src/features/landmine.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
 import { withProviderLimits } from "./src/ai/providers/index.ts";
@@ -46,6 +48,7 @@ const botDeps: BotDependencies = {
   storageService: storage,
   webSearchService: webSearch,
   tweetService: tweets,
+  landmineService: createLandmineService({ config, mines: createLandmineQueries(db) }),
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
     db,
@@ -106,6 +109,9 @@ if (!config.webSearchApiKey) {
 console.log("");
 console.log("🔗 Link Open:");
 console.log(`   Enabled: ${config.linkOpenEnabled}`);
+console.log("");
+console.log("💣 Landmines:");
+console.log(`   Enabled: ${config.landmineEnabled}`);
 console.log("");
 console.log("💬 Autonomous Chat:");
 console.log(`   Enabled: ${config.autonomousChatEnabled}`);
