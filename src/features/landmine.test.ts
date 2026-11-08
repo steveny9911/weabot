@@ -45,6 +45,16 @@ test("a message that is a landmine times out its author and announces it", async
   ]);
 });
 
+test("with timeouts off a landmine only announces, and the user is not timed out", async () => {
+  const { service, timeouts, sent, mines } = setup({ landmineTimeoutEnabled: false });
+  await service.step(message());
+  expect(timeouts).toHaveLength(0);
+  expect(sent).toStrictEqual([
+    "test-channel: 💥<@user-1>💥 stepped on a landmine! (99,999 landmines remaining)",
+  ]);
+  expect(mines.claim()).toBe(99_998);
+});
+
 test("the announcement uses the configured timeout", async () => {
   const { service, sent } = setup({ landmineTimeoutSeconds: 30 });
   await service.step(message());

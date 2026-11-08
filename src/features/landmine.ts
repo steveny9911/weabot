@@ -39,20 +39,23 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         const remaining = mines.claim();
         if (remaining === null) return;
 
-        const seconds = config.landmineTimeoutSeconds;
-        const result = await timeout(config, guildId, userId, seconds, "Stepped on a landmine");
-        if (!result.ok) {
-          mines.refund();
-          console.error(`[LANDMINE] Could not time out ${userId}: ${result.error}`);
-          return;
+        let timedOut = "";
+        if (config.landmineTimeoutEnabled) {
+          const seconds = config.landmineTimeoutSeconds;
+          const result = await timeout(config, guildId, userId, seconds, "Stepped on a landmine");
+          if (!result.ok) {
+            mines.refund();
+            console.error(`[LANDMINE] Could not time out ${userId}: ${result.error}`);
+            return;
+          }
+          timedOut = ` and has been timed out for ${formatTime(seconds * 1000)}`;
         }
 
-        const duration = formatTime(seconds * 1000);
         console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
         await send(
           config,
           channelId,
-          `💥<@${userId}>💥 stepped on a landmine and has been timed out for ${duration}! ` +
+          `💥<@${userId}>💥 stepped on a landmine${timedOut}! ` +
             `(${remaining.toLocaleString("en-US")} landmines remaining)`,
         );
       } catch (error) {
