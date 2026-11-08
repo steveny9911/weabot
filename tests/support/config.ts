@@ -37,6 +37,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     landmineChance: 0.1,
     landmineTimeoutEnabled: true,
     landmineTimeoutSeconds: 60,
+    landmineGifs: [],
     ...overrides,
   };
 }

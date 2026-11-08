@@ -120,6 +120,7 @@ HARU_DB_PATH=./data/haru.sqlite3
 | `LANDMINE_ENABLED`                | No       | Turn on landmines (default: `false`)                                   |
 | `LANDMINE_CHANNEL_IDS`            | No       | Landmine channels (default: the bot's channels)                        |
 | `LANDMINE_CHANCE`                 | No       | Chance a message is a landmine, 0 to 1 (default: `0.1`)                |
+| `LANDMINE_GIFS`                   | No       | GIF links, comma-separated; one ends each announcement (default: none) |
 | `LANDMINE_TIMEOUT_ENABLED`        | No       | Also time out whoever steps on one (default: `true`)                   |
 | `LANDMINE_TIMEOUT_SECONDS`        | No       | Timeout for stepping on one (default: `60`, max 28 days)               |
 | `LINK_OPEN_ENABLED`               | No       | Enable `\open` link command (default: `true`)                          |
@@ -214,8 +215,9 @@ Mention Haru to chat, or use a command:
 With `LANDMINE_ENABLED=true`, every message in the landmine channels has a `LANDMINE_CHANCE` of
 being a landmine. Haru announces whoever steps on one with the number of landmines left, and by
 default (`LANDMINE_TIMEOUT_ENABLED=true`) the author is also timed out for
-`LANDMINE_TIMEOUT_SECONDS`. With timeouts off it only announces. There are 100,000 landmines in
-total, shared by all servers and saved in the database; once they are gone, nothing happens.
+`LANDMINE_TIMEOUT_SECONDS`. With timeouts off it only announces. If `LANDMINE_GIFS` lists GIF links,
+one picked at random is added to the end of the announcement. There are 100,000 landmines in total,
+shared by all servers and saved in the database; once they are gone, nothing happens.
 
 A timeout is Discord's own, so the user cannot send messages in **any** channel of the server until
 it ends. The bot needs the **Timeout Members** permission and a role above the members it times out.

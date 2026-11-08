@@ -48,6 +48,7 @@ function withEnv(envVars: Record<string, string>, fn: () => void) {
     "LANDMINE_CHANCE",
     "LANDMINE_TIMEOUT_ENABLED",
     "LANDMINE_TIMEOUT_SECONDS",
+    "LANDMINE_GIFS",
   ]);
 
   for (const key of allKeys) {
@@ -191,6 +192,7 @@ test("loadConfig returns complete config with all values", () => {
         landmineChance: 0.1,
         landmineTimeoutEnabled: true,
         landmineTimeoutSeconds: 60,
+        landmineGifs: [],
       });
     },
   );
@@ -394,6 +396,7 @@ test("landmines are off by default and use the bot channels, 10% and 60 seconds"
     expect(config.landmineChance).toBe(0.1);
     expect(config.landmineTimeoutEnabled).toBe(true);
     expect(config.landmineTimeoutSeconds).toBe(60);
+    expect(config.landmineGifs).toStrictEqual([]);
   });
 });
 
@@ -435,4 +438,13 @@ test("landmine timeouts can be turned off", () => {
   withEnv({ DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_TIMEOUT_ENABLED: "false" }, () => {
     expect(loadConfig().landmineTimeoutEnabled).toBe(false);
   });
+});
+
+test("landmine GIFs are a comma-separated list", () => {
+  withEnv(
+    { DISCORD_TOKEN: "token", CHANNEL_ID: "1", LANDMINE_GIFS: "https://a.gif, https://b.gif," },
+    () => {
+      expect(loadConfig().landmineGifs).toStrictEqual(["https://a.gif", "https://b.gif"]);
+    },
+  );
 });

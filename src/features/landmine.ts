@@ -51,12 +51,14 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
           timedOut = ` and has been timed out for ${formatTime(seconds * 1000)}`;
         }
 
+        const gif = config.landmineGifs[Math.floor(random() * config.landmineGifs.length)];
         console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
         await send(
           config,
           channelId,
           `💥<@${userId}>💥 stepped on a landmine${timedOut}! ` +
-            `(${remaining.toLocaleString("en-US")} landmines remaining)`,
+            `(${remaining.toLocaleString("en-US")} landmines remaining)` +
+            (gif ? `\n${gif}` : ""),
         );
       } catch (error) {
         console.error("[LANDMINE] Failed:", error);

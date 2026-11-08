@@ -71,6 +71,8 @@ export interface AppConfig {
   /** Whether stepping on a landmine also times the user out. */
   landmineTimeoutEnabled: boolean;
   landmineTimeoutSeconds: number;
+  /** GIF links; the announcement ends with one picked at random. Empty means no GIF. */
+  landmineGifs: string[];
 }
 
 const env = process.env;
@@ -177,5 +179,6 @@ export function loadConfig(): AppConfig {
     landmineTimeoutEnabled: notFalse("LANDMINE_TIMEOUT_ENABLED"),
     // Discord allows timeouts of up to 28 days.
     landmineTimeoutSeconds: Math.min(28 * 86_400, positiveInteger("LANDMINE_TIMEOUT_SECONDS", 60)),
+    landmineGifs: list(env.LANDMINE_GIFS),
   };
 }
