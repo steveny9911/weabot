@@ -110,6 +110,8 @@ console.log(`   Enabled: ${config.linkOpenEnabled}`);
 console.log("");
 console.log("💣 Landmines:");
 console.log(`   Enabled: ${config.landmineEnabled}`);
+console.log(`   Channels: ${config.landmineChannelIds.join(", ")}`);
+console.log(`   Chance: ${config.landmineChance}`);
 console.log("");
 console.log("💬 Autonomous Chat:");
 console.log(`   Enabled: ${config.autonomousChatEnabled}`);
