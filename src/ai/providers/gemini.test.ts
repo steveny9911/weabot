@@ -24,7 +24,7 @@ const config = (overrides = {}) =>
   testConfig({
     aiProvider: "gemini",
     aiApiKey: "gemini-key",
-    aiModel: "models/gemini-test",
+    aiModels: ["models/gemini-test"],
     aiSystemPromptFile: promptFile,
     ...overrides,
   });
@@ -133,12 +133,11 @@ test("a response without text is reported as empty", async () => {
 });
 
 test("startup stops without a model, a prompt file, or prompt text", () => {
-  throws(() => createGeminiProvider(config({ aiModel: undefined })), Error, "AI_MODEL");
-  throws(() => createGeminiProvider(config({ aiModel: " , " })), Error, "no model names");
+  throws(() => createGeminiProvider(config({ aiModels: [] })), Error, "ai.models");
   throws(
     () => createGeminiProvider(config({ aiSystemPromptFile: undefined })),
     Error,
-    "AI_SYSTEM_PROMPT_FILE",
+    "ai.system_prompt_file",
   );
   throws(
     () => createGeminiProvider(config({ aiSystemPromptFile: join(dir, "missing.md") })),
@@ -231,7 +230,7 @@ const failWith = (status: number) => () =>
   new Response(JSON.stringify({ error: { message: "nope" } }), { status });
 
 const runModels = (fetcher: Fetcher, attemptTimeoutMs = 8_000) => {
-  const session = createGeminiProvider(config({ aiModel: "a, b ,a,c" }), {
+  const session = createGeminiProvider(config({ aiModels: ["a", "b", "c"] }), {
     fetch: fetcher,
     attemptTimeoutMs,
   }).start({ userText: "hi", imageUrls: [], format: "text" });
@@ -320,7 +319,7 @@ test("a caller abort stops the chain", async () => {
     controller.abort();
     throw new DOMException("x", "AbortError");
   };
-  const session = createGeminiProvider(config({ aiModel: "a,b" }), { fetch: fetcher }).start({
+  const session = createGeminiProvider(config({ aiModels: ["a", "b"] }), { fetch: fetcher }).start({
     userText: "hi",
     imageUrls: [],
     format: "text",
@@ -338,7 +337,7 @@ test("the service reports every attempt as a request", async () => {
     preconnect() {},
   }) as typeof fetch;
   try {
-    const result = await createAiService(config({ aiModel: "a,b,c" })).generateReply([
+    const result = await createAiService(config({ aiModels: ["a", "b", "c"] })).generateReply([
       { author: "Alice", content: "hi" },
     ]);
     expect(result).toMatchObject({ ok: true, text: "finally", requestsUsed: 3 });
@@ -380,7 +379,7 @@ test("a tool call is returned, answered, and the same model finishes the reply",
     strict: true,
     parameters: { type: "object", properties: {}, additionalProperties: false },
   };
-  const session = createGeminiProvider(config({ aiModel: "a,b" }), { fetch: fetcher }).start({
+  const session = createGeminiProvider(config({ aiModels: ["a", "b"] }), { fetch: fetcher }).start({
     userText: "What time is it?",
     currentUserMessage: "What time is it?",
     imageUrls: [],

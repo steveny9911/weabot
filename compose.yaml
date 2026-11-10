@@ -6,6 +6,7 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
     read_only: true
     tmpfs: /tmp
     logging:

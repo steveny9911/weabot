@@ -1,4 +1,4 @@
-/** The registry of AI providers selectable with AI_PROVIDER. */
+/** The registry of AI providers selectable with ai.provider in config.yaml. */
 import type { AppConfig } from "../../config.ts";
 import type { AiProviderName } from "../../config.ts";
 import { createGeminiProvider } from "./gemini.ts";

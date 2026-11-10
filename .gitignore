@@ -1,6 +1,7 @@
 .env*
 !.env.example
 !.env.sample
+config.yaml
 .cursor
 .vscode
 node_modules/
