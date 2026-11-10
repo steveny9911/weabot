@@ -33,11 +33,18 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
       if (typeof userId !== "string") return;
       if (!config.landmineChannelIds.includes(channelId)) return;
       if (isCommand(message["content"] as string | undefined)) return;
-      if (random() >= config.landmineChance) return;
+      const roll = random();
+      if (roll >= config.landmineChance) {
+        console.log(`[LANDMINE] Safe: ${userId} in ${channelId} (rolled ${roll.toFixed(3)})`);
+        return;
+      }
 
       try {
         const remaining = mines.claim();
-        if (remaining === null) return;
+        if (remaining === null) {
+          console.log(`[LANDMINE] ${userId} rolled a landmine in ${channelId}, but none are left`);
+          return;
+        }
 
         let timedOut = "";
         if (config.landmineTimeoutEnabled) {
@@ -53,13 +60,14 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
 
         const gif = config.landmineGifs[Math.floor(random() * config.landmineGifs.length)];
         console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
-        await send(
+        const sent = await send(
           config,
           channelId,
           `💥<@${userId}>💥 stepped on a landmine${timedOut}! ` +
             `(${remaining.toLocaleString("en-US")} landmines remaining)` +
             (gif ? `\n${gif}` : ""),
         );
+        if (!sent.ok) console.error(`[LANDMINE] Could not announce in ${channelId}: ${sent.error}`);
       } catch (error) {
         console.error("[LANDMINE] Failed:", error);
       }
