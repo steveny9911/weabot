@@ -72,68 +72,46 @@ bun install
 1. In Discord, go to **User Settings → Advanced** and enable **Developer Mode**.
 2. Right-click the channel where you want the bot to post.
 3. Click **Copy Channel ID**.
-4. Repeat for each server/channel if using `CHANNEL_IDS`.
+4. Repeat for each server/channel you want Haru in.
 
-### 5. Configure Environment Variables
+### 5. Configure Haru
 
-Copy the sample, then fill in the required values:
-
-```bash
-cp .env.sample .env
-```
-
-`.env.sample` lists every setting, marks the required ones, and shows each default. The essentials:
+Haru reads two files. Copy both samples, then fill them in:
 
 ```bash
-# Required
-DISCORD_TOKEN=your_bot_token_here
-CHANNEL_ID=your_channel_id_here
-
-# Optional
-TIME_ZONE=America/Los_Angeles
-GLUE_ALERT_THRESHOLD=7
-LINK_OPEN_ENABLED=true
-TWEET_READ_ENABLED=true
-AI_CONTEXT_MAX_MESSAGES=40
-AI_CONTEXT_INACTIVITY_MINUTES=20
-HARU_DB_PATH=./data/haru.sqlite3
-
-# Multi-server (optional)
-# CHANNEL_IDS=channel_id_1,channel_id_2
+cp .env.sample .env                  # secrets
+cp config.example.yaml config.yaml   # everything else
 ```
 
-| Variable                          | Required | Description                                                            |
-| --------------------------------- | -------- | ---------------------------------------------------------------------- |
-| `DISCORD_TOKEN`                   | Yes      | Your Discord bot token                                                 |
-| `CHANNEL_ID`                      | Yes*     | Default channel ID (used if `CHANNEL_IDS` not set)                     |
-| `CHANNEL_IDS`                     | Yes*     | Comma-separated channel IDs for multi-server posting                   |
-| `TIME_ZONE`                       | No       | Timezone for date formatting (default: `America/Los_Angeles`)          |
-| `GLUE_ALERT_THRESHOLD`            | No       | Days of consecutive "glue" before alert (default: `7`)                 |
-| `AI_PROVIDER`                     | No       | AI provider, one at a time (default: `openai`)                         |
-| `AI_API_KEY`                      | No       | Provider key (`OPENAI_API_KEY` also works for OpenAI); off without one |
-| `AI_MODEL`                        | Gemini   | Gemini models, comma-separated, tried in order                         |
-| `AI_SYSTEM_PROMPT_FILE`           | Gemini   | File with Haru's persona (OpenAI uses its saved prompt)                |
-| `AI_THINKING`                     | No       | Let Gemini models think before answering (default: `false`)            |
-| `AI_DAILY_REQUEST_QUOTA`          | No       | Model calls per Pacific day, e.g. a free tier (default: none)          |
-| `AI_DAILY_REQUEST_PERCENT`        | No       | Share of the quota mentions may use (default: `90`)                    |
-| `AUTONOMOUS_CHAT_REQUEST_PERCENT` | No       | Share of the quota autonomous chat may use (default: `30`)             |
-| `LANDMINE_ENABLED`                | No       | Turn on landmines (default: `false`)                                   |
-| `LANDMINE_CHANNEL_IDS`            | No       | Landmine channels (default: the bot's channels)                        |
-| `LANDMINE_CHANCE`                 | No       | Chance a message is a landmine, 0 to 1 (default: `0.1`)                |
-| `LANDMINE_GIFS`                   | No       | GIF links, comma-separated; one ends each announcement (default: none) |
-| `LANDMINE_TIMEOUT_ENABLED`        | No       | Also time out whoever steps on one (default: `true`)                   |
-| `LANDMINE_TIMEOUT_SECONDS`        | No       | Timeout for stepping on one (default: `60`, max 28 days)               |
-| `LINK_OPEN_ENABLED`               | No       | Enable `\open` link command (default: `true`)                          |
-| `TWEET_READ_ENABLED`              | No       | Read tweet links in mentions (default: `true`)                         |
-| `AI_CONTEXT_MAX_MESSAGES`         | No       | Max messages from the current conversation (default: `40`)             |
-| `AI_CONTEXT_INACTIVITY_MINUTES`   | No       | Silence that starts a new context (default: `20`)                      |
-| `HARU_DB_PATH`                    | No       | SQLite database file (default: `./data/haru.sqlite3`)                  |
-| `HTTP_PORT`                       | No       | Port for the health and admin HTTP server (default: `8000`)            |
+`.env` holds only secrets. `.env.sample` lists them and marks the required one:
 
-_Set either `CHANNEL_ID` or `CHANNEL_IDS`._
+| Variable               | Required | Description                                                                  |
+| ---------------------- | -------- | ---------------------------------------------------------------------------- |
+| `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                                       |
+| `AI_API_KEY`           | No       | Provider key (`OPENAI_API_KEY` also works for OpenAI); AI is off without one |
+| `BRAVE_SEARCH_API_KEY` | No       | Brave Search key; web search is off without one                              |
+| `ADMIN_HTTP_TOKEN`     | No       | Bearer token for the admin HTTP endpoints                                    |
+| `OPENAI_ADMIN_KEY`     | No       | OpenAI admin key for `\usage` cost and token reports                         |
 
-`.env` is loaded only by `bun run start` and `bun run dev`. Tests never read it; the sandbox and
-evaluation scripts below load it explicitly.
+`config.yaml` holds every other setting. `config.example.yaml` documents each key and shows its
+default. The essentials:
+
+```yaml
+discord:
+  channel_ids: ["your_channel_id_here"] # required; add more for several servers or channels
+general:
+  time_zone: America/Los_Angeles
+ai:
+  provider: openai # or gemini, which also needs models and system_prompt_file
+```
+
+`config.yaml` is ignored by git, like `.env`, so create it from the example before anything else
+runs: `bun run start`, `bun run dev`, the scripts and `bun test` all import it, and fail with
+`Cannot find module './config.yaml'` without it. Any key you leave out uses its default. Quote
+channel IDs in YAML. The two files never overlap: a setting lives in exactly one of them.
+
+`.env` is loaded only by `bun run start` and `bun run dev`; the sandbox and evaluation scripts below
+load it explicitly. Tests read neither file's values.
 
 ### 6. Run the Bot
 
@@ -160,7 +138,8 @@ You should see:
 ## Running with Docker
 
 ```bash
-cp .env.sample .env      # fill in DISCORD_TOKEN, a channel ID, and any optional keys
+cp .env.sample .env      # fill in DISCORD_TOKEN and any optional keys
+cp config.example.yaml config.yaml   # set discord.channel_ids
 mkdir data && sudo chown 1000:1000 data
 docker compose pull      # fetch the published image (or skip it to build locally)
 docker compose up -d
@@ -171,15 +150,20 @@ The log should show `🐴 Haru is running!`. The container runs as user `1000` a
 database in `./data`. Run only one instance per Discord token, so stop `bun run dev` first.
 Container logs are capped at three 10 MB files. No port is published, because the bot only makes
 outbound connections. To reach the admin API from the host, add `ports: ["127.0.0.1:8000:8000"]` and
-set `ADMIN_HTTP_TOKEN`.
+set `ADMIN_HTTP_TOKEN`. `config.yaml` is mounted read-only; copy it before the first `up`, or Docker
+creates a directory in its place (remove it with `sudo rmdir config.yaml`).
 
 Everyday commands, from the repository directory:
 
-- After editing `.env`: `docker compose up -d --force-recreate`
+- After editing `.env` or `config.yaml`: `docker compose up -d --force-recreate`
 - Stop: `docker compose down` (the database stays in `./data`)
 - Update by hand: `docker compose pull && docker compose up -d`
 
 ### Updating automatically with systemd
+
+The timer pulls images but never runs `git pull`. When an update adds a setting file or a mount (as
+`config.yaml` did), run `git pull` and create the file before the new image arrives, or the
+container restarts in a loop until you do.
 
 `deploy/systemd/` holds a user service and timer that pull the latest image every 6 hours and
 recreate the container only when the image changed. Install them from the repository directory:
@@ -212,13 +196,13 @@ Mention Haru to chat, or use a command:
 
 ### Landmines
 
-With `LANDMINE_ENABLED=true`, every message in the landmine channels has a `LANDMINE_CHANCE` of
-being a landmine. Haru announces whoever steps on one with the number of landmines left, and by
-default (`LANDMINE_TIMEOUT_ENABLED=true`) the author is also timed out for
-`LANDMINE_TIMEOUT_SECONDS`. With timeouts off it only announces, and nothing slows down a user who
-sends many messages, so landmines run out faster. If `LANDMINE_GIFS` lists GIF links, one picked at
-random is added to the end of the announcement. There are 100,000 landmines in total, shared by all
-servers and saved in the database; once they are gone, nothing happens.
+Configure landmines in the `landmine` section of `config.yaml`. With `enabled: true`, every message
+in the landmine channels has a `chance` of being a landmine. Haru announces whoever steps on one
+with the number of landmines left, and by default (`timeout.enabled: true`) the author is also timed
+out for `timeout.seconds`. With timeouts off it only announces, and nothing slows down a user who
+sends many messages, so landmines run out faster. If `gifs` lists GIF links, one picked at random is
+added to the end of the announcement. There are 100,000 landmines in total, shared by all servers
+and saved in the database; once they are gone, nothing happens.
 
 A timeout is Discord's own, so the user cannot send messages in **any** channel of the server until
 it ends. The bot needs the **Timeout Members** permission and a role above the members it times out.
@@ -253,7 +237,7 @@ trigger chat.
 Haru needs View Channel and Read Message History in the configured channels, plus Add Reactions to
 introduce an emoji reaction. Missing permissions, deleted messages, unavailable emojis, rate limits,
 and ambiguous network failures quietly skip the reaction with a local diagnostic and no fallback
-message. Permissions are never changed automatically. `AUTONOMOUS_CHAT_REPLY_CHANCE` retains its
+message. Permissions are never changed automatically. `autonomous_chat.reply_chance` retains its
 name and now controls admission to choose any of the three actions.
 
 The conversation, target, guild permissions, and expression availability are checked again before a
@@ -292,22 +276,22 @@ bun run sandbox:autonomous
 
 ### AI usage limits
 
-`AI_RATE_LIMIT_PER_USER` counts admitted mention requests per user in fixed UTC minute buckets.
+`ai.rate_limit_per_user` counts admitted mention requests per user in fixed UTC minute buckets.
 Admission atomically checks and consumes the allowance, so concurrent mentions share the same limit.
 Rejected requests do not consume an allowance. Accepted requests count even if fetching context or
 links, generating a reply, or sending to Discord subsequently fails.
 
-`AI_DAILY_TOKEN_BUDGET` is a **soft threshold** on reported tokens across mentions and autonomous
+`ai.budget.daily_tokens` is a **soft threshold** on reported tokens across mentions and autonomous
 chat. Admission stops once recorded usage reaches it. Already admitted requests can finish above the
 threshold; there are no token reservations or strict limits on in-flight usage. For example, two
 requests admitted with 1 token remaining may each finish using 100 tokens, exceeding the budget
 by 199. Use provider spending controls if a strict spending limit is required.
 
-`AI_DAILY_REQUEST_QUOTA` is a soft limit on model calls per day, for providers with a daily request
-quota such as a free tier. It is unset (unlimited) by default. Mentions are admitted while today's
-calls are below `AI_DAILY_REQUEST_PERCENT` (default `90`) of the quota, and autonomous chat while
-they are below `AUTONOMOUS_CHAT_REQUEST_PERCENT` (default `30`), so the bot leaves headroom and
-autonomous chat cannot use up the day. Admission counts one call; a reply that needs more model
+`ai.budget.daily_request_quota` is a soft limit on model calls per day, for providers with a daily
+request quota such as a free tier. It is unset (unlimited) by default. Mentions are admitted while
+today's calls are below `ai.budget.mention_percent` (default `90`) of the quota, and autonomous chat
+while they are below `autonomous_chat.request_percent` (default `30`), so the bot leaves headroom
+and autonomous chat cannot use up the day. Admission counts one call; a reply that needs more model
 calls (tool steps, or Gemini trying another model) records the rest when it finishes, so the day can
 overshoot slightly. This applies to every provider. Refusals use the same "brain power" reply as the
 token budget.
@@ -363,11 +347,12 @@ above do not grant event creation. A direct event link works for members with ac
 server invite can let new members join. Private-channel events use direct event links. Creating an
 invite does not send DMs, ping members, or RSVP on their behalf.
 
-`DISCORD_ACTIONS_ENABLED` defaults to `true`; set it to `false` to disable these tools.
-`DISCORD_ACTIONS_GUILD_IDS` optionally restricts tools to comma-separated server IDs. An empty list
-allows actions in joined servers, subject to requester and bot permissions. This setting restricts
-event/invite tools, not ordinary chat or scheduled jobs. `TIME_ZONE` supplies the default timezone
-when the user does not name one. Daylight saving gaps and repeated times require clarification.
+`discord.actions.enabled` defaults to `true`; set it to `false` to disable these tools.
+`discord.actions.guild_ids` optionally restricts tools to a list of server IDs. An empty list allows
+actions in joined servers, subject to requester and bot permissions. This setting restricts
+event/invite tools, not ordinary chat or scheduled jobs. `general.time_zone` supplies the default
+timezone when the user does not name one. Daylight saving gaps and repeated times require
+clarification.
 
 This version creates individual events and invitations and cancels scheduled events. Ending active
 events, cancelling recurring series or occurrences, other event edits/deletion, and bulk invitations
@@ -414,22 +399,22 @@ scheduled jobs and can respond in any server the bot can access.
 
 ### Gemini
 
-Set `AI_PROVIDER=gemini`, `AI_API_KEY`, `AI_MODEL` and `AI_SYSTEM_PROMPT_FILE`. The persona is read
-from the file at startup, and startup stops if it or `AI_MODEL` is missing, even when AI chat is
-off. PNG, JPEG, WebP and GIF images are sent; other attachments are skipped. Gemini replies and runs
-Discord event actions, and autonomous chat asks it for the same structured decision as OpenAI. A
-reply that calls tools stays on the model that made the first call; if that model fails midway, the
-reply fails.
+Set `ai.provider: gemini`, `ai.models` and `ai.system_prompt_file` in `config.yaml`, and
+`AI_API_KEY` in `.env`. The persona is read from the file at startup, and startup stops if it or
+`ai.models` is missing, even when AI chat is off. PNG, JPEG, WebP and GIF images are sent; other
+attachments are skipped. Gemini replies and runs Discord event actions, and autonomous chat asks it
+for the same structured decision as OpenAI. A reply that calls tools stays on the model that made
+the first call; if that model fails midway, the reply fails.
 
-`AI_MODEL` is a comma-separated list. Each reply tries the models in order, giving each 8 seconds.
-Any failure other than a bad key or request (400, 401, 403) moves on to the next model, and every
-attempt counts toward the daily request quota. If all fail, Haru says her brain is fuzzy. Put the
-most reliable model first, since there is no cooldown for a model that is down.
+`ai.models` is a list. Each reply tries the models in order, giving each 8 seconds. Any failure
+other than a bad key or request (400, 401, 403) moves on to the next model, and every attempt counts
+toward the daily request quota. If all fail, Haru says her brain is fuzzy. Put the most reliable
+model first, since there is no cooldown for a model that is down.
 
 Thinking is off by default: each request asks for the lowest thinking level (`minimal`), which on
 Gemini 3 models keeps thinking to little or none rather than turning it off. Some models, such as
 gemini-3.7-flash and gemini-3.8-flash, reject `minimal`; while thinking is off they are skipped and
-the next model is tried. Set `AI_THINKING=true` to send no thinking setting and use each model's
+the next model is tried. Set `ai.thinking: true` to send no thinking setting and use each model's
 default, which is slower and spends more tokens.
 
 With Gemini, `\usage` shows the requests and tokens Haru counted today instead of a billing report.
@@ -457,7 +442,7 @@ refresh on month rollover, and use a fifteen-second deadline. The command works 
 its budget exhausted, without spending model tokens.
 
 Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `AI_API_KEY`. Optionally set
-`USAGE_OPENAI_PROJECT_ID` to filter both OpenAI costs and tokens to Haru's project. The report is
+`usage.openai_project_id` to filter both OpenAI costs and tokens to Haru's project. The report is
 visible to channel members.
 
 Source:
@@ -560,7 +545,7 @@ it too.
 weabot/
 ├── main.ts                     # Entry point: wires services together and starts the app
 ├── src/
-│   ├── config.ts               # Environment configuration
+│   ├── config.ts               # Settings from config.yaml, secrets from .env
 │   ├── app/                    # Gateway, HTTP server and cron schedule (started by main.ts)
 │   ├── jobs/                   # Work shared by cron jobs and admin HTTP triggers
 │   ├── bot/                    # Message handling: mentions, \usage, \reset, \open, AI replies
@@ -579,6 +564,8 @@ weabot/
 │   ├── sandbox/                # Manual runs against the sandbox Discord server
 │   ├── eval/                   # Reaction evaluation
 │   └── issue_agent/            # GitHub issue automation
+├── config.example.yaml         # Documented settings; copy to config.yaml (ignored by git)
+├── compose.yaml                # Docker Compose service
 ├── package.json                # Scripts and dependencies
 ├── bun.lock                    # Dependency lock file
 ├── bunfig.toml                 # Bun settings (tests, format, lint)
@@ -621,7 +608,7 @@ bun run check
 
 ### Data Storage
 
-Haru keeps everything that must survive a restart in one SQLite database (`HARU_DB_PATH`, default
+Haru keeps everything that must survive a restart in one SQLite database (`general.db_path`, default
 `./data/haru.sqlite3`):
 
 - polls and votes;

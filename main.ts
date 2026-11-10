@@ -7,7 +7,7 @@ import {
   type PendingRequest,
 } from "./src/features/discord_actions/service.ts";
 import { TurnStore } from "./src/features/discord_actions/state.ts";
-import { DEFAULT_DATABASE_PATH, openDatabase } from "./src/db/database.ts";
+import { openDatabase } from "./src/db/database.ts";
 import { createMaintenanceJob } from "./src/jobs/maintenance.ts";
 import { createStorageService } from "./src/services/storage.ts";
 import { createRateLimitService } from "./src/services/rate_limit.ts";
@@ -25,9 +25,7 @@ import type { BotDependencies } from "./src/bot/handle_message.ts";
 
 const config = withProviderLimits(loadConfig());
 
-const dbPath = process.env.HARU_DB_PATH || DEFAULT_DATABASE_PATH;
-const httpPort = Number(process.env.HTTP_PORT) || 8000;
-const db = openDatabase(dbPath);
+const db = openDatabase(config.databasePath);
 const storage = createStorageService(db);
 const actionTurns = new TurnStore<PendingRequest>();
 
@@ -76,11 +74,11 @@ registerCronJobs(
   rateLimit,
   createMaintenanceJob(db, actionTurns),
 );
-createServer(config, discord, storage, dateFormatter, rateLimit, httpPort);
+createServer(config, discord, storage, dateFormatter, rateLimit, config.httpPort);
 
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);
-console.log(`   Database: ${dbPath}`);
+console.log(`   Database: ${config.databasePath}`);
 console.log(`   Timezone: ${config.timeZone}`);
 console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");

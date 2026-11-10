@@ -15,7 +15,7 @@ export interface UsageStats {
 export interface RateLimitService {
   /**
    * Atomically checks the limits and counts one model call. `requestPercent` is the share of
-   * AI_DAILY_REQUEST_QUOTA this caller may use; it defaults to AI_DAILY_REQUEST_PERCENT.
+   * ai.budget.daily_request_quota this caller may use; it defaults to ai.budget.mention_percent.
    */
   admitRequest(
     userId: string,

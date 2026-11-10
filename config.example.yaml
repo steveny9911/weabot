@@ -1,0 +1,146 @@
+# Haru settings. Copy to `config.yaml` and edit:
+#
+#   cp config.example.yaml config.yaml
+#
+# `config.yaml` holds every setting that is not secret. Secrets (DISCORD_TOKEN, AI_API_KEY,
+# BRAVE_SEARCH_API_KEY, OPENAI_ADMIN_KEY, ADMIN_HTTP_TOKEN) stay in `.env` (see `.env.sample`).
+#
+# The file must exist, but every key in it is optional except discord.channel_ids. A key you leave
+# out (or set to null) uses its default. The values shown are the defaults, except where a comment
+# says otherwise. Each comment states the type and the allowed values; Haru does not check them, so
+# an invalid value behaves as written or breaks the feature. Restart after editing.
+#
+# IDs (channels, servers) must be quoted strings, like "123456789012345678". Unquoted, YAML reads
+# them as numbers and loses digits, so Haru refuses to start.
+
+discord:
+  # REQUIRED. List of channel IDs where Haru chats; polls, alerts and stats go to the first one.
+  channel_ids: []
+
+  # Event and invite tools.
+  actions:
+    # true or false.
+    enabled: true
+    # List of server IDs where the tools are allowed. Empty means every server the bot is in.
+    guild_ids: []
+
+general:
+  # An IANA time zone name, such as America/Vancouver. Used for dates and as the default for
+  # Discord events.
+  time_zone: America/Los_Angeles
+  # Whole number of consecutive "glue" days before a wellness alert.
+  glue_alert_threshold: 7
+  # SQLite database file path. Its folder is created if missing. In Docker the folder is /app/data.
+  db_path: ./data/haru.sqlite3
+  # Port number for the HTTP server (health check and admin endpoints). Docker publishes no port
+  # by default.
+  http_port: 8000
+
+# AI chat is off without AI_API_KEY in `.env`.
+ai:
+  # true or false. false turns AI chat off even with a key.
+  enabled: true
+  # openai or gemini. Anything else stops startup.
+  provider: openai
+
+  # Gemini only, no default. List of model names, tried in order; the next one is used when a model
+  # fails. Put the most reliable one first. Startup stops if this is empty with gemini.
+  models: [gemini-3.5-flash, gemini-3.5-flash-lite]
+  # Gemini only, no default. Path to the file with Haru's persona; startup stops if it is missing
+  # or empty. With OpenAI the persona is the saved prompt instead.
+  system_prompt_file: data/system_prompt.md
+  # true or false. true lets models think before answering (each model's default). false asks for
+  # the lowest level, and models that cannot go that low (such as gemini-3.7-flash,
+  # gemini-3.8-flash) are skipped.
+  thinking: false
+
+  # true or false. UwU style in replies.
+  uwu: true
+  # Whole number of mention requests per user per minute.
+  rate_limit_per_user: 2
+  # Whole number of characters of user input; 0 means unlimited.
+  max_input_chars: 0
+
+  context:
+    # Whole number of recent messages sent as context. Maximum 100; larger values are cut to 100.
+    max_messages: 40
+    # Whole number of minutes of silence that start a new conversation context.
+    inactivity_minutes: 20
+
+  budget:
+    # Whole number. Soft daily token budget across mentions and autonomous chat.
+    daily_tokens: 10000000
+    # Whole number of model calls per Pacific day (e.g. a free tier), or null for unlimited. Every
+    # model attempt counts, including failed ones. Do not use 0: it allows no calls at all.
+    daily_request_quota: null
+    # Number from 0 to 100. Percent of the quota that mentions may use; the rest is headroom.
+    mention_percent: 90
+
+features:
+  web_search:
+    # true or false. Default: true when BRAVE_SEARCH_API_KEY is set, otherwise false.
+    # enabled: true
+    # Whole number of search results added to a reply.
+    max_results: 3
+  # true or false. The \open link command.
+  link_open: true
+  # true or false. Reading tweet links (x.com, twitter.com, vxtwitter.com, ...) in mentions. Tweet
+  # text and photos are fetched through the public FxTwitter/VxTwitter APIs.
+  tweet_read: true
+
+# Haru may join a conversation on its own: a short reply or one emoji reaction.
+autonomous_chat:
+  # true or false.
+  enabled: false
+
+  # List of channel IDs where Haru may join in. Empty means discord.channel_ids.
+  channel_ids: []
+
+  # Number from 0 to 1. Chance that an eligible conversation is considered.
+  reply_chance: 0.35
+
+  # Whole number of human messages needed, within the activity window, before Haru may join in.
+  min_human_messages: 4
+  # Whole number of minutes.
+  activity_window_minutes: 20
+  # Whole number of minutes between autonomous replies.
+  cooldown_minutes: 1
+  # Whole number of recent messages sent as context.
+  max_context_messages: 40
+
+  # Number from 0 to 100. Percent of ai.budget.daily_request_quota below which it may run.
+  request_percent: 30
+
+# Every message may be a landmine; Haru announces whoever steps on one. 100,000 landmines in total,
+# shared by all servers. Commands that start with \ are never landmines.
+landmine:
+  # true or false.
+  enabled: false
+
+  # List of channel IDs with landmines. Empty means discord.channel_ids.
+  channel_ids: []
+
+  # Number from 0 to 1. Chance that a message is a landmine.
+  chance: 0.1
+
+  # List of GIF links. Each announcement ends with one picked at random. Default: none.
+  # gifs:
+  #   - https://tenor.com/b0tMp.gif
+  #   - https://tenor.com/b0pv2.gif
+
+  # Also time out whoever steps on one. The timeout is server-wide, needs the bot's Timeout Members
+  # permission and a role above the members, and never works on the owner or administrators (their
+  # landmine is not used up). false only announces, and then nothing slows down a user who sends
+  # many messages, so landmines run out faster.
+  timeout:
+    # true or false.
+    enabled: true
+    # Whole number of seconds. Maximum 28 days (2419200); larger values are cut to 28 days.
+    seconds: 60
+
+# The \usage command shows "Unavailable" for missing values. With Gemini it shows today's requests
+# and tokens counted by Haru and needs none of this. OPENAI_ADMIN_KEY (in `.env`) enables OpenAI
+# cost and token reports.
+usage:
+  # An OpenAI project ID, or null for the whole organization. Filters OpenAI costs and tokens.
+  openai_project_id: null

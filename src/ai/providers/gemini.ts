@@ -16,19 +16,11 @@ export function createGeminiProvider(
   config: AppConfig,
   deps: { fetch?: Fetcher; attemptTimeoutMs?: number } = {},
 ): AiProvider {
-  if (!config.aiModel) throw new Error("FATAL: AI_MODEL is required for the gemini provider");
+  const models = config.aiModels;
+  if (models.length === 0) throw new Error("FATAL: ai.models is required for the gemini provider");
   if (!config.aiSystemPromptFile) {
-    throw new Error("FATAL: AI_SYSTEM_PROMPT_FILE is required for the gemini provider");
+    throw new Error("FATAL: ai.system_prompt_file is required for the gemini provider");
   }
-  const models = [
-    ...new Set(
-      config.aiModel
-        .split(",")
-        .map((name) => name.trim())
-        .filter(Boolean),
-    ),
-  ];
-  if (models.length === 0) throw new Error("FATAL: AI_MODEL has no model names");
   const persona = readFileSync(config.aiSystemPromptFile, "utf8").trim();
   if (!persona) throw new Error(`FATAL: ${config.aiSystemPromptFile} is empty`);
 
