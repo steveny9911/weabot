@@ -66,29 +66,17 @@ export function parseParticipation(
     const parsed: unknown = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return silent;
     const choice = parsed as Record<string, unknown>;
-    const keys = Object.keys(choice);
+    // Exactly the six schema fields, all strings.
+    const fields = AUTONOMOUS_PARTICIPATION_FORMAT.schema.required;
     if (
-      keys.length !== 6 ||
-      keys.some(
-        (key) => !["action", "text", "messageId", "emoji", "intent", "reason"].includes(key),
-      ) ||
-      [
-        choice.action,
-        choice.text,
-        choice.messageId,
-        choice.emoji,
-        choice.intent,
-        choice.reason,
-      ].some((value) => typeof value !== "string")
-    )
-      return silent;
-    if (!DECISION_REASONS.some((reason) => reason === choice.reason)) return silent;
-    if (
-      choice.action === "reply" &&
-      choice.messageId === "" &&
-      choice.emoji === "" &&
-      choice.intent === ""
+      Object.keys(choice).length !== fields.length ||
+      fields.some((field) => typeof choice[field] !== "string")
     ) {
+      return silent;
+    }
+    const empty = (...names: string[]) => names.every((name) => choice[name] === "");
+    if (!DECISION_REASONS.some((reason) => reason === choice.reason)) return silent;
+    if (choice.action === "reply" && empty("messageId", "emoji", "intent")) {
       const reply = (choice.text as string).trim();
       return reply && reply.length <= MAX_AUTONOMOUS_REPLY_CHARS
         ? { action: "reply", text: reply, reason: choice.reason as DecisionReason }
@@ -96,7 +84,7 @@ export function parseParticipation(
     }
     if (
       choice.action === "react" &&
-      choice.text === "" &&
+      empty("text") &&
       allowedMessageIds.has(choice.messageId as string) &&
       isAllowedReaction(choice.emoji as string, choice.intent, choices)
     ) {
@@ -115,13 +103,7 @@ export function parseParticipation(
         reason: choice.reason as DecisionReason,
       };
     }
-    if (
-      choice.action === "silent" &&
-      choice.text === "" &&
-      choice.messageId === "" &&
-      choice.emoji === "" &&
-      choice.intent === ""
-    ) {
+    if (choice.action === "silent" && empty("text", "messageId", "emoji", "intent")) {
       return { action: "silent", reason: choice.reason as DecisionReason };
     }
     return silent;

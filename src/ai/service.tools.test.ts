@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
+import { withResponses } from "../../tests/support/openai.ts";
 import { createAiService } from "./service.ts";
 import type { AiReplyOptions } from "./types.ts";
 import type { AppConfig } from "../config.ts";
@@ -43,28 +44,6 @@ function call(id: string, name = "create_event", args: unknown = '{"name":"Movie
 
 function reply(text: string, tokens = 10): Record<string, unknown> {
   return { output_text: text, usage: { total_tokens: tokens } };
-}
-
-type MockResponse = Record<string, unknown> | Response | Error;
-
-async function withResponses(
-  responses: MockResponse[],
-  run: (requests: Array<Record<string, unknown>>) => Promise<void>,
-): Promise<void> {
-  const requests: Array<Record<string, unknown>> = [];
-  const original = globalThis.fetch;
-  globalThis.fetch = asFetch((_input: string | URL | Request, init?: RequestInit) => {
-    requests.push(JSON.parse(String(init?.body)));
-    const response = responses[requests.length - 1];
-    if (response instanceof Error) return Promise.reject(response);
-    if (!response) return Promise.reject(new Error("Unexpected model request"));
-    return Promise.resolve(response instanceof Response ? response : Response.json(response));
-  });
-  try {
-    await run(requests);
-  } finally {
-    globalThis.fetch = original;
-  }
 }
 
 test("tool replies preserve reasoning, prompt persona, call IDs, and total usage", async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { asFetch } from "../../tests/support/fetch.ts";
+import { withResponses } from "../../tests/support/openai.ts";
 import { assert } from "../../tests/support/assert.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "./participation.ts";
 import { reactionChoices } from "../features/reactions.ts";
@@ -23,37 +23,6 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   });
 }
 
-function mockFetch(
-  responseBody: Record<string, unknown>,
-  status = 200,
-): {
-  restore: () => void;
-  getLastRequest: () => { url: string; body: Record<string, unknown> } | null;
-} {
-  let lastRequest: { url: string; body: Record<string, unknown> } | null = null;
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = asFetch((input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    const body = init?.body ? JSON.parse(init.body as string) : null;
-    lastRequest = { url, body };
-
-    return Promise.resolve(
-      new Response(JSON.stringify(responseBody), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-  });
-
-  return {
-    restore: () => {
-      globalThis.fetch = originalFetch;
-    },
-    getLastRequest: () => lastRequest,
-  };
-}
-
 /**
  * Answers one generateReply call with `body` (as OpenAI would) and returns
  * the result and the request sent.
@@ -72,13 +41,10 @@ async function generate(
     options?: unknown;
   } = {},
 ) {
-  const mock = mockFetch(body, status);
-  try {
-    const result = await createAiService(config).generateReply(messages, options as never);
-    return { result, request: mock.getLastRequest() };
-  } finally {
-    mock.restore();
-  }
+  return withResponses([Response.json(body, { status })], async (requests) => ({
+    result: await createAiService(config).generateReply(messages, options as never),
+    request: { body: requests[0] },
+  }));
 }
 
 test("generateReply returns error when AI is disabled", async () => {
@@ -115,21 +81,18 @@ test("generateReply sends chat builder prompt id without pinning version", async
   });
 });
 test("generateReply tells the model to use web reference notes", async () => {
-  const mock = mockFetch({ output_text: "ok", usage: { total_tokens: 5 } });
-
-  try {
+  const ok = { output_text: "ok", usage: { total_tokens: 5 } };
+  await withResponses([ok, ok], async (requests) => {
     const service = createAiService(createMockConfig());
     await service.generateReply([{ author: "user", content: "who won?" }]);
-    expect(JSON.stringify(mock.getLastRequest()?.body)).not.toContain("reference notes");
+    expect(JSON.stringify(requests[0])).not.toContain("reference notes");
 
     await service.generateReply([
       { author: "user", content: "who won?" },
       { author: "web", content: "Reference notes: Verstappen won" },
     ]);
-    expect(JSON.stringify(mock.getLastRequest()?.body)).toContain("use them to answer");
-  } finally {
-    mock.restore();
-  }
+    expect(JSON.stringify(requests[1])).toContain("use them to answer");
+  });
 });
 
 test("generateReply includes image URLs as input_image blocks", async () => {
@@ -494,8 +457,9 @@ test("autonomous invalid choices fail closed for content, targets, emojis, and m
     choice("react", "", "100", "😂 😂"),
     choice("react", "", "100", "❤"),
     choice("silent", "Explaining why I'm silent"),
-    JSON.stringify({ action: "react", text: "", messageId: "100", emoji: "😂", extra: true }),
-    JSON.stringify({ action: "react", text: "", messageId: 100, emoji: "😂" }),
+    // Otherwise valid, but with an extra field, and with a number where a string belongs.
+    JSON.stringify({ ...JSON.parse(choice("react", "", "100", "😂")), extra: true }),
+    JSON.stringify({ ...JSON.parse(choice("react", "", "100", "😂")), messageId: 100 }),
     JSON.stringify({ action: "silent" }),
   ];
   for (const outputText of invalid) {

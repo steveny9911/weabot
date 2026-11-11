@@ -87,37 +87,29 @@ function displayAuthorName(author: Record<string, unknown>): string {
   return typeof id === "string" && id.trim() ? id : "unknown";
 }
 
-function mapReference(message: Record<string, unknown>): DiscordMessageReference {
-  const author =
-    message["author"] && typeof message["author"] === "object"
-      ? (message["author"] as Record<string, unknown>)
-      : {};
+/** A string field of a raw Discord object; anything else reads as "". */
+const text = (value: unknown) => (typeof value === "string" ? value : "");
+const asRecord = (value: unknown) =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
+function mapReference(message: Record<string, unknown>): DiscordMessageReference {
+  const author = asRecord(message["author"]);
   return {
-    id: typeof message["id"] === "string" ? message["id"] : "",
-    authorId: typeof author["id"] === "string" ? author["id"] : "",
+    id: text(message["id"]),
+    authorId: text(author["id"]),
     authorName: displayAuthorName(author),
-    content: typeof message["content"] === "string" ? message["content"] : "",
+    content: text(message["content"]),
     timestamp:
-      typeof message["timestamp"] === "string"
-        ? message["timestamp"]
-        : typeof message["created_at"] === "string"
-          ? message["created_at"]
-          : "",
+      typeof message["timestamp"] === "string" ? message["timestamp"] : text(message["created_at"]),
     imageUrls: extractImageUrls(message),
   };
 }
 
 export function mapDiscordMessage(message: Record<string, unknown>): RecentDiscordMessage {
-  const author =
-    message["author"] && typeof message["author"] === "object"
-      ? (message["author"] as Record<string, unknown>)
-      : {};
+  const author = asRecord(message["author"]);
   const referenced = message["referenced_message"];
   const referencedMessage =
-    referenced && typeof referenced === "object"
-      ? mapReference(referenced as Record<string, unknown>)
-      : undefined;
+    referenced && typeof referenced === "object" ? mapReference(asRecord(referenced)) : undefined;
 
   return {
     ...mapReference(message),
