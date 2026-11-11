@@ -22,6 +22,9 @@ in a row.
 - **Weekly Stats**: Posts a mood summary every Sunday at 10 PM PST.
 - **Test Endpoints**: HTTP endpoints for testing without waiting for scheduled jobs.
 
+Each can be turned off, or limited to some channels, under `mood_poll`, `wellness` and
+`weekly_stats` in `config.yaml`. A disabled job is skipped, and its admin trigger answers `409`.
+
 ### Scheduled Jobs
 
 | Job                  | Schedule              | Description                            |
@@ -104,6 +107,21 @@ general:
 ai:
   provider: openai # or gemini, which also needs models and system_prompt_file
 ```
+
+Every feature has its own section with the same two settings, plus its own:
+
+```yaml
+landmine:
+  enabled: true # turns the feature on or off
+  channel_ids: ["123456789012345678"] # where it works; empty or left out means discord.channel_ids
+  chance: 0.1 # a setting of this feature
+```
+
+`channel_ids: all` makes a feature work in every channel Haru can read. It is allowed for `ai_chat`,
+`web_search`, `link_open`, `tweet_read`, `discord_actions` and `landmine`. The jobs and autonomous
+chat post to channels you name, so they need a list. `ai.enabled` is the master switch for AI:
+`ai_chat`, `autonomous_chat` and `discord_actions` cannot work with it off. Haru refuses to start on
+a key it does not know, so a typo cannot silently leave a setting at its default.
 
 `config.yaml` is ignored by git, like `.env`, so create it from the example before anything else
 runs: `bun run start`, `bun run dev`, the scripts and `bun test` all import it, and fail with
@@ -347,8 +365,9 @@ above do not grant event creation. A direct event link works for members with ac
 server invite can let new members join. Private-channel events use direct event links. Creating an
 invite does not send DMs, ping members, or RSVP on their behalf.
 
-`discord.actions.enabled` defaults to `true`; set it to `false` to disable these tools.
-`discord.actions.guild_ids` optionally restricts tools to a list of server IDs. An empty list allows
+`discord_actions.enabled` defaults to `true`; set it to `false` to disable these tools.
+`discord_actions.channel_ids` limits them to some channels (`all` for every channel).
+`discord_actions.guild_ids` optionally restricts tools to a list of server IDs. An empty list allows
 actions in joined servers, subject to requester and bot permissions. This setting restricts
 event/invite tools, not ordinary chat or scheduled jobs. `general.time_zone` supplies the default
 timezone when the user does not name one. Daylight saving gaps and repeated times require
@@ -546,6 +565,8 @@ weabot/
 ├── main.ts                     # Entry point: wires services together and starts the app
 ├── src/
 │   ├── config.ts               # Settings from config.yaml, secrets from .env
+│   ├── config_schema.ts        # The keys config.yaml accepts; rejects typos
+│   ├── feature_config.ts       # What every feature shares: enabled, channel_ids, isActiveIn
 │   ├── app/                    # Gateway, HTTP server and cron schedule (started by main.ts)
 │   ├── jobs/                   # Work shared by cron jobs and admin HTTP triggers
 │   ├── bot/                    # Message handling: mentions, \usage, \reset, \open, AI replies

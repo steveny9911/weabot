@@ -25,6 +25,7 @@ import {
   parseOpenCommand,
   stripUrls,
 } from "./commands.ts";
+import { isActiveIn } from "../feature_config.ts";
 import { clearContext, getContext, saveContext } from "./context.ts";
 
 export interface BotDependencies {
@@ -130,8 +131,8 @@ export async function handleMessage(
 
   console.log(`Bot mentioned by user ${userId} in channel ${channelId}`);
 
-  if (!config.aiEnabled) {
-    console.log("AI is disabled, ignoring mention");
+  if (!config.aiEnabled || !isActiveIn(config.aiChat, channelId)) {
+    console.log("AI chat is off here, ignoring mention");
     return;
   }
 
@@ -168,10 +169,11 @@ export async function handleMessage(
 
   const ctxForAi = [...ctx];
   let readLinkedContent = false;
-  const tweetId = config.tweetReadEnabled && content ? extractTweetId(content) : null;
+  const tweetId =
+    isActiveIn(config.tweetRead, channelId) && content ? extractTweetId(content) : null;
 
   if (openRequested) {
-    if (!config.linkOpenEnabled) {
+    if (!isActiveIn(config.linkOpen, channelId)) {
       await sendMessage(config, channelId, "Ehehe~ opening links is turned off right now.");
       return;
     }
@@ -221,7 +223,9 @@ export async function handleMessage(
     console.log(`[TWEET] read ${tweetId}`);
   } else {
     const autoQuery =
-      webSearchService && config.webSearchEnabled ? extractAutoSearchQuery(content) : null;
+      webSearchService && isActiveIn(config.webSearch, channelId)
+        ? extractAutoSearchQuery(content)
+        : null;
 
     if (autoQuery) {
       const searchResult = await webSearchService?.search(autoQuery);
@@ -238,9 +242,9 @@ export async function handleMessage(
   // Tools exist only for explicit human mention handling, never autonomous jobs, opened links or tweets.
   const guildId = typeof message["guild_id"] === "string" ? message["guild_id"] : "";
   const messageId = typeof message["id"] === "string" ? message["id"] : "";
-  const allowedGuilds = config.discordActionsGuildIds ?? [];
+  const allowedGuilds = config.discordActions.guildIds;
   const actionSession =
-    config.discordActionsEnabled &&
+    isActiveIn(config.discordActions, channelId) &&
     deps.discordActionService &&
     !readLinkedContent &&
     guildId &&

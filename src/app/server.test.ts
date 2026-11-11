@@ -2,6 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { createRequestHandler, createServer, serverOptions } from "./server.ts";
 import { realFetch } from "../../tests/support/setup.ts";
 import type { AppConfig } from "../config.ts";
+import { testConfig } from "../../tests/support/config.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
 
@@ -133,6 +134,33 @@ test("authorized POST can perform an admin operation and authenticated GET can r
   const response = await handler(new Request("http://localhost/pending-polls", { headers }));
   expect(response.status).toStrictEqual(200);
   expect(((await response.json()) as { all_pending: number }).all_pending).toStrictEqual(0);
+});
+
+test("an admin trigger for a disabled feature posts nothing and answers 409", async () => {
+  const neverCall = () => {
+    throw new Error("a disabled feature must not post or read");
+  };
+  const handler = createRequestHandler(
+    testConfig({
+      adminHttpToken: "test-secret",
+      moodPoll: { enabled: false },
+      weeklyStats: { enabled: false },
+      wellness: { enabled: false },
+    }),
+    new Proxy({}, { get: () => neverCall }) as DiscordClient,
+    new Proxy({}, { get: () => neverCall }) as StorageService,
+    new Intl.DateTimeFormat("en-US"),
+  );
+  for (const route of ["/trigger_poll", "/trigger_stats", "/trigger_alert"]) {
+    const response = await handler(
+      new Request(`http://localhost${route}`, {
+        method: "POST",
+        headers: { Authorization: "Bearer test-secret" },
+      }),
+    );
+    expect(response.status).toStrictEqual(409);
+    expect(await response.text()).toContain("disabled in config.yaml");
+  }
 });
 
 test("the production server answers health checks on Bun.serve", async () => {

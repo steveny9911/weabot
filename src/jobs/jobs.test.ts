@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
-import type { AppConfig } from "../config.ts";
+import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 import { openDatabase } from "../db/database.ts";
 import type { DiscordClient, MessagePayload } from "../discord/client.ts";
 import { createStorageService, type StorageService } from "../services/storage.ts";
@@ -28,7 +28,10 @@ afterEach(() => {
 });
 
 /** Channel "bad" answers 403 with an error body; every other channel gets message IDs m1, m2, … */
-function fixture(storage: StorageService = createStorageService(openDatabase(":memory:"))) {
+function fixture(
+  storage: StorageService = createStorageService(openDatabase(":memory:")),
+  overrides: ConfigOverrides = {},
+) {
   const posts: { channelId: string; payload: MessagePayload }[] = [];
   const discord = {
     postMessage(channelId: string, payload: MessagePayload) {
@@ -40,7 +43,15 @@ function fixture(storage: StorageService = createStorageService(openDatabase(":m
       );
     },
   } as unknown as DiscordClient;
-  const config = { channelIds: ["good", "bad"], glueAlertThreshold: 2 } as AppConfig;
+  const channelIds = ["good", "bad"];
+  const config = testConfig(
+    {
+      moodPoll: { channelIds },
+      wellness: { channelIds, glueAlertThreshold: 2 },
+      weeklyStats: { channelIds },
+    },
+    overrides,
+  );
   const deps: JobDeps = { config, discord, storage };
   return { deps, posts, storage };
 }
@@ -133,4 +144,40 @@ test("the test alert posts the named user's alert to every channel", async () =>
     "log: [SERVER] Alert posted in good!",
     "error: [SERVER] Failed to post alert in bad: 403",
   ]);
+});
+
+test("each job posts only to its own feature's channels", async () => {
+  const { deps, posts } = fixture(undefined, {
+    moodPoll: { channelIds: ["poll-only"] },
+    weeklyStats: { channelIds: ["stats-only"] },
+    wellness: { channelIds: ["wellness-only"] },
+  });
+  await postMoodPolls(deps, dateFormatter, "[CRON]");
+  await postStats(deps, { days: 7, title: "t", label: "weekly stats", tag: "[CRON]" });
+  await postTestAlert(deps, "TestUser", 3);
+  expect(posts.map((post) => post.channelId)).toStrictEqual([
+    "poll-only",
+    "stats-only",
+    "wellness-only",
+  ]);
+});
+
+test("a disabled feature posts nothing and records nothing", async () => {
+  const { deps, posts, storage } = fixture(undefined, {
+    moodPoll: { enabled: false },
+    weeklyStats: { enabled: false },
+    wellness: { enabled: false },
+  });
+  await storage.recordVote("good", "u1", "User One", "glue", "2026-11-03");
+  await storage.recordVote("good", "u1", "User One", "glue", "2026-11-04");
+
+  expect(await postMoodPolls(deps, dateFormatter, "[CRON]")).toStrictEqual([]);
+  expect(
+    await postStats(deps, { days: 7, title: "t", label: "weekly stats", tag: "[SERVER]" }),
+  ).toStrictEqual([]);
+  expect(await postTestAlert(deps, "TestUser", 3)).toStrictEqual([]);
+  await runWellnessCheck(deps);
+
+  expect(posts).toStrictEqual([]);
+  expect(await storage.getAllPendingPolls()).toStrictEqual([]);
 });

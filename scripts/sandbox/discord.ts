@@ -46,8 +46,9 @@ export function localSandboxMessage(
 }
 
 async function main(): Promise<void> {
+  const base = loadConfig();
   const config = {
-    ...loadConfig(),
+    ...base,
     channelId: TEXT_CHANNEL_ID,
     channelIds: [TEXT_CHANNEL_ID],
     timeZone: "America/Vancouver",
@@ -55,12 +56,10 @@ async function main(): Promise<void> {
     aiEnableUwu: false,
     // Minimize fetched history. The AI wrapper below excludes it altogether.
     aiContextMaxMessages: 1,
-    webSearchEnabled: false,
-    linkOpenEnabled: false,
-    autonomousChatEnabled: false,
-    autonomousChatChannelIds: [],
-    discordActionsEnabled: true,
-    discordActionsGuildIds: [SANDBOX_ID],
+    webSearch: { ...base.webSearch, enabled: false },
+    linkOpen: { ...base.linkOpen, enabled: false },
+    autonomousChat: { ...base.autonomousChat, enabled: false, channelIds: [] },
+    discordActions: { ...base.discordActions, enabled: true, guildIds: [SANDBOX_ID] },
   };
   if (!config.aiApiKey) throw new Error("AI_API_KEY is required.");
   const events = createDiscordEventsClient(config.discordToken);

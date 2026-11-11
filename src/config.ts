@@ -1,5 +1,12 @@
 import fileConfig from "../config.yaml";
+import { validateConfigFile } from "./config_schema.ts";
 import { DEFAULT_DATABASE_PATH } from "./db/database.ts";
+import {
+  parseChannelList,
+  parseChannelScope,
+  parseIds,
+  type FeatureConfig,
+} from "./feature_config.ts";
 
 export const AI_PROVIDER_NAMES = ["openai", "gemini"] as const;
 export type AiProviderName = (typeof AI_PROVIDER_NAMES)[number];
@@ -17,10 +24,11 @@ export interface AppConfig {
   databasePath: string;
   httpPort: number;
   timeZone: string;
-  /** Consecutive "glue" days that trigger a wellness alert. */
-  glueAlertThreshold: number;
 
+  /** Master switch for AI: false turns off mention replies, autonomous chat and event tools. */
   aiEnabled: boolean;
+  /** Replies to mentions. It cannot turn on what `aiEnabled` turns off. */
+  aiChat: FeatureConfig;
   aiProvider: AiProviderName;
   aiApiKey: string | undefined;
   /** Models for providers that have no saved prompt, tried in order. */
@@ -48,53 +56,77 @@ export interface AppConfig {
   openaiAdminKey?: string;
   usageOpenaiProjectId?: string;
 
-  webSearchEnabled: boolean;
-  webSearchApiKey: string | undefined;
-  webSearchMaxResults: number;
-  linkOpenEnabled: boolean;
-  tweetReadEnabled: boolean;
+  /** Searches the web for a mention. On by default when BRAVE_SEARCH_API_KEY is set. */
+  webSearch: FeatureConfig & {
+    apiKey: string | undefined;
+    maxResults: number;
+  };
+  /** The \open link command. */
+  linkOpen: FeatureConfig;
+  /** Reading tweet links in mentions. */
+  tweetRead: FeatureConfig;
+  /** The event and invite tools. */
+  discordActions: FeatureConfig & {
+    /** Servers allowed to use the tools; empty allows all. */
+    guildIds: string[];
+  };
 
-  discordActionsEnabled?: boolean;
-  /** Servers allowed to use event/invite actions; empty allows all. */
-  discordActionsGuildIds?: string[];
+  /** The daily mood poll, which also collects the votes the stats and wellness alerts read. */
+  moodPoll: FeatureConfig<string[]>;
+  /** The daily check for users who keep voting "glue". It reads the mood poll's votes. */
+  wellness: FeatureConfig<string[]> & {
+    /** Consecutive "glue" days that trigger an alert. */
+    glueAlertThreshold: number;
+  };
+  /** The weekly mood summary. It reads the mood poll's votes. */
+  weeklyStats: FeatureConfig<string[]>;
 
-  autonomousChatEnabled: boolean;
-  autonomousChatChannelIds: string[];
-  autonomousChatMinHumanMessages: number;
-  autonomousChatActivityWindowMinutes: number;
-  autonomousChatCooldownMinutes: number;
-  /** Chance in [0, 1] of joining when the channel is eligible. */
-  autonomousChatReplyChance: number;
-  autonomousChatMaxContextMessages: number;
-  /** Share of the daily request quota, in percent, below which autonomous chat may run. */
-  autonomousChatRequestPercent: number;
-  /** Wait for a burst of human messages to finish before reading it. */
-  autonomousChatSettleSeconds?: number;
+  autonomousChat: FeatureConfig<string[]> & {
+    minHumanMessages: number;
+    activityWindowMinutes: number;
+    cooldownMinutes: number;
+    /** Chance in [0, 1] of joining when the channel is eligible. */
+    replyChance: number;
+    maxContextMessages: number;
+    /** Share of the daily request quota, in percent, below which autonomous chat may run. */
+    requestPercent: number;
+    /** Wait for a burst of human messages to finish before reading it. */
+    settleSeconds?: number;
+  };
 
-  landmineEnabled: boolean;
-  /** Channels with landmines: landmine.channel_ids, or the bot's channels when that is empty. */
-  landmineChannelIds: string[];
-  /** Chance in [0, 1] that a message is a landmine. */
-  landmineChance: number;
-  /** Whether stepping on a landmine also times the user out. */
-  landmineTimeoutEnabled: boolean;
-  landmineTimeoutSeconds: number;
-  /** GIF links; the announcement ends with one picked at random. Empty means no GIF. */
-  landmineGifs: string[];
+  landmine: FeatureConfig & {
+    /** Chance in [0, 1] that a message is a landmine. */
+    chance: number;
+    /** Whether stepping on a landmine also times the user out. */
+    timeout: { enabled: boolean; seconds: number };
+    /** GIF links; the announcement ends with one picked at random. Empty means no GIF. */
+    gifs: string[];
+  };
+}
+
+/** The settings of a feature that posts to named channels. */
+interface FeatureFile {
+  enabled?: boolean;
+  channel_ids?: string[];
+}
+
+/** The settings of a feature that reacts to messages, so it may work in "all" channels. */
+interface ReactiveFeatureFile {
+  enabled?: boolean;
+  channel_ids?: string[] | "all";
 }
 
 /** The shape of config.yaml. Every key is optional; config.example.yaml documents them. */
 export interface ConfigFile {
   discord?: {
     channel_ids?: string[];
-    actions?: { enabled?: boolean; guild_ids?: string[] };
   };
   general?: {
     time_zone?: string;
-    glue_alert_threshold?: number;
     db_path?: string;
     http_port?: number;
   };
+  ai_chat?: ReactiveFeatureFile;
   ai?: {
     enabled?: boolean;
     provider?: string;
@@ -107,15 +139,15 @@ export interface ConfigFile {
     context?: { max_messages?: number; inactivity_minutes?: number };
     budget?: { daily_tokens?: number; daily_request_quota?: number; mention_percent?: number };
   };
-  features?: {
-    web_search?: { enabled?: boolean; max_results?: number };
-    link_open?: boolean;
-    tweet_read?: boolean;
-  };
+  web_search?: ReactiveFeatureFile & { max_results?: number };
+  link_open?: ReactiveFeatureFile;
+  tweet_read?: ReactiveFeatureFile;
+  discord_actions?: ReactiveFeatureFile & { guild_ids?: string[] };
   usage?: { openai_project_id?: string };
-  autonomous_chat?: {
-    enabled?: boolean;
-    channel_ids?: string[];
+  mood_poll?: FeatureFile;
+  wellness?: FeatureFile & { glue_alert_threshold?: number };
+  weekly_stats?: FeatureFile;
+  autonomous_chat?: FeatureFile & {
     reply_chance?: number;
     min_human_messages?: number;
     activity_window_minutes?: number;
@@ -123,9 +155,7 @@ export interface ConfigFile {
     max_context_messages?: number;
     request_percent?: number;
   };
-  landmine?: {
-    enabled?: boolean;
-    channel_ids?: string[];
+  landmine?: ReactiveFeatureFile & {
     chance?: number;
     gifs?: string[];
     timeout?: { enabled?: boolean; seconds?: number };
@@ -135,19 +165,20 @@ export interface ConfigFile {
 /** A secret from the environment (.env); blank means unset. */
 const secret = (name: string) => process.env[name] || undefined;
 
-/** Unique IDs. They must be quoted in YAML: unquoted, they parse as numbers and lose digits. */
-function ids(name: string, value: unknown[] = []): string[] {
-  if (value.some((id) => typeof id !== "string")) {
-    throw new Error(`FATAL: ${name} in config.yaml must be a list of quoted strings`);
-  }
-  return [...new Set(value as string[])];
-}
-
 /** Builds the app config from config.yaml (`file`, which tests replace) and the secrets in .env. */
 export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
-  const { discord, general, ai, features, usage, autonomous_chat: auto, landmine: mine } = file;
+  validateConfigFile(file);
+  const { discord, general, ai, usage, autonomous_chat: auto, landmine: mine } = file;
+  const {
+    ai_chat: aiChat,
+    web_search: search,
+    link_open: open,
+    tweet_read: tweet,
+    discord_actions: actions,
+  } = file;
+  const { mood_poll: poll, wellness: care, weekly_stats: weekly } = file;
 
-  const channelIds = ids("discord.channel_ids", discord?.channel_ids);
+  const channelIds = parseIds("discord.channel_ids", discord?.channel_ids);
   if (channelIds.length === 0) {
     throw new Error("FATAL: Missing channel: set discord.channel_ids in config.yaml");
   }
@@ -159,9 +190,17 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     throw new Error(`FATAL: Unknown ai.provider: ${aiProvider}`);
   }
 
+  // A feature that posts to named channels, and one that reacts to messages and may use "all".
+  const feature = (name: string, section: FeatureFile | undefined, on = true) => ({
+    enabled: section?.enabled ?? on,
+    channelIds: parseChannelList(`${name}.channel_ids`, section?.channel_ids, channelIds),
+  });
+  const reactiveFeature = (name: string, section: ReactiveFeatureFile | undefined, on = true) => ({
+    enabled: section?.enabled ?? on,
+    channelIds: parseChannelScope(`${name}.channel_ids`, section?.channel_ids, channelIds),
+  });
+
   const webSearchApiKey = secret("BRAVE_SEARCH_API_KEY");
-  const autonomousChannelIds = ids("autonomous_chat.channel_ids", auto?.channel_ids);
-  const landmineChannelIds = ids("landmine.channel_ids", mine?.channel_ids);
 
   return {
     discordToken,
@@ -171,9 +210,9 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     databasePath: general?.db_path ?? DEFAULT_DATABASE_PATH,
     httpPort: general?.http_port ?? 8000,
     timeZone: general?.time_zone ?? "America/Los_Angeles",
-    glueAlertThreshold: general?.glue_alert_threshold ?? 7,
 
     aiEnabled: ai?.enabled ?? true,
+    aiChat: reactiveFeature("ai_chat", aiChat),
     aiProvider: aiProvider as AiProviderName,
     // OPENAI_API_KEY is the original name, still accepted for OpenAI.
     aiApiKey:
@@ -193,31 +232,42 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     openaiAdminKey: secret("OPENAI_ADMIN_KEY"),
     usageOpenaiProjectId: usage?.openai_project_id || undefined,
 
-    webSearchEnabled: features?.web_search?.enabled ?? Boolean(webSearchApiKey),
-    webSearchApiKey,
-    webSearchMaxResults: features?.web_search?.max_results ?? 3,
-    linkOpenEnabled: features?.link_open ?? true,
-    tweetReadEnabled: features?.tweet_read ?? true,
+    webSearch: {
+      ...reactiveFeature("web_search", search, Boolean(webSearchApiKey)),
+      apiKey: webSearchApiKey,
+      maxResults: search?.max_results ?? 3,
+    },
+    linkOpen: reactiveFeature("link_open", open),
+    tweetRead: reactiveFeature("tweet_read", tweet),
+    discordActions: {
+      ...reactiveFeature("discord_actions", actions),
+      guildIds: parseIds("discord_actions.guild_ids", actions?.guild_ids),
+    },
 
-    discordActionsEnabled: discord?.actions?.enabled ?? true,
-    discordActionsGuildIds: ids("discord.actions.guild_ids", discord?.actions?.guild_ids),
+    moodPoll: feature("mood_poll", poll),
+    wellness: { ...feature("wellness", care), glueAlertThreshold: care?.glue_alert_threshold ?? 7 },
+    weeklyStats: feature("weekly_stats", weekly),
 
-    autonomousChatEnabled: auto?.enabled ?? false,
-    autonomousChatChannelIds: autonomousChannelIds.length ? autonomousChannelIds : channelIds,
-    autonomousChatMinHumanMessages: auto?.min_human_messages ?? 4,
-    autonomousChatActivityWindowMinutes: auto?.activity_window_minutes ?? 20,
-    autonomousChatCooldownMinutes: auto?.cooldown_minutes ?? 1,
-    autonomousChatReplyChance: auto?.reply_chance ?? 0.35,
-    autonomousChatSettleSeconds: 8,
-    autonomousChatMaxContextMessages: auto?.max_context_messages ?? 40,
-    autonomousChatRequestPercent: auto?.request_percent ?? 30,
+    autonomousChat: {
+      ...feature("autonomous_chat", auto, false),
+      minHumanMessages: auto?.min_human_messages ?? 4,
+      activityWindowMinutes: auto?.activity_window_minutes ?? 20,
+      cooldownMinutes: auto?.cooldown_minutes ?? 1,
+      replyChance: auto?.reply_chance ?? 0.35,
+      settleSeconds: 8,
+      maxContextMessages: auto?.max_context_messages ?? 40,
+      requestPercent: auto?.request_percent ?? 30,
+    },
 
-    landmineEnabled: mine?.enabled ?? false,
-    landmineChannelIds: landmineChannelIds.length ? landmineChannelIds : channelIds,
-    landmineChance: mine?.chance ?? 0.1,
-    landmineTimeoutEnabled: mine?.timeout?.enabled ?? true,
-    // Discord allows timeouts of up to 28 days.
-    landmineTimeoutSeconds: Math.min(mine?.timeout?.seconds ?? 60, 28 * 86_400),
-    landmineGifs: mine?.gifs ?? [],
+    landmine: {
+      ...reactiveFeature("landmine", mine, false),
+      chance: mine?.chance ?? 0.1,
+      timeout: {
+        enabled: mine?.timeout?.enabled ?? true,
+        // Discord allows timeouts of up to 28 days.
+        seconds: Math.min(mine?.timeout?.seconds ?? 60, 28 * 86_400),
+      },
+      gifs: mine?.gifs ?? [],
+    },
   };
 }

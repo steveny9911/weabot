@@ -13,7 +13,7 @@ function mockConfig(): AppConfig {
     aiRateLimitPerUser: 2,
     aiDailyTokenBudget: 10000000,
     aiEnableUwu: true,
-    autonomousChatChannelIds: ["sandbox"],
+    autonomousChat: { channelIds: ["sandbox"] },
   });
 }
 

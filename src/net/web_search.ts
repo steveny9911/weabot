@@ -95,10 +95,10 @@ export function formatSearchResultsForContext(query: string, results: SearchResu
 export function createWebSearchService(config: AppConfig): WebSearchService {
   return {
     async search(query: string, maxResults?: number) {
-      if (!config.webSearchEnabled) {
+      if (!config.webSearch.enabled) {
         return { ok: false, error: "Web search is disabled" };
       }
-      if (!config.webSearchApiKey) {
+      if (!config.webSearch.apiKey) {
         return { ok: false, error: "BRAVE_SEARCH_API_KEY not set" };
       }
 
@@ -107,7 +107,7 @@ export function createWebSearchService(config: AppConfig): WebSearchService {
         return { ok: false, error: "Empty search query" };
       }
 
-      const requested = maxResults ?? config.webSearchMaxResults;
+      const requested = maxResults ?? config.webSearch.maxResults;
       const count = Math.max(1, Math.min(requested, MAX_RESULTS_CAP));
 
       const url = new URL(BRAVE_SEARCH_URL);
@@ -120,7 +120,7 @@ export function createWebSearchService(config: AppConfig): WebSearchService {
         const response = await fetchWithRetry(url.toString(), {
           headers: {
             Accept: "application/json",
-            "X-Subscription-Token": config.webSearchApiKey,
+            "X-Subscription-Token": config.webSearch.apiKey,
           },
         });
 

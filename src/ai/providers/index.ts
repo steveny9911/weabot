@@ -19,7 +19,10 @@ export function withProviderLimits(config: AppConfig): AppConfig {
   const { tools, autonomous } = createAiProvider(config).capabilities;
   return {
     ...config,
-    discordActionsEnabled: config.discordActionsEnabled && tools,
-    autonomousChatEnabled: config.autonomousChatEnabled && autonomous,
+    discordActions: { ...config.discordActions, enabled: config.discordActions.enabled && tools },
+    autonomousChat: {
+      ...config.autonomousChat,
+      enabled: config.autonomousChat.enabled && autonomous,
+    },
   };
 }

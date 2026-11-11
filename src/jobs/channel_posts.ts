@@ -1,4 +1,4 @@
-/** Shared shape for jobs that post to every configured channel. */
+/** Shared shape for jobs that post to their feature's channels. */
 import type { AppConfig } from "../config.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";

@@ -1,11 +1,11 @@
 import { expect, spyOn, test } from "bun:test";
-import { testConfig } from "../../tests/support/config.ts";
+import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 import { openDatabase } from "../db/database.ts";
 import { createLandmineQueries } from "../db/landmines.ts";
 import { createLandmineService } from "./landmine.ts";
 
 function setup(
-  overrides: Parameters<typeof testConfig>[0] = {},
+  overrides: NonNullable<ConfigOverrides["landmine"]> = {},
   options: { random?: number; timeoutOk?: boolean } = {},
 ) {
   const db = openDatabase(":memory:");
@@ -13,7 +13,7 @@ function setup(
   const timeouts: unknown[][] = [];
   const sent: string[] = [];
   const service = createLandmineService({
-    config: testConfig({ landmineEnabled: true, landmineChance: 0.5, ...overrides }),
+    config: testConfig({ landmine: { enabled: true, chance: 0.5 } }, { landmine: overrides }),
     mines,
     random: () => options.random ?? 0,
     timeout: async (_config, ...args) => {
@@ -46,7 +46,7 @@ test("a message that is a landmine times out its author and announces it", async
 });
 
 test("with timeouts off a landmine only announces, and the user is not timed out", async () => {
-  const { service, timeouts, sent, mines } = setup({ landmineTimeoutEnabled: false });
+  const { service, timeouts, sent, mines } = setup({ timeout: { enabled: false } });
   await service.step(message());
   expect(timeouts).toHaveLength(0);
   expect(sent).toStrictEqual([
@@ -57,17 +57,17 @@ test("with timeouts off a landmine only announces, and the user is not timed out
 
 test("the announcement ends with a GIF picked from the list", async () => {
   const gifs = ["https://a.gif", "https://b.gif"];
-  const first = setup({ landmineGifs: gifs }, { random: 0 });
+  const first = setup({ gifs }, { random: 0 });
   await first.service.step(message());
   expect(first.sent[0]).toEndWith("landmines remaining)\nhttps://a.gif");
   // 0.6 is below the 90% chance, and 0.6 * 2 rounds down to the second GIF
-  const second = setup({ landmineGifs: gifs, landmineChance: 0.9 }, { random: 0.6 });
+  const second = setup({ gifs, chance: 0.9 }, { random: 0.6 });
   await second.service.step(message());
   expect(second.sent[0]).toEndWith("\nhttps://b.gif");
 });
 
 test("the announcement uses the configured timeout", async () => {
-  const { service, sent } = setup({ landmineTimeoutSeconds: 30 });
+  const { service, sent } = setup({ timeout: { seconds: 30 } });
   await service.step(message());
   expect(sent[0]).toContain("timed out for 30 seconds!");
 });
@@ -80,13 +80,13 @@ test("a message that rolls at or above the chance is safe", async () => {
 });
 
 test("nothing happens when landmines are disabled", async () => {
-  const { service, timeouts } = setup({ landmineEnabled: false });
+  const { service, timeouts } = setup({ enabled: false });
   await service.step(message());
   expect(timeouts).toHaveLength(0);
 });
 
 test("only landmine channels in a server have landmines", async () => {
-  const { service, timeouts } = setup({ landmineChannelIds: ["other"] });
+  const { service, timeouts } = setup({ channelIds: ["other"] });
   await service.step(message());
   await service.step(message({ channel_id: "other", guild_id: undefined }));
   expect(timeouts).toHaveLength(0);
@@ -111,7 +111,7 @@ test("only normal messages and replies are landmines, not system messages", asyn
 });
 
 test("a chance of 0 is never a landmine", async () => {
-  const { service, timeouts } = setup({ landmineChance: 0 });
+  const { service, timeouts } = setup({ chance: 0 });
   await service.step(message());
   expect(timeouts).toHaveLength(0);
 });
@@ -119,7 +119,7 @@ test("a chance of 0 is never a landmine", async () => {
 test("a failed announcement does not put the landmine back", async () => {
   const { db, mines } = setup();
   const failing = createLandmineService({
-    config: testConfig({ landmineEnabled: true, landmineChance: 0.5 }),
+    config: testConfig({ landmine: { enabled: true, chance: 0.5 } }),
     mines,
     random: () => 0,
     timeout: async () => ({ ok: true }),
@@ -158,7 +158,7 @@ test("a safe roll and a failed announcement are logged", async () => {
     await setup({}, { random: 0.9 }).service.step(message());
     const { mines } = setup();
     await createLandmineService({
-      config: testConfig({ landmineEnabled: true, landmineChance: 0.5 }),
+      config: testConfig({ landmine: { enabled: true, chance: 0.5 } }),
       mines,
       random: () => 0,
       timeout: async () => ({ ok: true }),

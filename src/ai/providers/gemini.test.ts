@@ -150,16 +150,16 @@ test("startup stops without a model, a prompt file, or prompt text", () => {
 
 test("Gemini keeps Discord actions and autonomous chat", () => {
   const limited = withProviderLimits(
-    config({ discordActionsEnabled: true, autonomousChatEnabled: true }),
+    config({ discordActions: { enabled: true }, autonomousChat: { enabled: true } }),
   );
-  expect(limited.discordActionsEnabled).toBe(true);
-  expect(limited.autonomousChatEnabled).toBe(true);
+  expect(limited.discordActions.enabled).toBe(true);
+  expect(limited.autonomousChat.enabled).toBe(true);
 
   const openai = withProviderLimits(
-    testConfig({ discordActionsEnabled: true, autonomousChatEnabled: true }),
+    testConfig({ discordActions: { enabled: true }, autonomousChat: { enabled: true } }),
   );
-  expect(openai.discordActionsEnabled).toBe(true);
-  expect(openai.autonomousChatEnabled).toBe(true);
+  expect(openai.discordActions.enabled).toBe(true);
+  expect(openai.autonomousChat.enabled).toBe(true);
 });
 
 test("thinking is turned down to the lowest level unless AI_THINKING is on", async () => {

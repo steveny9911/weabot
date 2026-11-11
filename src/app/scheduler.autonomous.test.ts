@@ -8,7 +8,7 @@ import { type CronRegistrar, registerCronJobs } from "./scheduler.ts";
 import { openDatabase } from "../db/database.ts";
 import { createRateLimitService } from "../services/rate_limit.ts";
 import { createStorageService } from "../services/storage.ts";
-import { testConfig } from "../../tests/support/config.ts";
+import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 
 function config(): AppConfig {
   return testConfig({
@@ -17,10 +17,12 @@ function config(): AppConfig {
     aiRateLimitPerUser: 1,
     aiDailyTokenBudget: 100,
     aiMaxInputChars: 500,
-    autonomousChatEnabled: true,
-    autonomousChatChannelIds: ["channel"],
-    autonomousChatMinHumanMessages: 1,
-    autonomousChatReplyChance: 1,
+    autonomousChat: {
+      enabled: true,
+      channelIds: ["channel"],
+      minHumanMessages: 1,
+      replyChance: 1,
+    },
   });
 }
 
@@ -47,7 +49,7 @@ interface Fixture {
   reactions: Reaction[];
 }
 interface FixtureOptions {
-  settings?: Partial<AppConfig>;
+  settings?: ConfigOverrides;
   reaction?: (reaction: Reaction) => Promise<Response>;
   getReactionContext?: NonNullable<
     import("../discord/client.ts").DiscordClient["getReactionContext"]
@@ -91,7 +93,7 @@ async function withAutonomousJob(
   globalThis.fetch = asFetch(() => Promise.resolve(Response.json({ id: "bot" })));
   Date.now = () => now;
   try {
-    const settings = { ...config(), ...options.settings };
+    const settings = testConfig(config(), options.settings ?? {});
     const rateLimit = createRateLimitService(kv, settings, () => now);
     const storage = createStorageService(kv);
     const generations: Generation[] = [];
@@ -107,7 +109,7 @@ async function withAutonomousJob(
       imageUrls: [],
     });
     const messages = new Map(
-      settings.autonomousChatChannelIds.map((channelId) => [channelId, [humanMessage()]]),
+      settings.autonomousChat.channelIds.map((channelId) => [channelId, [humanMessage()]]),
     );
     let run: () => Promise<void>;
     const restart = () => {
@@ -223,7 +225,7 @@ test("autonomous chat preserves its exemption from the human per-minute limit", 
         requestsToday: 2,
       });
     },
-    { settings: { autonomousChatCooldownMinutes: 0.001 } },
+    { settings: { autonomousChat: { cooldownMinutes: 0.001 } } },
   ));
 
 test("autonomous chat skips generation and request counting when budget is already exhausted", () =>
@@ -375,7 +377,7 @@ test("autonomous channel read failure does not block participation in the next c
       expect(fixture.posts).toStrictEqual([]);
     },
     {
-      settings: { autonomousChatChannelIds: ["unavailable", "working"] },
+      settings: { autonomousChat: { channelIds: ["unavailable", "working"] } },
       getRecentMessages: (channelId) =>
         channelId === "unavailable"
           ? Promise.reject(new Error("Discord channel unavailable"))

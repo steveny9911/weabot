@@ -1,4 +1,4 @@
-/** Posts a mood stats embed covering the last `days` UTC calendar days to every channel. */
+/** Posts a mood stats embed covering the last `days` UTC calendar days to the weekly_stats channels. */
 import { buildStatsEmbed } from "../features/stats.ts";
 import type { ChannelPost, JobDeps, LogTag } from "./channel_posts.ts";
 
@@ -14,6 +14,10 @@ export async function postStats(
   { config, discord, storage }: JobDeps,
   { days, title, label, tag }: StatsPostOptions,
 ): Promise<ChannelPost[]> {
+  if (!config.weeklyStats.enabled) {
+    console.log(`${tag} Stats skipped because weekly stats are disabled`);
+    return [];
+  }
   const endDate = new Date();
   const startDate = new Date(endDate);
   // UTC calendar days, so the window is the same in any process time zone.
@@ -21,7 +25,7 @@ export async function postStats(
   const capitalized = label[0].toUpperCase() + label.slice(1);
   const posts: ChannelPost[] = [];
 
-  for (const channelId of config.channelIds) {
+  for (const channelId of config.weeklyStats.channelIds) {
     const stats = await storage.getStats(
       channelId,
       startDate.toISOString().split("T")[0],

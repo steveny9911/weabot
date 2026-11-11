@@ -38,21 +38,21 @@ export async function participateInChannel(
   const random = deps.random ?? Math.random;
   const messages = await discord.getRecentMessages(
     channelId,
-    config.autonomousChatMaxContextMessages,
+    config.autonomousChat.maxContextMessages,
   );
   const reset = await storage.getContextReset(channelId);
   const previous = await storage.getAutonomousParticipation(channelId);
   const options = {
     botUserId: botId,
     nowMs: now(),
-    minHumanMessages: config.autonomousChatMinHumanMessages,
-    activityWindowMs: config.autonomousChatActivityWindowMinutes * 60_000,
+    minHumanMessages: config.autonomousChat.minHumanMessages,
+    activityWindowMs: config.autonomousChat.activityWindowMinutes * 60_000,
     inactivityGapMs: config.aiContextInactivityMinutes * 60_000,
-    cooldownMs: config.autonomousChatCooldownMinutes * 60_000,
-    maxContextMessages: config.autonomousChatMaxContextMessages,
-    settleMs: (config.autonomousChatSettleSeconds ?? 0) * 1000,
+    cooldownMs: config.autonomousChat.cooldownMinutes * 60_000,
+    maxContextMessages: config.autonomousChat.maxContextMessages,
+    settleMs: (config.autonomousChat.settleSeconds ?? 0) * 1000,
     resetAfterMs: reset?.resetAt,
-    replyChance: config.autonomousChatReplyChance,
+    replyChance: config.autonomousChat.replyChance,
     random,
     lastParticipation: previous,
   };
@@ -63,7 +63,7 @@ export async function participateInChannel(
   }
   const budget = await rateLimit.admitRequest("autonomous-chat", {
     enforceUserLimit: false,
-    requestPercent: config.autonomousChatRequestPercent,
+    requestPercent: config.autonomousChat.requestPercent,
   });
   if (!budget.allowed) return { status: "daily budget exhausted" };
   const latest = decision.latestHumanMessage;
@@ -130,7 +130,7 @@ export async function participateInChannel(
       const original = messages.find((m) => m.id === p.messageId)!;
       const freshMessages = await discord.getRecentMessages(
         channelId,
-        config.autonomousChatMaxContextMessages,
+        config.autonomousChat.maxContextMessages,
       );
       const freshReset = await storage.getContextReset(channelId);
       const freshDecision = decideAutonomousChatReply(freshMessages, {

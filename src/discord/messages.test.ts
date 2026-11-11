@@ -2,21 +2,22 @@ import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { getBotUserId, timeoutMember } from "./messages.ts";
 import type { AppConfig } from "../config.ts";
-import { testConfig } from "../../tests/support/config.ts";
+import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 
-function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return testConfig({
-    channelId: "chan-1",
-    channelIds: ["chan-1"],
-    timeZone: "America/Los_Angeles",
-    aiApiKey: "sk-test-key",
-    aiRateLimitPerUser: 2,
-    aiDailyTokenBudget: 10000000,
-    webSearchEnabled: true,
-    webSearchApiKey: "brave-key",
-    autonomousChatChannelIds: ["chan-1"],
-    ...overrides,
-  });
+function createMockConfig(overrides: ConfigOverrides = {}): AppConfig {
+  return testConfig(
+    {
+      channelId: "chan-1",
+      channelIds: ["chan-1"],
+      timeZone: "America/Los_Angeles",
+      aiApiKey: "sk-test-key",
+      aiRateLimitPerUser: 2,
+      aiDailyTokenBudget: 10000000,
+      webSearch: { enabled: true, apiKey: "brave-key" },
+      autonomousChat: { channelIds: ["chan-1"] },
+    },
+    overrides,
+  );
 }
 
 test("getBotUserId returns undefined when discord token is missing", async () => {

@@ -58,14 +58,18 @@ async function main() {
     return;
   }
   const options = sandboxOptions(process.argv.slice(2));
+  const base = loadConfig();
   const config = {
-    ...loadConfig(),
+    ...base,
     aiEnabled: true,
-    autonomousChatEnabled: true,
-    autonomousChatChannelIds: [REACTION_SANDBOX_CHANNEL],
-    autonomousChatMinHumanMessages: 1,
-    autonomousChatReplyChance: 1,
-    autonomousChatSettleSeconds: 8,
+    autonomousChat: {
+      ...base.autonomousChat,
+      enabled: true,
+      channelIds: [REACTION_SANDBOX_CHANNEL],
+      minHumanMessages: 1,
+      replyChance: 1,
+      settleSeconds: 8,
+    },
   };
   if (!config.aiApiKey) throw new Error("AI_API_KEY is required.");
   const real = createDiscordClient(config.discordToken);

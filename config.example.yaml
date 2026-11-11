@@ -7,29 +7,23 @@
 #
 # The file must exist, but every key in it is optional except discord.channel_ids. A key you leave
 # out (or set to null) uses its default. The values shown are the defaults, except where a comment
-# says otherwise. Each comment states the type and the allowed values; Haru does not check them, so
-# an invalid value behaves as written or breaks the feature. Restart after editing.
+# says otherwise. Each comment states the type and the allowed values. Haru stops at startup on a
+# key it does not know (a typo), on an `enabled` that is not true or false, and on channel IDs that
+# are not quoted strings; it does not check other values, so an invalid one behaves as written or
+# breaks the feature. Restart after editing.
 #
 # IDs (channels, servers) must be quoted strings, like "123456789012345678". Unquoted, YAML reads
 # them as numbers and loses digits, so Haru refuses to start.
 
 discord:
-  # REQUIRED. List of channel IDs where Haru chats; polls, alerts and stats go to the first one.
+  # REQUIRED. List of channel IDs where Haru chats; polls, alerts and stats are posted to each of
+  # them. A feature with its own channel_ids uses those instead; with none, it uses this list.
   channel_ids: []
-
-  # Event and invite tools.
-  actions:
-    # true or false.
-    enabled: true
-    # List of server IDs where the tools are allowed. Empty means every server the bot is in.
-    guild_ids: []
 
 general:
   # An IANA time zone name, such as America/Vancouver. Used for dates and as the default for
   # Discord events.
   time_zone: America/Los_Angeles
-  # Whole number of consecutive "glue" days before a wellness alert.
-  glue_alert_threshold: 7
   # SQLite database file path. Its folder is created if missing. In Docker the folder is /app/data.
   db_path: ./data/haru.sqlite3
   # Port number for the HTTP server (health check and admin endpoints). Docker publishes no port
@@ -38,7 +32,8 @@ general:
 
 # AI chat is off without AI_API_KEY in `.env`.
 ai:
-  # true or false. false turns AI chat off even with a key.
+  # true or false. The master switch: false turns off mention replies, autonomous chat and the
+  # event tools, even with a key.
   enabled: true
   # openai or gemini. Anything else stops startup.
   provider: openai
@@ -76,17 +71,65 @@ ai:
     # Number from 0 to 100. Percent of the quota that mentions may use; the rest is headroom.
     mention_percent: 90
 
-features:
-  web_search:
-    # true or false. Default: true when BRAVE_SEARCH_API_KEY is set, otherwise false.
-    # enabled: true
-    # Whole number of search results added to a reply.
-    max_results: 3
-  # true or false. The \open link command.
-  link_open: true
-  # true or false. Reading tweet links (x.com, twitter.com, vxtwitter.com, ...) in mentions. Tweet
-  # text and photos are fetched through the public FxTwitter/VxTwitter APIs.
-  tweet_read: true
+# Replies to mentions, and the features that run inside a reply. Each has the same two settings,
+# plus its own. ai_chat cannot turn on what ai.enabled turns off; web_search, link_open, tweet_read
+# and discord_actions only work where ai_chat does:
+#   enabled      true or false.
+#   channel_ids  List of channel IDs where it works, or all for every channel Haru can read.
+#                Empty or left out means discord.channel_ids. all keeps these working in any channel,
+#                as before channel_ids existed.
+ai_chat:
+  enabled: true
+  channel_ids: all
+
+web_search:
+  # true or false. Default: true when BRAVE_SEARCH_API_KEY is set, otherwise false.
+  # enabled: true
+  channel_ids: all
+  # Whole number of search results added to a reply.
+  max_results: 3
+
+# The \open link command.
+link_open:
+  enabled: true
+  channel_ids: all
+
+# Reading tweet links (x.com, twitter.com, vxtwitter.com, ...) in mentions. Tweet text and photos
+# are fetched through the public FxTwitter/VxTwitter APIs.
+tweet_read:
+  enabled: true
+  channel_ids: all
+
+# Event and invite tools.
+discord_actions:
+  enabled: true
+  channel_ids: all
+  # List of server IDs where the tools are allowed. Empty means every server the bot is in.
+  guild_ids: []
+
+# The daily mood poll, the weekly stats and the wellness alerts. Each posts to every channel in its
+# own channel_ids (empty means discord.channel_ids). The stats and the alerts read the votes the
+# mood poll collects in each channel, so they have nothing to report where it is off or not posted;
+# Haru warns at startup when that happens. Collecting the votes of polls already posted always runs.
+mood_poll:
+  # true or false. Posts a poll every day at 05:00 UTC.
+  enabled: true
+  # List of channel IDs. Empty means discord.channel_ids.
+  channel_ids: []
+
+weekly_stats:
+  # true or false. Posts a summary every Sunday at 06:00 UTC.
+  enabled: true
+  # List of channel IDs. Empty means discord.channel_ids.
+  channel_ids: []
+
+wellness:
+  # true or false. Checks every day at 06:00 UTC.
+  enabled: true
+  # List of channel IDs. Empty means discord.channel_ids.
+  channel_ids: []
+  # Whole number of consecutive "glue" days before a wellness alert.
+  glue_alert_threshold: 7
 
 # Haru may join a conversation on its own: a short reply or one emoji reaction.
 autonomous_chat:
@@ -117,7 +160,8 @@ landmine:
   # true or false.
   enabled: false
 
-  # List of channel IDs with landmines. Empty means discord.channel_ids.
+  # List of channel IDs with landmines, or all for every channel Haru can read. Empty means
+  # discord.channel_ids.
   channel_ids: []
 
   # Number from 0 to 1. Chance that a message is a landmine.
