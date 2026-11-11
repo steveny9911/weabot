@@ -1,6 +1,5 @@
 /** Joins active conversations only when explicitly enabled and every guardrail passes. */
 import type { AiService } from "../ai/types.ts";
-import { getBotUserId } from "../discord/messages.ts";
 import { participateInChannel } from "../features/autonomous_chat/participate.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { JobDeps } from "./channel_posts.ts";
@@ -26,7 +25,7 @@ export function createAutonomousChatJob(
 
     autonomousChatRunning = true;
     try {
-      const botUserId = await getBotUserId(config);
+      const botUserId = await discord.getBotUserId();
       if (!botUserId) {
         console.error("[CRON] Autonomous chat skipped because bot user id is unavailable");
         return;

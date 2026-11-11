@@ -1,55 +1,37 @@
-/** Per-channel AI context: the current conversation, cached in memory between reads. */
+/** Per-channel AI context: the current conversation, read fresh from Discord for each mention. */
 import type { AppConfig } from "../config.ts";
-import { fetchChannelMessages } from "../discord/messages.ts";
+import type { DiscordClient } from "../discord/client.ts";
 import {
   mapDiscordMessage,
   toAiContextMessage,
   selectActiveConversation,
+  type RecentDiscordMessage,
 } from "../features/chat_context.ts";
 
-const messagesCache = new Map<string, Array<Record<string, unknown>>>();
-
-export async function saveContext(
+/** The recent conversation ending with `triggerMessage`; just the trigger if Discord fails. */
+export async function loadContext(
+  discord: Pick<DiscordClient, "getRecentMessages">,
   config: AppConfig,
   channelId: string,
-  limit = 5,
-  triggerMessage?: Record<string, unknown>,
-  options: { inactivityGapMs?: number; resetAfterMs?: number | null } = {},
-): Promise<void> {
-  if (!channelId) return;
-
+  limit: number,
+  triggerMessage: Record<string, unknown>,
+  resetAfterMs?: number,
+): Promise<Array<Record<string, unknown>>> {
+  const trigger = mapDiscordMessage(triggerMessage);
+  let recent: RecentDiscordMessage[] = [];
   try {
-    const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit)));
-    const fetched = await fetchChannelMessages(config, channelId, safeLimit);
-    if (!fetched) return;
-    let msgs = fetched;
-
-    if (triggerMessage) {
-      const trigId = triggerMessage["id"] as string | undefined;
-      if (trigId) {
-        msgs = msgs.filter((m) => (m.id as string | undefined) !== trigId);
-      }
-      msgs.push(triggerMessage);
-    }
-
-    const activeConversation = selectActiveConversation(msgs.map(mapDiscordMessage), {
-      maxMessages: safeLimit,
-      inactivityGapMs: options.inactivityGapMs ?? config.aiContextInactivityMinutes * 60_000,
-      resetAfterMs: options.resetAfterMs,
-    });
-    const simplified = activeConversation.map(toAiContextMessage);
-
-    messagesCache.set(channelId, simplified as Array<Record<string, unknown>>);
-    console.log(`Saved ${simplified.length} messages to context for channel ${channelId}`);
+    recent = await discord.getRecentMessages(channelId, limit);
   } catch (err) {
-    console.error("Error saving context:", err);
+    console.error("Error loading context:", err);
   }
-}
-
-export function getContext(channelId: string): Array<Record<string, unknown>> | undefined {
-  return messagesCache.get(channelId);
-}
-
-export function clearContext(channelId: string): void {
-  messagesCache.delete(channelId);
+  const conversation = selectActiveConversation(
+    [...recent.filter((m) => m.id !== trigger.id), trigger],
+    {
+      maxMessages: limit,
+      inactivityGapMs: config.aiContextInactivityMinutes * 60_000,
+      resetAfterMs,
+    },
+  );
+  console.log(`Loaded ${conversation.length} messages of context for channel ${channelId}`);
+  return conversation.map(toAiContextMessage) as Array<Record<string, unknown>>;
 }

@@ -4,7 +4,7 @@ import { createAiService } from "../../src/ai/service.ts";
 import type { AiService } from "../../src/ai/types.ts";
 import { handleMessage } from "../../src/bot/handle_message.ts";
 import { messageMentionsBot } from "../../src/bot/commands.ts";
-import { getBotUserId } from "../../src/discord/messages.ts";
+import { createDiscordClient } from "../../src/discord/client.ts";
 import { startGateway } from "../../src/app/gateway.ts";
 import { loadConfig } from "../../src/config.ts";
 import { createDiscordActionService } from "../../src/features/discord_actions/service.ts";
@@ -67,7 +67,8 @@ async function main(): Promise<void> {
   if (guild.id !== SANDBOX_ID || (guild as unknown as { name: string }).name !== "Bot Sandbox") {
     throw new Error("Expected Bot Sandbox.");
   }
-  const botId = await getBotUserId(config);
+  const discord = createDiscordClient(config.discordToken);
+  const botId = await discord.getBotUserId();
   if (!botId) throw new Error("Could not verify the configured bot identity.");
   const channels = await events.getChannels(SANDBOX_ID);
   if (!channels.some((c) => c.id === TEXT_CHANNEL_ID && c.type === 0 && c.name === "general")) {
@@ -109,6 +110,7 @@ async function main(): Promise<void> {
   };
   const deps = {
     config,
+    discord,
     aiService: localAi,
     rateLimitService: createRateLimitService(db, config),
     linkOpenService: createLinkOpenService(config),

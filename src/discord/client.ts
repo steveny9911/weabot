@@ -24,9 +24,25 @@ export interface PollAnswerVoters {
   voters: PollVoter[];
 }
 
-/** Discord REST calls used by jobs. Reads retry; posts retry only a 429; reactions are sent once. */
+export type SendResult = { ok: true } | { ok: false; error: string };
+
+/** Haru's Discord REST calls. Reads retry; writes retry only a 429; reactions are sent once. */
 export interface DiscordClient {
+  /** The bot's own user ID, read once and then cached; undefined if Discord cannot say. */
+  getBotUserId(): Promise<string | undefined>;
+
   postMessage(channelId: string, payload: MessagePayload): Promise<Response>;
+
+  /** A text reply. `suppressMentions` sends it without pinging anyone. */
+  sendMessage(channelId: string, content: string, suppressMentions?: boolean): Promise<SendResult>;
+
+  /** Times a member out for `seconds`; needs Timeout Members. */
+  timeoutMember(
+    guildId: string,
+    userId: string,
+    seconds: number,
+    reason: string,
+  ): Promise<SendResult>;
 
   addReaction(channelId: string, messageId: string, emoji: string): Promise<Response>;
 
@@ -46,15 +62,73 @@ export function createDiscordClient(token: string): DiscordClient {
     Authorization: `Bot ${token}`,
     "Content-Type": "application/json",
   };
+  let botUserId: string | undefined;
+
+  const postMessage = (channelId: string, payload: MessagePayload) =>
+    fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+  /** A write whose response body is not needed. Logs and returns the error; never throws. */
+  async function write(label: string, send: () => Promise<Response>): Promise<SendResult> {
+    let error: string;
+    try {
+      const response = await send();
+      if (response.ok) {
+        await response.body?.cancel();
+        return { ok: true };
+      }
+      error = `Discord ${label} error ${response.status}: ${await response.text()}`;
+    } catch (thrown) {
+      error = String(thrown);
+    }
+    console.error(`[DISCORD] ${error}`);
+    return { ok: false, error };
+  }
 
   return {
-    async postMessage(channelId, payload) {
-      return await fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
+    async getBotUserId() {
+      if (botUserId) return botUserId;
+      try {
+        const response = await fetchWithRetry(`${API_BASE}/users/@me`, { headers });
+        if (!response.ok) {
+          await response.body?.cancel();
+          console.error("Failed to fetch bot user info:", response.status);
+          return undefined;
+        }
+        botUserId = ((await response.json()) as { id: string }).id;
+        return botUserId;
+      } catch (error) {
+        console.error("Error fetching bot user id:", error);
+        return undefined;
+      }
     },
+
+    postMessage,
+
+    sendMessage: (channelId, content, suppressMentions = false) =>
+      write("post", () =>
+        postMessage(channelId, {
+          content,
+          ...(suppressMentions ? { allowed_mentions: { parse: [] } } : {}),
+        }),
+      ),
+
+    timeoutMember: (guildId, userId, seconds, reason) =>
+      write("timeout", () =>
+        fetchWithRetry(
+          `${API_BASE}/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(userId)}`,
+          {
+            method: "PATCH",
+            headers: { ...headers, "X-Audit-Log-Reason": reason },
+            body: JSON.stringify({
+              communication_disabled_until: new Date(Date.now() + seconds * 1000).toISOString(),
+            }),
+          },
+        ),
+      ),
 
     async addReaction(channelId, messageId, emoji) {
       const controller = new AbortController();

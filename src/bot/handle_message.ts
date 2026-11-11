@@ -15,7 +15,7 @@ import {
 } from "../net/web_search.ts";
 import { selectGreetingGifForReply } from "../features/reaction_gif.ts";
 import type { ContextStorageService } from "../services/storage.ts";
-import { getBotUserId, sendMessage } from "../discord/messages.ts";
+import type { DiscordClient } from "../discord/client.ts";
 import {
   isOpenCommand,
   isResetCommand,
@@ -26,10 +26,11 @@ import {
   stripUrls,
 } from "./commands.ts";
 import { isActiveIn } from "../feature_config.ts";
-import { clearContext, getContext, saveContext } from "./context.ts";
+import { loadContext } from "./context.ts";
 
 export interface BotDependencies {
   config: AppConfig;
+  discord: DiscordClient;
   usageService?: UsageService;
   aiService: AiService;
   rateLimitService: RateLimitService;
@@ -46,10 +47,10 @@ export async function handleMessage(
   message: Record<string, unknown>,
   deps: BotDependencies,
 ): Promise<void> {
-  const { config, aiService, rateLimitService, webSearchService, linkOpenService, storageService } =
-    deps;
+  const { config, discord, aiService, rateLimitService, webSearchService } = deps;
+  const { linkOpenService, storageService } = deps;
 
-  const botId = await getBotUserId(config);
+  const botId = await discord.getBotUserId();
   if (!botId) return;
   if (!message) return;
 
@@ -82,7 +83,7 @@ export async function handleMessage(
   const cleaned = content?.replace(/<@!?\d+>/g, " ").trim();
   if (/^\\usage$/i.test(cleaned ?? "")) {
     if (!config.channelIds.includes(channelId)) {
-      await sendMessage(config, channelId, "Usage is available in configured bot channels only.");
+      await discord.sendMessage(channelId, "Usage is available in configured bot channels only.");
       return;
     }
     try {
@@ -97,9 +98,9 @@ export async function handleMessage(
         const report = await deps.usageService?.getMonthToDate();
         if (report) text = formatUsageMessage(report);
       }
-      await sendMessage(config, channelId, text);
+      await discord.sendMessage(channelId, text);
     } catch {
-      await sendMessage(config, channelId, "Usage reporting is unavailable right now.");
+      await discord.sendMessage(channelId, "Usage reporting is unavailable right now.");
     }
     return;
   }
@@ -123,8 +124,7 @@ export async function handleMessage(
       messageId: typeof message["id"] === "string" ? message["id"] : "",
       resetAt: resetAt,
     });
-    clearContext(channelId);
-    await sendMessage(config, channelId, "Okay!~ I cleared our chat context.");
+    await discord.sendMessage(channelId, "Okay!~ I cleared our chat context.");
     console.log(`Context reset by user ${userId} in channel ${channelId}`);
     return;
   }
@@ -140,8 +140,7 @@ export async function handleMessage(
   const rateLimitResult = await rateLimitService.admitRequest(userId);
   if (!rateLimitResult.allowed && rateLimitResult.reason === "user_limit") {
     const resetTime = formatTime(rateLimitResult.resetInMs);
-    await sendMessage(
-      config,
+    await discord.sendMessage(
       channelId,
       `Whoa there, speedy!~ I need a little break. Try again in ${resetTime}~`,
     );
@@ -150,8 +149,7 @@ export async function handleMessage(
   }
 
   if (!rateLimitResult.allowed) {
-    await sendMessage(
-      config,
+    await discord.sendMessage(
       channelId,
       "I've used up all my brain power for today!~ Let's chat tomorrow~",
     );
@@ -159,28 +157,28 @@ export async function handleMessage(
     return;
   }
 
-  // Save only the current uninterrupted conversation as context.
+  // Only the current uninterrupted conversation is context.
   const contextReset = await storageService.getContextReset(channelId);
-  await saveContext(config, channelId, config.aiContextMaxMessages, message, {
-    inactivityGapMs: config.aiContextInactivityMinutes * 60_000,
-    resetAfterMs: contextReset?.resetAt,
-  });
-  const ctx = getContext(channelId) ?? [];
-
-  const ctxForAi = [...ctx];
+  const ctxForAi = await loadContext(
+    discord,
+    config,
+    channelId,
+    config.aiContextMaxMessages,
+    message,
+    contextReset?.resetAt,
+  );
   let readLinkedContent = false;
   const tweetId =
     isActiveIn(config.tweetRead, channelId) && content ? extractTweetId(content) : null;
 
   if (openRequested) {
     if (!isActiveIn(config.linkOpen, channelId)) {
-      await sendMessage(config, channelId, "Ehehe~ opening links is turned off right now.");
+      await discord.sendMessage(channelId, "Ehehe~ opening links is turned off right now.");
       return;
     }
 
     if (!openCommand) {
-      await sendMessage(
-        config,
+      await discord.sendMessage(
         channelId,
         "Can you put a link after \\open? Like: \\open https://example.com",
       );
@@ -191,7 +189,7 @@ export async function handleMessage(
     const linkResult = await linkOpenService.open(openCommand.url);
     if (!linkResult.ok) {
       console.error(`[LINK] open failed: ${linkResult.error}`);
-      await sendMessage(config, channelId, openFailureMessage(linkResult.error));
+      await discord.sendMessage(channelId, openFailureMessage(linkResult.error));
       return;
     }
 
@@ -210,7 +208,7 @@ export async function handleMessage(
     const tweetResult = await deps.tweetService.read(tweetId);
     if (!tweetResult.ok) {
       console.error(`[TWEET] read failed: ${tweetResult.error}`);
-      await sendMessage(config, channelId, "Ehehe~ I couldn't read that tweet.");
+      await discord.sendMessage(channelId, "Ehehe~ I couldn't read that tweet.");
       return;
     }
     const { tweet } = tweetResult;
@@ -267,8 +265,7 @@ export async function handleMessage(
   if (!aiResult.ok) {
     console.error("AI generation failed:", aiResult.error);
     if (aiResult.tokensUsed) await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
-    await sendMessage(
-      config,
+    await discord.sendMessage(
       channelId,
       actionReply ?? "Hmm, my brain's a bit fuzzy right now. Try again in a moment~",
       Boolean(actionSession),
@@ -283,7 +280,7 @@ export async function handleMessage(
     const stripped = stripUrls(finalReply);
     finalReply = stripped || "I read it! Tell me what part you want me to focus on~";
   }
-  const sendResult = await sendMessage(config, channelId, finalReply, Boolean(actionSession));
+  const sendResult = await discord.sendMessage(channelId, finalReply, Boolean(actionSession));
   if (!sendResult.ok) {
     console.error("Failed to send AI reply:", sendResult.error);
     return;
@@ -291,7 +288,7 @@ export async function handleMessage(
 
   const greetingGif = actionReply ? null : selectGreetingGifForReply(finalReply);
   if (greetingGif) {
-    const gifSendResult = await sendMessage(config, channelId, greetingGif);
+    const gifSendResult = await discord.sendMessage(channelId, greetingGif);
     if (!gifSendResult.ok) {
       console.error("Failed to send greeting GIF:", gifSendResult.error);
     }

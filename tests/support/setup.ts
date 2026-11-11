@@ -8,8 +8,7 @@
  *   `node:http`, `WebSocket`, sockets and DNS lookups are not blocked, so tests must inject fakes
  *   for those. Tests that need a real loopback server use `realFetch`.
  */
-import { beforeEach, setDefaultTimeout } from "bun:test";
-import { clearBotUserIdCache } from "../../src/discord/messages.ts";
+import { setDefaultTimeout } from "bun:test";
 
 setDefaultTimeout(20_000);
 
@@ -22,5 +21,3 @@ async function blockedFetch(input: string | URL | Request): Promise<Response> {
 }
 
 globalThis.fetch = Object.assign(blockedFetch, { preconnect() {} }) as typeof fetch;
-
-beforeEach(() => clearBotUserIdCache());

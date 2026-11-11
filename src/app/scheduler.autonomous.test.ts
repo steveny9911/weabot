@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
 import type { AiResult, AiService } from "../ai/types.ts";
 import type { AppConfig } from "../config.ts";
@@ -83,14 +82,12 @@ async function withAutonomousJob(
   options: FixtureOptions = {},
 ) {
   const kv = openDatabase(":memory:");
-  const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
   const originalRandom = Math.random;
   Math.random = () => 0;
   let now = Date.parse("2026-09-05T12:34:00Z");
   const jobs = new Map<string, () => Promise<void> | void>();
   const cron: CronRegistrar = (name, _schedule, handler) => jobs.set(name, handler);
-  globalThis.fetch = asFetch(() => Promise.resolve(Response.json({ id: "bot" })));
   Date.now = () => now;
   try {
     const settings = testConfig(config(), options.settings ?? {});
@@ -119,6 +116,9 @@ async function withAutonomousJob(
         {
           ...(options.getReactionContext ? { getReactionContext: options.getReactionContext } : {}),
           ...(options.getMessage ? { getMessage: options.getMessage } : {}),
+          getBotUserId: () => Promise.resolve("bot"),
+          sendMessage: () => Promise.reject(new Error("unexpected sendMessage")),
+          timeoutMember: () => Promise.reject(new Error("unexpected timeoutMember")),
           postMessage(_channel, payload) {
             assert("content" in payload);
             posts.push(payload.content);
@@ -170,7 +170,6 @@ async function withAutonomousJob(
       reactions,
     });
   } finally {
-    globalThis.fetch = originalFetch;
     Date.now = originalNow;
     Math.random = originalRandom;
     kv.close();

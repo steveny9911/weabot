@@ -45,6 +45,7 @@ const tweets = createTweetService();
 
 const botDeps: BotDependencies = {
   config,
+  discord,
   usageService: createUsageService(config),
   aiService,
   rateLimitService: rateLimit,
@@ -52,7 +53,7 @@ const botDeps: BotDependencies = {
   storageService: storage,
   webSearchService: webSearch,
   tweetService: tweets,
-  landmineService: createLandmineService({ config, mines: createLandmineQueries(db) }),
+  landmineService: createLandmineService({ config, mines: createLandmineQueries(db), discord }),
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
     db,
