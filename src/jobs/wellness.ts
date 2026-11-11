@@ -19,7 +19,7 @@ export async function runWellnessCheck({ config, discord, storage }: JobDeps): P
     console.log(`[CRON] Found ${atRisk.length} user(s) at risk in ${channelId}`);
 
     for (const history of atRisk) {
-      const name = history[0].odUserName;
+      const name = history[0].userName;
       await postToChannels(
         discord,
         [channelId],

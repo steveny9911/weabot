@@ -179,8 +179,8 @@ export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
           results.push({
             channelId,
             usersAtRisk: atRisk.map((history) => ({
-              user: history[0].odUserName,
-              odUserId: history[0].odUserId,
+              user: history[0].userName,
+              odUserId: history[0].userId,
               consecutiveDays: history.length,
             })),
           });

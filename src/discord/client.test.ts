@@ -200,8 +200,8 @@ test("getPollVoters paginates every answer using exact snowflake cursors", async
   try {
     const result = await createDiscordClient("token").getPollVoters("channel", "poll");
     expect(result[0].voters.length).toStrictEqual(205);
-    expect(result[0].voters[0].odUserName).toStrictEqual("Display name");
-    expect(result[0].voters[204].odUserName).toStrictEqual("user-204");
+    expect(result[0].voters[0].userName).toStrictEqual("Display name");
+    expect(result[0].voters[204].userName).toStrictEqual("user-204");
     expect(requests[2]).toContain(`after=${base + 99n}`);
     expect(requests[3]).toContain(`after=${base + 199n}`);
     expect(requests.length).toStrictEqual(6);

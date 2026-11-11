@@ -28,8 +28,8 @@ export async function collectExpiredPolls(
         if (moods.has(mood)) throw new Error(`Duplicate mood answer: ${mood}`);
         moods.add(mood);
         return answer.voters.map((voter) => {
-          if (voters.has(voter.odUserId)) throw new Error(`Duplicate voter: ${voter.odUserId}`);
-          voters.add(voter.odUserId);
+          if (voters.has(voter.userId)) throw new Error(`Duplicate voter: ${voter.userId}`);
+          voters.add(voter.userId);
           return { ...voter, mood };
         });
       });
@@ -37,13 +37,7 @@ export async function collectExpiredPolls(
 
       for (const vote of votes) {
         // Storage upserts by channel/date/user, so retries repair partial persistence.
-        await storage.recordVote(
-          poll.channelId,
-          vote.odUserId,
-          vote.odUserName,
-          vote.mood,
-          poll.date,
-        );
+        await storage.recordVote(poll.channelId, vote.userId, vote.userName, vote.mood, poll.date);
       }
       await storage.markPollCollected(poll.messageId);
       result.collected.push({ poll, votes: votes.length });

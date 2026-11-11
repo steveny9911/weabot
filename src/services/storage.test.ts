@@ -21,8 +21,8 @@ test("recordVote stores a vote correctly", async () => {
   const votes = await storage.getVotesForDate(TEST_CHANNEL_ID, "2025-12-10");
   expect(votes.length).toStrictEqual(1);
   expect(votes[0].channelId).toStrictEqual(TEST_CHANNEL_ID);
-  expect(votes[0].odUserId).toStrictEqual("user123");
-  expect(votes[0].odUserName).toStrictEqual("Alice");
+  expect(votes[0].userId).toStrictEqual("user123");
+  expect(votes[0].userName).toStrictEqual("Alice");
   expect(votes[0].mood).toStrictEqual("umazing");
   expect(votes[0].date).toStrictEqual("2025-12-10");
 
@@ -337,7 +337,7 @@ test("getUsersAtRisk identifies user at threshold", async () => {
 
   const atRisk = await storage.getUsersAtRisk(TEST_CHANNEL_ID, 7);
   expect(atRisk.length).toStrictEqual(1);
-  expect(atRisk[0][0].odUserId).toStrictEqual("user123");
+  expect(atRisk[0][0].userId).toStrictEqual("user123");
 
   kv.close();
 });

@@ -14,8 +14,8 @@ export type MessagePayload =
   | { content: string; allowed_mentions?: { parse: string[] } };
 
 export interface PollVoter {
-  odUserId: string;
-  odUserName: string;
+  userId: string;
+  userName: string;
 }
 
 export interface PollAnswerVoters {
@@ -285,8 +285,8 @@ export function createDiscordClient(token: string): DiscordClient {
             const id = BigInt(user.id);
             if (id > nextAfter) nextAfter = id;
             voters.push({
-              odUserId: user.id,
-              odUserName: (user.global_name ?? user.username ?? user.id) as string,
+              userId: user.id,
+              userName: (user.global_name ?? user.username ?? user.id) as string,
             });
           }
           if (voters.length > expectedCount) {

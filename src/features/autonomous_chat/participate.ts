@@ -2,7 +2,7 @@
 import type { AiService, AutonomousParticipation } from "../../ai/types.ts";
 import type { AppConfig } from "../../config.ts";
 import type { DiscordClient } from "../../discord/client.ts";
-import type { StorageService } from "../../types/storage.ts";
+import type { StorageService } from "../../services/storage.ts";
 import type { RateLimitService } from "../../services/rate_limit.ts";
 import { AUTONOMOUS_CHAT_GUIDANCE, decideAutonomousChatReply } from "./decision.ts";
 import {

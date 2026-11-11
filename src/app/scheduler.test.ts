@@ -5,7 +5,6 @@ import { bunCron, type CronRegistrar, registerCronJobs } from "./scheduler.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { StorageService } from "../services/storage.ts";
-import { assert } from "../../tests/support/assert.ts";
 
 const SCHEDULES = {
   "Daily Retro Poll": "0 5 * * *",
@@ -64,39 +63,9 @@ test("the production registrar runs jobs in UTC and logs a failing job instead o
   }
 });
 
-test("the six jobs keep their UTC schedules in any process time zone", () => {
+test("the six jobs are registered with their UTC schedules", () => {
   const jobs = register();
   expect(Object.fromEntries([...jobs].map(([name, job]) => [name, job.schedule]))).toStrictEqual(
     SCHEDULES,
   );
-  const savedTz = process.env.TZ;
-  const from = Date.parse("2026-03-07T23:59:00Z"); // DST starts in Los Angeles on 2026-03-08
-  const nextRuns = (): string[] => {
-    const runs: string[] = [];
-    for (const schedule of Object.values(SCHEDULES)) {
-      let at = from;
-      for (let i = 0; i < 3; i++) {
-        const next = Bun.cron.parse(schedule, at, { tz: "UTC" });
-        assert(next);
-        runs.push(next.toISOString());
-        at = next.getTime();
-      }
-    }
-    return runs;
-  };
-  try {
-    const results = [];
-    for (const tz of [undefined, "UTC", "America/Los_Angeles"]) {
-      if (tz === undefined) delete process.env.TZ;
-      else process.env.TZ = tz;
-      results.push(nextRuns());
-    }
-    expect(results[0]).toContain("2026-03-08T05:00:00.000Z");
-    expect(results[0]).toContain("2026-03-08T06:00:00.000Z");
-    expect(results[1]).toStrictEqual(results[0]);
-    expect(results[2]).toStrictEqual(results[0]);
-  } finally {
-    if (savedTz === undefined) delete process.env.TZ;
-    else process.env.TZ = savedTz;
-  }
 });

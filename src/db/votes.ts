@@ -23,8 +23,8 @@ interface PollRow {
 
 const toVote = (row: VoteRow): VoteRecord => ({
   channelId: row.channel_id,
-  odUserId: row.user_id,
-  odUserName: row.user_name,
+  userId: row.user_id,
+  userName: row.user_name,
   mood: row.mood,
   date: row.vote_date,
   timestamp: row.recorded_at,
@@ -86,8 +86,8 @@ export function createVoteQueries(db: Database) {
       upsertVote.run({
         channel: vote.channelId,
         date: vote.date,
-        user: vote.odUserId,
-        name: vote.odUserName,
+        user: vote.userId,
+        name: vote.userName,
         mood: vote.mood,
         at: vote.timestamp,
       });
