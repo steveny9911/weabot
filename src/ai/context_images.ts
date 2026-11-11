@@ -2,7 +2,7 @@
 
 export const MAX_CONTEXT_IMAGES = 6;
 
-function isHttpUrl(url: string): boolean {
+export function isHttpUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "http:" || parsed.protocol === "https:";

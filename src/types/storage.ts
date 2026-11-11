@@ -2,8 +2,8 @@ import type { Mood } from "./bot.ts";
 
 export interface VoteRecord {
   channelId: string;
-  odUserId: string;
-  odUserName: string;
+  userId: string;
+  userName: string;
   mood: Mood;
   date: string; // ISO date string "YYYY-MM-DD"
   timestamp: number;
@@ -41,69 +41,6 @@ export interface AutonomousParticipationRecord {
   latestHumanTimestampMs: number;
   lastReactionEmoji?: string;
 }
-
-export interface StorageService {
-  /** Record a user's vote */
-  recordVote(
-    channelId: string,
-    userId: string,
-    userName: string,
-    mood: Mood,
-    date: string,
-  ): Promise<void>;
-
-  /** Get a user's vote history (most recent first) */
-  getUserHistory(channelId: string, userId: string, limit?: number): Promise<VoteRecord[]>;
-
-  /** Get aggregated stats for a date range */
-  getStats(channelId: string, startDate: string, endDate: string): Promise<DailyStats[]>;
-
-  /** Get all votes for a specific date */
-  getVotesForDate(channelId: string, date: string): Promise<VoteRecord[]>;
-
-  /** Check if a user has consecutive "glue" votes */
-  getConsecutiveGlueCount(channelId: string, userId: string): Promise<number>;
-
-  /** Get all users who have hit the glue threshold */
-  getUsersAtRisk(channelId: string, threshold: number): Promise<VoteRecord[][]>;
-
-  /** Save a pending poll for later result collection */
-  savePendingPoll(poll: PollRecord): Promise<void>;
-
-  /** Get all polls that have expired but not yet collected */
-  getExpiredPolls(): Promise<PollRecord[]>;
-
-  /** Get all pending polls (not yet collected) */
-  getAllPendingPolls(): Promise<PollRecord[]>;
-
-  /** Mark a poll as collected */
-  markPollCollected(messageId: string): Promise<void>;
-
-  /** Persist the latest context reset for one Discord channel or thread. */
-  setContextReset(record: ContextResetRecord): Promise<void>;
-
-  /** Read the latest context reset for one Discord channel or thread. */
-  getContextReset(channelId: string): Promise<ContextResetRecord | null>;
-
-  /** Read the latest autonomous attempt for one Discord channel or thread. */
-  getAutonomousParticipation(channelId: string): Promise<AutonomousParticipationRecord | null>;
-
-  /** Atomically consume a new human message watermark and the channel cooldown. */
-  claimAutonomousParticipation(
-    record: AutonomousParticipationRecord,
-    cooldownMs: number,
-  ): Promise<boolean>;
-
-  /** Extend cooldown from completion without replacing a newer message claim. */
-  finishAutonomousParticipation(
-    channelId: string,
-    latestHumanMessageId: string,
-    finishedAt: number,
-    reactionEmoji?: string,
-  ): Promise<void>;
-}
-
-export type ContextStorageService = Pick<StorageService, "setContextReset" | "getContextReset">;
 
 /** Fail closed when equal timestamps cannot establish a newer Discord message. */
 export function isNewerHumanMessage(

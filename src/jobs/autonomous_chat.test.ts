@@ -1,18 +1,18 @@
 import { expect, test } from "bun:test";
-import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
 import type { AiResult, AiService } from "../ai/types.ts";
 import type { AppConfig } from "../config.ts";
 import type { RecentDiscordMessage } from "../features/chat_context.ts";
-import { type CronRegistrar, registerCronJobs } from "./scheduler.ts";
+import { createAutonomousChatJob } from "./autonomous_chat.ts";
 import { openDatabase } from "../db/database.ts";
 import { createRateLimitService } from "../services/rate_limit.ts";
 import { createStorageService } from "../services/storage.ts";
 import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 
+const START = Date.parse("2026-09-05T12:34:00Z");
+
 function config(): AppConfig {
   return testConfig({
-    channelId: "channel",
     channelIds: ["channel"],
     aiRateLimitPerUser: 1,
     aiDailyTokenBudget: 100,
@@ -68,7 +68,7 @@ const react: AiResult = {
   ok: true,
   text: "",
   tokensUsed: 10,
-  participation: { action: "react", messageId: "message", emoji: "😂" },
+  participation: { action: "react", messageId: "message", emoji: "😂", intent: "amusement" },
 };
 const silent: AiResult = {
   ok: true,
@@ -83,19 +83,11 @@ async function withAutonomousJob(
   options: FixtureOptions = {},
 ) {
   const kv = openDatabase(":memory:");
-  const originalFetch = globalThis.fetch;
-  const originalNow = Date.now;
-  const originalRandom = Math.random;
-  Math.random = () => 0;
-  let now = Date.parse("2026-09-05T12:34:00Z");
-  const jobs = new Map<string, () => Promise<void> | void>();
-  const cron: CronRegistrar = (name, _schedule, handler) => jobs.set(name, handler);
-  globalThis.fetch = asFetch(() => Promise.resolve(Response.json({ id: "bot" })));
-  Date.now = () => now;
+  let now = START;
   try {
     const settings = testConfig(config(), options.settings ?? {});
     const rateLimit = createRateLimitService(kv, settings, () => now);
-    const storage = createStorageService(kv);
+    const storage = createStorageService(kv, () => now);
     const generations: Generation[] = [];
     const posts: string[] = [];
     const reactions: Reaction[] = [];
@@ -113,36 +105,41 @@ async function withAutonomousJob(
     );
     let run: () => Promise<void>;
     const restart = () => {
-      registerCronJobs(
-        cron,
-        settings,
+      const job = createAutonomousChatJob(
         {
-          ...(options.getReactionContext ? { getReactionContext: options.getReactionContext } : {}),
-          ...(options.getMessage ? { getMessage: options.getMessage } : {}),
-          postMessage(_channel, payload) {
-            assert("content" in payload);
-            posts.push(payload.content);
-            return Promise.resolve(Response.json({ id: "reply" }));
+          config: settings,
+          discord: {
+            ...(options.getReactionContext
+              ? { getReactionContext: options.getReactionContext }
+              : {}),
+            ...(options.getMessage ? { getMessage: options.getMessage } : {}),
+            getBotUserId: () => Promise.resolve("bot"),
+            sendMessage: () => Promise.reject(new Error("unexpected sendMessage")),
+            timeoutMember: () => Promise.reject(new Error("unexpected timeoutMember")),
+            postMessage(_channel, payload) {
+              assert("content" in payload);
+              posts.push(payload.content);
+              return Promise.resolve(Response.json({ id: "reply" }));
+            },
+            addReaction(channelId, messageId, emoji) {
+              const reaction = { channelId, messageId, emoji };
+              reactions.push(reaction);
+              return (
+                options.reaction?.(reaction) ??
+                Promise.resolve(
+                  new Response(null, {
+                    status: 204,
+                  }),
+                )
+              );
+            },
+            getPollVoters: () => Promise.reject(new Error("unexpected poll")),
+            getRecentMessages:
+              options.getRecentMessages ??
+              ((channelId) => Promise.resolve(messages.get(channelId) ?? [])),
           },
-          addReaction(channelId, messageId, emoji) {
-            const reaction = { channelId, messageId, emoji };
-            reactions.push(reaction);
-            return (
-              options.reaction?.(reaction) ??
-              Promise.resolve(
-                new Response(null, {
-                  status: 204,
-                }),
-              )
-            );
-          },
-          getPollVoters: () => Promise.reject(new Error("unexpected poll")),
-          getRecentMessages:
-            options.getRecentMessages ??
-            ((channelId) => Promise.resolve(messages.get(channelId) ?? [])),
+          storage,
         },
-        storage,
-        new Intl.DateTimeFormat("en-US"),
         {
           generateReply(context, generateOptions) {
             const generation = { messages: context, options: generateOptions };
@@ -151,10 +148,9 @@ async function withAutonomousJob(
           },
         },
         rateLimit,
+        { now: () => now, random: () => 0 },
       );
-      const job = jobs.get("Autonomous Chat");
-      assert(job);
-      run = async () => await job();
+      run = job;
     };
     restart();
     await test({
@@ -170,9 +166,6 @@ async function withAutonomousJob(
       reactions,
     });
   } finally {
-    globalThis.fetch = originalFetch;
-    Date.now = originalNow;
-    Math.random = originalRandom;
     kv.close();
   }
 }
@@ -333,7 +326,7 @@ for (const target of ["self-message", "bot-message", "already-reacted", "unknown
         ok: true,
         text: "",
         tokensUsed: 10,
-        participation: { action: "react", messageId: target, emoji: "😂" },
+        participation: { action: "react", messageId: target, emoji: "😂", intent: "amusement" },
       },
       async (fixture) => {
         fixture.messages.set("channel", [
@@ -388,7 +381,7 @@ test("autonomous channel read failure does not block participation in the next c
                 authorName: "Alice",
                 authorBot: false,
                 content: "A good meme",
-                timestamp: new Date(Date.now() - 1000).toISOString(),
+                timestamp: new Date(START - 1000).toISOString(),
                 imageUrls: [],
               },
             ]),
@@ -435,7 +428,7 @@ test("autonomous reaction cooldown starts after slow generation finishes", async
     },
     async (fixture) => {
       advance = fixture.advance;
-      const startedAt = Date.now();
+      const startedAt = START;
       await fixture.run();
       expect(fixture.reactions.length).toStrictEqual(1);
 
@@ -525,7 +518,7 @@ test("new human activity arriving during generation cancels the stale reaction",
               authorName: "Alice",
               authorBot: false,
               content: "A new joke",
-              timestamp: new Date(Date.now() - 1000).toISOString(),
+              timestamp: new Date(START - 1000).toISOString(),
               imageUrls: [],
             },
           ]);

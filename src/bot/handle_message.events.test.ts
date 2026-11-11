@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
 import { type BotDependencies, handleMessage } from "./handle_message.ts";
 import type { AppConfig } from "../config.ts";
@@ -9,12 +8,12 @@ import type {
   DiscordActionSession,
 } from "../features/discord_actions/service.ts";
 import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
+import { fakeDiscord } from "../../tests/support/discord.ts";
 
 function config(overrides: ConfigOverrides = {}): AppConfig {
   return testConfig(
     {
       discordToken: "test",
-      channelId: "text",
       channelIds: ["text"],
       timeZone: "America/Vancouver",
       aiApiKey: "test",
@@ -41,7 +40,6 @@ async function fixture(
   }) => Promise<void>,
   overrides: ConfigOverrides = {},
 ) {
-  const originalFetch = globalThis.fetch;
   const messages: string[] = [];
   const contexts: DiscordActionContext[] = [];
   const options: (AiReplyOptions | undefined)[] = [];
@@ -55,6 +53,7 @@ async function fixture(
   };
   const deps: BotDependencies = {
     config: config(overrides),
+    discord: fakeDiscord({ sent: messages }),
     aiService: {
       generateReply(_messages, suppliedOptions) {
         assert(!suppliedOptions || !("mode" in suppliedOptions));
@@ -88,20 +87,7 @@ async function fixture(
     },
     linkOpenService: { open: () => Promise.resolve({ ok: false, error: "fetch_failed" }) },
   };
-  globalThis.fetch = asFetch((input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    if (url.endsWith("/users/@me")) return Promise.resolve(Response.json({ id: "12345" }));
-    if (init?.method === "POST") {
-      messages.push(JSON.parse(String(init.body)).content);
-      return Promise.resolve(Response.json({ id: "sent" }));
-    }
-    return Promise.resolve(Response.json([]));
-  });
-  try {
-    await run({ deps, session, messages, contexts, options, usage, resets });
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  await run({ deps, session, messages, contexts, options, usage, resets });
 }
 function mention(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

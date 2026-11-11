@@ -1,7 +1,10 @@
-/** Parsing for mentions and the \\reset, \\open commands, plus reply text helpers. */
-import type { LinkOpenError } from "../net/link_open.ts";
-
+/** Parsing for mentions and the \\usage, \\reset, \\open commands, plus reply text helpers. */
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
+
+/** The text without user mentions such as `<@123>` and `<@!123>`. */
+export function stripMentions(content: string): string {
+  return content.replace(/<@!?\d+>/g, " ").trim();
+}
 
 export function messageMentionsBot(message: Record<string, unknown>, botId: string): boolean {
   if (!message) return false;
@@ -30,25 +33,22 @@ export function messageMentionsBot(message: Record<string, unknown>, botId: stri
 /** A `\\` command (`\\usage`, `\\open ...`, `\\reset`), with or without a leading mention. */
 export function isCommand(content: string | undefined): boolean {
   if (!content) return false;
-  return (
-    content
-      .replace(/<@!?\d+>/g, " ")
-      .trim()
-      .startsWith("\\") || isResetCommand(content)
-  );
+  return stripMentions(content).startsWith("\\") || isResetCommand(content);
+}
+
+/** `@Haru \\usage` */
+export function isUsageCommand(content: string): boolean {
+  return /^\\usage$/i.test(stripMentions(content));
 }
 
 /** `@Haru \\reset` */
-export function isResetCommand(content: string | undefined): boolean {
-  if (!content) return false;
+export function isResetCommand(content: string): boolean {
   return /(^|\s)\\reset(\s|$)/i.test(content);
 }
 
 /** `@Haru \\open <url> [question]` */
-export function isOpenCommand(content: string | undefined): boolean {
-  if (!content) return false;
-  const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
-  return /^\\open\b/i.test(cleaned);
+export function isOpenCommand(content: string): boolean {
+  return /^\\open\b/i.test(stripMentions(content));
 }
 
 export interface OpenCommand {
@@ -57,10 +57,8 @@ export interface OpenCommand {
 }
 
 /** Uses the first URL; the remaining text is the optional user request. */
-export function parseOpenCommand(content: string | undefined): OpenCommand | null {
-  if (!content) return null;
-  const cleaned = content.replace(/<@!?\d+>/g, " ").trim();
-  const match = cleaned.match(/^\\open\b\s+(.+)$/i);
+export function parseOpenCommand(content: string): OpenCommand | null {
+  const match = stripMentions(content).match(/^\\open\b\s+(.+)$/i);
   if (!match) return null;
 
   const tail = match[1].trim();
@@ -82,10 +80,6 @@ export function stripUrls(text: string): string {
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;!?])/g, "$1")
     .trim();
-}
-
-export function openFailureMessage(_error: LinkOpenError): string {
-  return "Eep... I couldn't safely open that link. Can you try another one?~";
 }
 
 export function formatTime(ms: number): string {

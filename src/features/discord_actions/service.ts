@@ -32,7 +32,7 @@ import {
   isAbandonment,
   isDiscussion,
 } from "./intent.ts";
-import { type ActionResult, errorResult, eventResult } from "./results.ts";
+import { type ActionResult, errorResult, eventResult, eventUrl } from "./results.ts";
 
 export interface DiscordActionContext {
   guildId: string;
@@ -81,6 +81,58 @@ function optionalText(args: Record<string, unknown>, key: string, max: number): 
 function has(bits: bigint, required: bigint): boolean {
   return (bits & P.ADMINISTRATOR) !== 0n || (bits & required) === required;
 }
+/** The server, both members and the channels, as Discord reports them now. */
+interface Access {
+  guild: DiscordGuild;
+  requester: DiscordMember;
+  bot: DiscordMember;
+  channels: DiscordChannel[];
+}
+function canBothView(access: Access, channel: DiscordChannel): boolean {
+  return [access.requester, access.bot].every((member) =>
+    has(getChannelPermissions(access.guild, member, channel), P.VIEW_CHANNEL),
+  );
+}
+/** The channel type and permissions a voice (2) or Stage (1) event needs. */
+function channelRules(entityType: number): { channelType: number; bits: bigint; label: string } {
+  return entityType === 2
+    ? { channelType: 2, bits: P.VIEW_CHANNEL | P.CONNECT, label: "View Channel and Connect" }
+    : {
+        channelType: 13,
+        bits: P.VIEW_CHANNEL | P.MANAGE_CHANNELS | P.MUTE_MEMBERS | P.MOVE_MEMBERS,
+        label: "View Channel and Stage moderator",
+      };
+}
+
+/** Discord mentions and emoji embed non-event snowflakes, never event targets. */
+function stripMentions(text: string): string {
+  return text.replace(/<(?:(?:@!?|@&|#)\d+|a?:[A-Za-z0-9_]+:\d+|\/[^:>]+:\d+)>/g, " ");
+}
+
+/** The events a message points at, as "guildId/eventId": by event link, by id, or by name. */
+function eventReferences(
+  withoutMentions: string,
+  events: DiscordScheduledEvent[],
+  guildId: string,
+): Set<string> {
+  const links = withoutMentions.matchAll(
+    /https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)/gi,
+  );
+  const references = new Set([...links].map((link) => `${link[1]}/${link[2]}`));
+  const withoutLinks = withoutMentions.replace(/https?:\/\/\S+/gi, " ");
+  for (const id of withoutLinks.match(/\b\d{17,20}\b/g) ?? []) {
+    references.add(`${guildId}/${id}`);
+  }
+  for (const event of events) {
+    if (
+      containsReference(withoutMentions, event.name) ||
+      containsReference(withoutLinks, event.id)
+    ) {
+      references.add(`${guildId}/${event.id}`);
+    }
+  }
+  return references;
+}
 
 export function createDiscordActionService(
   client: DiscordEventsClient,
@@ -101,7 +153,6 @@ export function createDiscordActionService(
     guard: GuardKey | null,
     perform: () => Promise<ActionResult>,
     isCurrent: () => boolean,
-    refreshCreationFingerprint = true,
   ): Promise<ActionResult> {
     const previous = records.getOperation<ActionResult>(operation);
     if (previous) {
@@ -115,9 +166,9 @@ export function createDiscordActionService(
       );
     }
     let fingerprint = guard ? records.getGuard<ActionResult>(guard) : null;
+    // A remembered creation is reused only while its event still exists.
     if (
-      refreshCreationFingerprint &&
-      guard &&
+      guard?.kind === "creation_fingerprint" &&
       fingerprint?.result?.ok &&
       fingerprint.result.eventId
     ) {
@@ -225,20 +276,15 @@ export function createDiscordActionService(
       const results: ActionResult[] = [];
       const verifiedEvents = new Map<string, DiscordScheduledEvent>();
 
-      async function ensureCurrent(): Promise<void> {
+      function ensureCurrent(): void {
         if (!isCurrent()) throw superseded();
       }
-      async function finishPending(): Promise<void> {
+      function finishPending(): void {
         // A completed older action must never erase the newer turn's clarification.
         if (isCurrent()) turns.deletePending(key);
       }
 
-      async function loadAccess(): Promise<{
-        guild: DiscordGuild;
-        requester: DiscordMember;
-        bot: DiscordMember;
-        channels: DiscordChannel[];
-      }> {
+      async function loadAccess(): Promise<Access> {
         const [guild, requester, bot, channels] = await Promise.all([
           client.getGuild(context.guildId),
           client.getMember(context.guildId, context.userId),
@@ -296,7 +342,7 @@ export function createDiscordActionService(
         return channel;
       }
       function checkChannel(
-        access: Awaited<ReturnType<typeof loadAccess>>,
+        access: Access,
         channel: DiscordChannel,
         required: bigint,
         label: string,
@@ -318,12 +364,367 @@ export function createDiscordActionService(
             : (pending?.requestedAt ?? new Date(now()).toISOString()),
           replies: currentExplicit ? [] : [...(pending?.replies ?? []), context.content].slice(-5),
         };
-        if (!isCurrent()) throw superseded();
+        ensureCurrent();
         turns.setPending(key, request);
-        const result: ActionResult = { ok: false, message: question, needsClarification: true };
-        results.push(result);
+        return { ok: false, message: question, needsClarification: true };
+      }
+      const reason = `Requested by ${context.userId}; message ${origin.messageId}`;
+      const operation = (action: string): OperationKey => ({
+        guildId: context.guildId,
+        messageId: origin.messageId,
+        action,
+      });
+      async function eventContext() {
+        const access = await loadAccess();
+        const channels = access.channels.filter((channel) => canBothView(access, channel));
+        const events = (await client.listScheduledEvents(context.guildId)).filter(
+          (event) =>
+            event.guild_id === context.guildId &&
+            (!event.channel_id || channels.some((channel) => channel.id === event.channel_id)),
+        );
+        for (const event of events) verifiedEvents.set(event.id, event);
+        return {
+          ok: true,
+          current_time: new Date(now()).toISOString(),
+          time_zone: timeZone,
+          channels: channels.map(({ id, name, type }) => ({ id, name, type })),
+          events: events.map((event) => ({
+            id: event.id,
+            name: event.name,
+            channel_id: event.channel_id,
+            entity_type: event.entity_type,
+            scheduled_start_time: event.scheduled_start_time,
+            status: event.status,
+            recurring: event.recurrence_rule != null,
+          })),
+        };
+      }
+      async function cancelEvent(args: Record<string, unknown>): Promise<ActionResult> {
+        ensureCurrent();
+        const reference = optionalText(args, "event_reference", 200);
+        if (!reference) {
+          return await ask("Which event should I cancel? Send me its name or event link!~");
+        }
+        const sources = [context.content, ...(pending?.replies ?? []).toReversed(), origin.content];
+        const source = sources
+          .map(directReferenceText)
+          .find((text) => containsReference(text, reference));
+        if (!source) {
+          return await ask(
+            "Which event should I cancel? Please send its exact name or event link so I pick the right one!~",
+          );
+        }
+        if (/\b(?:all|every|both)\b/i.test(directRequestText(source))) {
+          return await ask("I can cancel one event at a time!~ Which event should I start with?");
+        }
+        const access = await loadAccess();
+        const accessible = (event: DiscordScheduledEvent) => {
+          if (event.guild_id !== context.guildId) return false;
+          if (!event.channel_id) return true;
+          const channel = access.channels.find((c) => c.id === event.channel_id);
+          return Boolean(
+            channel &&
+            (!channel.guild_id || channel.guild_id === context.guildId) &&
+            canBothView(access, channel),
+          );
+        };
+        const whichOne = (candidates: DiscordScheduledEvent[]) => {
+          const choices = candidates.slice(0, 5).map((event) => {
+            const start = Math.floor(Date.parse(event.scheduled_start_time) / 1000);
+            return `\n${event.name} — <t:${start}:F>\n${eventUrl(context.guildId, event.id)}`;
+          });
+          return ask(
+            `Which one should I cancel? Reply with just its event link so I pick the right one!~${choices.join("")}`,
+          );
+        };
+        const events = (await client.listScheduledEvents(context.guildId)).filter(accessible);
+        const withoutMentions = stripMentions(source);
+        const references = eventReferences(withoutMentions, events, context.guildId);
+        if (references.size > 1) {
+          return await whichOne(
+            events.filter((event) => references.has(`${context.guildId}/${event.id}`)),
+          );
+        }
+        let eventId: string;
+        const link = /^https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)\/?$/i.exec(reference);
+        if (link) {
+          if (link[1] !== context.guildId) {
+            throw new Error("That event link belongs to a different server.");
+          }
+          eventId = link[2];
+        } else if (/^\d+$/.test(reference)) {
+          eventId = reference;
+        } else {
+          const matches = events.filter(
+            (event) => event.name.toLowerCase() === reference.toLowerCase(),
+          );
+          // Several events mentioned by name already asked above, so at most one is mentioned.
+          if (matches.length !== 1) {
+            const candidates = matches.length
+              ? matches
+              : events.filter((event) => containsReference(withoutMentions, event.name));
+            if (candidates.length) return await whichOne(candidates);
+            return await ask(
+              "I couldn't find an event with that exact name. Can you send me its event link?~",
+            );
+          }
+          eventId = matches[0].id;
+        }
+        const event = await client.getScheduledEvent(context.guildId, eventId);
+        if (event.id !== eventId || !accessible(event)) {
+          throw new Error("I couldn't verify an accessible event in this server.");
+        }
+        const channel = event.channel_id ? channelFor(event.channel_id, access.channels) : null;
+        for (const member of [access.requester, access.bot]) {
+          const bits = channel
+            ? getChannelPermissions(access.guild, member, channel)
+            : getGuildPermissions(access.guild, member);
+          const mayManage =
+            has(bits, P.MANAGE_EVENTS) ||
+            (event.creator_id === member.user.id && has(bits, P.CREATE_EVENTS));
+          if (!mayManage) {
+            throw new Error(
+              member.user.id === context.userId
+                ? "You need Manage Events to cancel another creator's event, or Create Events for your own."
+                : "Haru needs Manage Events to cancel another creator's event, or Create Events for her own.",
+            );
+          }
+        }
+        if (event.entity_type !== 3) {
+          const rules = channelRules(event.entity_type);
+          if (!channel || channel.type !== rules.channelType) {
+            throw new Error("I couldn't verify the event's voice or Stage channel.");
+          }
+          checkChannel(access, channel, rules.bits, rules.label);
+        } else if (channel) {
+          throw new Error("I couldn't verify this external event's location.");
+        }
+        if (event.recurrence_rule != null) {
+          throw new Error("I can't cancel recurring event series or individual occurrences yet.");
+        }
+        if (event.status === 2) {
+          throw new Error(
+            "That event has already started. Ending an active event isn't supported yet.",
+          );
+        }
+        if (event.status === 3) {
+          throw new Error("That event has already ended, so there's nothing to cancel.");
+        }
+        if (![1, 4].includes(event.status)) {
+          throw new Error("That event cannot be cancelled in its current state.");
+        }
+        const receipt = (already: boolean): ActionResult => ({
+          ok: true,
+          eventId,
+          cancelled: true,
+          message: `${
+            already ? "That event is already cancelled!~" : "Okay!~ I cancelled your event. (｡•ᴗ•｡)"
+          }\n${event.name}`,
+        });
+        const result =
+          event.status === 4
+            ? receipt(true)
+            : await once(
+                operation("cancel_discord_event"),
+                { guildId: context.guildId, kind: "cancellation", key: eventId },
+                async () => {
+                  ensureCurrent();
+                  const cancelled = await client.cancelScheduledEvent(
+                    context.guildId,
+                    eventId,
+                    reason,
+                  );
+                  if (
+                    cancelled.id !== eventId ||
+                    cancelled.guild_id !== context.guildId ||
+                    cancelled.status !== 4
+                  ) {
+                    throw new DiscordApiError(
+                      "Discord did not confirm the cancellation result.",
+                      200,
+                      true,
+                    );
+                  }
+                  return receipt(false);
+                },
+                isCurrent,
+              );
         return result;
       }
+      async function createEvent(args: Record<string, unknown>): Promise<ActionResult> {
+        ensureCurrent();
+        const title = requiredText(args, "name", 100);
+        const description = optionalText(args, "description", 1000);
+        const zone = requiredText(args, "time_zone", 100);
+        const start = resolveEventTime(requiredText(args, "start_time", 40), zone);
+        const endInput = optionalText(args, "end_time", 40);
+        const end = endInput ? resolveEventTime(endInput, zone) : undefined;
+        if (Date.parse(start) <= now()) {
+          throw new Error("The event must start in the future. What date and time should I use?");
+        }
+        if (end && Date.parse(end) <= Date.parse(start)) {
+          throw new Error("The event must end after it starts.");
+        }
+        const types = { voice: 2, stage: 1, external: 3 } as const;
+        const type = types[args.entity_type as keyof typeof types];
+        if (!type) throw new Error("Choose a voice, Stage, or external event location.");
+        const access = await loadAccess();
+        const payload: ScheduledEventPayload = {
+          name: title,
+          privacy_level: 2,
+          entity_type: type,
+          scheduled_start_time: start,
+          ...(description ? { description } : {}),
+          ...(end ? { scheduled_end_time: end } : {}),
+        };
+        if (type === 3) {
+          if (!end) throw new Error("What time should this external event end?");
+          if (args.channel_id != null) {
+            throw new Error("External events need a location instead of a voice channel.");
+          }
+          payload.channel_id = null;
+          payload.entity_metadata = { location: requiredText(args, "location", 100) };
+          if (!has(getGuildPermissions(access.guild, access.requester), P.CREATE_EVENTS)) {
+            throw new Error("You need Create Events permission in this server.");
+          }
+          if (!has(getGuildPermissions(access.guild, access.bot), P.CREATE_EVENTS)) {
+            throw new Error("Haru needs Create Events permission in this server.");
+          }
+        } else {
+          if (args.location != null) {
+            throw new Error("Voice and Stage events use their channel as the location.");
+          }
+          const channel = channelFor(requiredText(args, "channel_id", 30), access.channels);
+          const rules = channelRules(type);
+          if (channel.type !== rules.channelType) {
+            throw new Error("The selected channel does not match the event type.");
+          }
+          checkChannel(
+            access,
+            channel,
+            P.CREATE_EVENTS | rules.bits,
+            type === 2 ? `Create Events, ${rules.label}` : "Create Events and Stage moderator",
+          );
+          payload.channel_id = channel.id;
+        }
+        const fingerprint = JSON.stringify([
+          context.guildId,
+          type,
+          title.toLowerCase(),
+          start,
+          payload.channel_id,
+          payload.entity_metadata?.location,
+        ]);
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fingerprint));
+        const hash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        const result = await once(
+          operation("create_discord_event"),
+          { guildId: context.guildId, kind: "creation_fingerprint", key: hash },
+          async () => {
+            const events = await client.listScheduledEvents(context.guildId);
+            const existing = events.find(
+              (event) =>
+                event.guild_id === context.guildId &&
+                event.creator_id === context.botId &&
+                [1, 2].includes(event.status) &&
+                event.name.toLowerCase() === title.toLowerCase() &&
+                event.entity_type === type &&
+                Date.parse(event.scheduled_start_time) === Date.parse(start) &&
+                event.channel_id === payload.channel_id &&
+                (event.entity_metadata?.location ?? "") ===
+                  (payload.entity_metadata?.location ?? ""),
+            );
+            ensureCurrent();
+            const event =
+              existing ?? (await client.createScheduledEvent(context.guildId, payload, reason));
+            verifiedEvents.set(event.id, event);
+            return eventResult(event, Boolean(existing));
+          },
+          isCurrent,
+        );
+        return result;
+      }
+      async function createInvite(args: Record<string, unknown>): Promise<ActionResult> {
+        ensureCurrent();
+        const access = await loadAccess();
+        const channel = channelFor(requiredText(args, "channel_id", 30), access.channels);
+        if (![0, 2, 5, 13, 15, 16].includes(channel.type)) {
+          throw new Error("Invites need a server channel, not a thread or category.");
+        }
+        checkChannel(
+          access,
+          channel,
+          P.VIEW_CHANNEL | P.CREATE_INSTANT_INVITE,
+          "View Channel and Create Invite",
+        );
+        const eventId = optionalText(args, "event_id", 30);
+        if (eventId) {
+          const event =
+            verifiedEvents.get(eventId) ??
+            (await client.listScheduledEvents(context.guildId)).find((item) => item.id === eventId);
+          if (!event || event.guild_id !== context.guildId) {
+            throw new Error("That event is not in this server.");
+          }
+          if (![1, 2].includes(event.status)) {
+            throw new Error("That event has ended or been cancelled.");
+          }
+          if (event.channel_id && event.channel_id !== channel.id) {
+            throw new Error("Use the event's own channel for its server invitation.");
+          }
+          // An event server invite cannot expose a private-channel event.
+          const everyone: DiscordMember = { user: { id: "0" }, roles: [] };
+          if (!has(getChannelPermissions(access.guild, everyone, channel), P.VIEW_CHANNEL)) {
+            throw new Error(
+              `This channel is private. Share the direct event link with existing members: ${eventUrl(context.guildId, eventId)}`,
+            );
+          }
+        }
+        const maxAge = args.max_age ?? 86400;
+        const maxUses = args.max_uses ?? 0;
+        const upTo = (value: unknown, max: number): value is number =>
+          Number.isInteger(value) && (value as number) >= 0 && (value as number) <= max;
+        if (!upTo(maxAge, 604800) || !upTo(maxUses, 100)) {
+          throw new Error("Invite expiry must be 0–604800 seconds and maximum uses must be 0–100.");
+        }
+        const result = await once(
+          operation("create_discord_invite"),
+          null,
+          async () => {
+            ensureCurrent();
+            const invite = await client.createInvite(
+              channel.id,
+              {
+                max_age: maxAge,
+                max_uses: maxUses,
+                unique: false,
+                temporary: false,
+              },
+              reason,
+            );
+            const inviteUrl = `https://discord.gg/${invite.code}${
+              eventId ? `?event=${eventId}` : ""
+            }`;
+            return {
+              ok: true,
+              inviteUrl,
+              message: `Here's your ${eventId ? "event " : ""}invite!~\n${inviteUrl}`,
+            };
+          },
+          isCurrent,
+        );
+        return result;
+      }
+      const tools = {
+        clarify_discord_action: {
+          kind: undefined,
+          run: (args: Record<string, unknown>) => ask(requiredText(args, "question", 1000)),
+        },
+        cancel_discord_event: { kind: "cancel", run: cancelEvent },
+        create_discord_event: { kind: "create_event", run: createEvent },
+        create_discord_invite: { kind: "create_invite", run: createInvite },
+      } as const;
       const session: DiscordActionSession = {
         results,
         currentUserMessage: context.content,
@@ -352,485 +753,20 @@ export function createDiscordActionService(
           "Create immediately when the request is explicit and complete. Return only verified results, including actual links. Do not claim success without a successful tool result. If one action fails, report the successful action and the specific remaining failure. Do not repeat an uncertain write.",
         ].join("\n"),
         async executeTool(name, args) {
+          let result: ActionResult;
           try {
-            if (name === "get_discord_event_context") {
-              const access = await loadAccess();
-              const channels = access.channels.filter(
-                (channel) =>
-                  has(
-                    getChannelPermissions(access.guild, access.requester, channel),
-                    P.VIEW_CHANNEL,
-                  ) &&
-                  has(getChannelPermissions(access.guild, access.bot, channel), P.VIEW_CHANNEL),
-              );
-              const events = (await client.listScheduledEvents(context.guildId)).filter(
-                (event) =>
-                  event.guild_id === context.guildId &&
-                  (!event.channel_id ||
-                    channels.some((channel) => channel.id === event.channel_id)),
-              );
-              for (const event of events) verifiedEvents.set(event.id, event);
-              return {
-                ok: true,
-                current_time: new Date(now()).toISOString(),
-                time_zone: timeZone,
-                channels: channels.map(({ id, name, type }) => ({ id, name, type })),
-                events: events.map(
-                  ({
-                    id,
-                    name,
-                    channel_id: channelId,
-                    entity_type: entityType,
-                    scheduled_start_time: scheduledStartTime,
-                    status,
-                    recurrence_rule: recurrenceRule,
-                  }) => ({
-                    id,
-                    name,
-                    channel_id: channelId,
-                    entity_type: entityType,
-                    scheduled_start_time: scheduledStartTime,
-                    status,
-                    recurring: recurrenceRule != null,
-                  }),
-                ),
-              };
-            }
-            authorize(
-              args,
-              name === "clarify_discord_action"
-                ? undefined
-                : name === "cancel_discord_event"
-                  ? "cancel"
-                  : name === "create_discord_invite"
-                    ? "create_invite"
-                    : "create_event",
-            );
-            if (name === "clarify_discord_action") {
-              return await ask(requiredText(args, "question", 1000));
-            }
-            if (name === "cancel_discord_event") {
-              await ensureCurrent();
-              const reference = optionalText(args, "event_reference", 200);
-              if (!reference) {
-                return await ask("Which event should I cancel? Send me its name or event link!~");
-              }
-              const sources = [
-                context.content,
-                ...(pending?.replies ?? []).toReversed(),
-                origin.content,
-              ];
-              const source = sources
-                .map(directReferenceText)
-                .find((text) => containsReference(text, reference));
-              if (!source) {
-                return await ask(
-                  "Which event should I cancel? Please send its exact name or event link so I pick the right one!~",
-                );
-              }
-              if (/\b(?:all|every|both)\b/i.test(directRequestText(source))) {
-                return await ask(
-                  "I can cancel one event at a time!~ Which event should I start with?",
-                );
-              }
-              const access = await loadAccess();
-              const accessible = (event: DiscordScheduledEvent) => {
-                if (event.guild_id !== context.guildId) return false;
-                if (!event.channel_id) return true;
-                const channel = access.channels.find((c) => c.id === event.channel_id);
-                return Boolean(
-                  channel &&
-                  (!channel.guild_id || channel.guild_id === context.guildId) &&
-                  has(
-                    getChannelPermissions(access.guild, access.requester, channel),
-                    P.VIEW_CHANNEL,
-                  ) &&
-                  has(getChannelPermissions(access.guild, access.bot, channel), P.VIEW_CHANNEL),
-                );
-              };
-              const events = (await client.listScheduledEvents(context.guildId)).filter(accessible);
-              // Discord mentions and emoji embed non-event snowflakes, never event targets.
-              const withoutMentions = source.replace(
-                /<(?:(?:@!?|@&|#)\d+|a?:[A-Za-z0-9_]+:\d+|\/[^:>]+:\d+)>/g,
-                " ",
-              );
-              const sourceLinks = [
-                ...withoutMentions.matchAll(
-                  /https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)/gi,
-                ),
-              ];
-              const references = new Set(sourceLinks.map((link) => `${link[1]}/${link[2]}`));
-              const withoutLinks = withoutMentions.replace(/https?:\/\/\S+/gi, " ");
-              for (const id of withoutLinks.match(/\b\d{17,20}\b/g) ?? []) {
-                references.add(`${context.guildId}/${id}`);
-              }
-              for (const event of events) {
-                if (
-                  containsReference(withoutMentions, event.name) ||
-                  containsReference(withoutLinks, event.id)
-                ) {
-                  references.add(`${context.guildId}/${event.id}`);
-                }
-              }
-              if (references.size > 1) {
-                const choices = events
-                  .filter((event) => references.has(`${context.guildId}/${event.id}`))
-                  .slice(0, 5)
-                  .map(
-                    (event) =>
-                      `${event.name} — <t:${Math.floor(
-                        Date.parse(event.scheduled_start_time) / 1000,
-                      )}:F>\nhttps://discord.com/events/${context.guildId}/${event.id}`,
-                  )
-                  .join("\n");
-                return await ask(
-                  `Which one should I cancel? Reply with just its event link so I pick the right one!~${
-                    choices ? `\n${choices}` : ""
-                  }`,
-                );
-              }
-              let eventId: string;
-              const link = /^https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)\/?$/i.exec(
-                reference,
-              );
-              if (link) {
-                if (link[1] !== context.guildId) {
-                  throw new Error("That event link belongs to a different server.");
-                }
-                eventId = link[2];
-              } else if (/^\d+$/.test(reference)) {
-                eventId = reference;
-              } else {
-                const matches = events.filter(
-                  (event) => event.name.toLowerCase() === reference.toLowerCase(),
-                );
-                const mentioned = events.filter((event) =>
-                  containsReference(withoutMentions, event.name),
-                );
-                if (matches.length !== 1 || new Set(mentioned.map((event) => event.id)).size > 1) {
-                  const candidates = matches.length ? matches : mentioned;
-                  const choices = candidates
-                    .slice(0, 5)
-                    .map(
-                      (event) =>
-                        `${event.name} — <t:${Math.floor(
-                          Date.parse(event.scheduled_start_time) / 1000,
-                        )}:F>\nhttps://discord.com/events/${context.guildId}/${event.id}`,
-                    )
-                    .join("\n");
-                  return await ask(
-                    candidates.length
-                      ? `Which one should I cancel? Reply with just its event link so I pick the right one!~\n${choices}`
-                      : "I couldn't find an event with that exact name. Can you send me its event link?~",
-                  );
-                }
-                eventId = matches[0].id;
-              }
-              const event = await client.getScheduledEvent(context.guildId, eventId);
-              if (event.id !== eventId || !accessible(event)) {
-                throw new Error("I couldn't verify an accessible event in this server.");
-              }
-              const channel = event.channel_id
-                ? channelFor(event.channel_id, access.channels)
-                : null;
-              for (const member of [access.requester, access.bot]) {
-                const bits = channel
-                  ? getChannelPermissions(access.guild, member, channel)
-                  : getGuildPermissions(access.guild, member);
-                const mayManage =
-                  has(bits, P.MANAGE_EVENTS) ||
-                  (event.creator_id === member.user.id && has(bits, P.CREATE_EVENTS));
-                if (!mayManage) {
-                  throw new Error(
-                    member.user.id === context.userId
-                      ? "You need Manage Events to cancel another creator's event, or Create Events for your own."
-                      : "Haru needs Manage Events to cancel another creator's event, or Create Events for her own.",
-                  );
-                }
-              }
-              if (event.entity_type !== 3) {
-                if (!channel || channel.type !== (event.entity_type === 2 ? 2 : 13)) {
-                  throw new Error("I couldn't verify the event's voice or Stage channel.");
-                }
-                const required =
-                  P.VIEW_CHANNEL |
-                  (event.entity_type === 2
-                    ? P.CONNECT
-                    : P.MANAGE_CHANNELS | P.MUTE_MEMBERS | P.MOVE_MEMBERS);
-                checkChannel(
-                  access,
-                  channel,
-                  required,
-                  event.entity_type === 2
-                    ? "View Channel and Connect"
-                    : "View Channel and Stage moderator",
-                );
-              } else if (channel) {
-                throw new Error("I couldn't verify this external event's location.");
-              }
-              if (event.recurrence_rule != null) {
-                throw new Error(
-                  "I can't cancel recurring event series or individual occurrences yet.",
-                );
-              }
-              if (event.status === 2) {
-                throw new Error(
-                  "That event has already started. Ending an active event isn't supported yet.",
-                );
-              }
-              if (event.status === 3) {
-                throw new Error("That event has already ended, so there's nothing to cancel.");
-              }
-              if (![1, 4].includes(event.status)) {
-                throw new Error("That event cannot be cancelled in its current state.");
-              }
-              const receipt = (already: boolean): ActionResult => ({
-                ok: true,
-                eventId,
-                cancelled: true,
-                message: `${
-                  already
-                    ? "That event is already cancelled!~"
-                    : "Okay!~ I cancelled your event. (｡•ᴗ•｡)"
-                }\n${event.name}`,
-              });
-              const result =
-                event.status === 4
-                  ? receipt(true)
-                  : await once(
-                      { guildId: context.guildId, messageId: origin.messageId, action: name },
-                      { guildId: context.guildId, kind: "cancellation", key: eventId },
-                      async () => {
-                        await ensureCurrent();
-                        const cancelled = await client.cancelScheduledEvent(
-                          context.guildId,
-                          eventId,
-                          `Requested by ${context.userId}; message ${origin.messageId}`,
-                        );
-                        if (
-                          cancelled.id !== eventId ||
-                          cancelled.guild_id !== context.guildId ||
-                          cancelled.status !== 4
-                        ) {
-                          throw new DiscordApiError(
-                            "Discord did not confirm the cancellation result.",
-                            200,
-                            true,
-                          );
-                        }
-                        return receipt(false);
-                      },
-                      isCurrent,
-                      false,
-                    );
-              results.push(result);
-              if (result.ok) await finishPending();
-              return result;
-            }
-            if (name === "create_discord_event") {
-              await ensureCurrent();
-              const title = requiredText(args, "name", 100);
-              const description = optionalText(args, "description", 1000);
-              const zone = requiredText(args, "time_zone", 100);
-              const start = resolveEventTime(requiredText(args, "start_time", 40), zone);
-              const endInput = optionalText(args, "end_time", 40);
-              const end = endInput ? resolveEventTime(endInput, zone) : undefined;
-              if (Date.parse(start) <= now()) {
-                throw new Error(
-                  "The event must start in the future. What date and time should I use?",
-                );
-              }
-              if (end && Date.parse(end) <= Date.parse(start)) {
-                throw new Error("The event must end after it starts.");
-              }
-              const types = { voice: 2, stage: 1, external: 3 } as const;
-              const type = types[args.entity_type as keyof typeof types];
-              if (!type) throw new Error("Choose a voice, Stage, or external event location.");
-              const access = await loadAccess();
-              const payload: ScheduledEventPayload = {
-                name: title,
-                privacy_level: 2,
-                entity_type: type,
-                scheduled_start_time: start,
-                ...(description ? { description } : {}),
-                ...(end ? { scheduled_end_time: end } : {}),
-              };
-              if (type === 3) {
-                if (!end) throw new Error("What time should this external event end?");
-                if (args.channel_id != null) {
-                  throw new Error("External events need a location instead of a voice channel.");
-                }
-                payload.channel_id = null;
-                payload.entity_metadata = { location: requiredText(args, "location", 100) };
-                if (!has(getGuildPermissions(access.guild, access.requester), P.CREATE_EVENTS)) {
-                  throw new Error("You need Create Events permission in this server.");
-                }
-                if (!has(getGuildPermissions(access.guild, access.bot), P.CREATE_EVENTS)) {
-                  throw new Error("Haru needs Create Events permission in this server.");
-                }
-              } else {
-                if (args.location != null) {
-                  throw new Error("Voice and Stage events use their channel as the location.");
-                }
-                const channel = channelFor(requiredText(args, "channel_id", 30), access.channels);
-                if (channel.type !== (type === 2 ? 2 : 13)) {
-                  throw new Error("The selected channel does not match the event type.");
-                }
-                const required =
-                  P.CREATE_EVENTS |
-                  P.VIEW_CHANNEL |
-                  (type === 2 ? P.CONNECT : P.MANAGE_CHANNELS | P.MUTE_MEMBERS | P.MOVE_MEMBERS);
-                checkChannel(
-                  access,
-                  channel,
-                  required,
-                  type === 2
-                    ? "Create Events, View Channel and Connect"
-                    : "Create Events and Stage moderator",
-                );
-                payload.channel_id = channel.id;
-              }
-              const fingerprint = JSON.stringify([
-                context.guildId,
-                type,
-                title.toLowerCase(),
-                start,
-                payload.channel_id,
-                payload.entity_metadata?.location,
-              ]);
-              const digest = await crypto.subtle.digest(
-                "SHA-256",
-                new TextEncoder().encode(fingerprint),
-              );
-              const hash = Array.from(new Uint8Array(digest), (byte) =>
-                byte.toString(16).padStart(2, "0"),
-              ).join("");
-              const result = await once(
-                { guildId: context.guildId, messageId: origin.messageId, action: name },
-                { guildId: context.guildId, kind: "creation_fingerprint", key: hash },
-                async () => {
-                  const events = await client.listScheduledEvents(context.guildId);
-                  const existing = events.find(
-                    (event) =>
-                      event.guild_id === context.guildId &&
-                      event.creator_id === context.botId &&
-                      [1, 2].includes(event.status) &&
-                      event.name.toLowerCase() === title.toLowerCase() &&
-                      event.entity_type === type &&
-                      Date.parse(event.scheduled_start_time) === Date.parse(start) &&
-                      event.channel_id === payload.channel_id &&
-                      (event.entity_metadata?.location ?? "") ===
-                        (payload.entity_metadata?.location ?? ""),
-                  );
-                  await ensureCurrent();
-                  const event =
-                    existing ??
-                    (await client.createScheduledEvent(
-                      context.guildId,
-                      payload,
-                      `Requested by ${context.userId}; message ${origin.messageId}`,
-                    ));
-                  verifiedEvents.set(event.id, event);
-                  return eventResult(event, Boolean(existing));
-                },
-                isCurrent,
-              );
-              results.push(result);
-              if (result.ok) await finishPending();
-              return result;
-            }
-            if (name === "create_discord_invite") {
-              await ensureCurrent();
-              if (!/\b(invite|invitation|join\s+link)\b/i.test(directRequestText(origin.content))) {
-                throw new Error(
-                  "Please explicitly ask for a server invite; a direct event link does not require one.",
-                );
-              }
-              const access = await loadAccess();
-              const channel = channelFor(requiredText(args, "channel_id", 30), access.channels);
-              if (![0, 2, 5, 13, 15, 16].includes(channel.type)) {
-                throw new Error("Invites need a server channel, not a thread or category.");
-              }
-              checkChannel(
-                access,
-                channel,
-                P.VIEW_CHANNEL | P.CREATE_INSTANT_INVITE,
-                "View Channel and Create Invite",
-              );
-              const eventId = optionalText(args, "event_id", 30);
-              if (eventId) {
-                const event =
-                  verifiedEvents.get(eventId) ??
-                  (await client.listScheduledEvents(context.guildId)).find(
-                    (item) => item.id === eventId,
-                  );
-                if (!event || event.guild_id !== context.guildId) {
-                  throw new Error("That event is not in this server.");
-                }
-                if (![1, 2].includes(event.status)) {
-                  throw new Error("That event has ended or been cancelled.");
-                }
-                if (event.channel_id && event.channel_id !== channel.id) {
-                  throw new Error("Use the event's own channel for its server invitation.");
-                }
-                // An event server invite cannot expose a private-channel event.
-                const everyone: DiscordMember = { user: { id: "0" }, roles: [] };
-                if (!has(getChannelPermissions(access.guild, everyone, channel), P.VIEW_CHANNEL)) {
-                  throw new Error(
-                    `This channel is private. Share the direct event link with existing members: https://discord.com/events/${context.guildId}/${eventId}`,
-                  );
-                }
-              }
-              const maxAge = args.max_age ?? 86400;
-              const maxUses = args.max_uses ?? 0;
-              if (
-                !Number.isInteger(maxAge) ||
-                Number(maxAge) < 0 ||
-                Number(maxAge) > 604800 ||
-                !Number.isInteger(maxUses) ||
-                Number(maxUses) < 0 ||
-                Number(maxUses) > 100
-              ) {
-                throw new Error(
-                  "Invite expiry must be 0–604800 seconds and maximum uses must be 0–100.",
-                );
-              }
-              const result = await once(
-                { guildId: context.guildId, messageId: origin.messageId, action: name },
-                null,
-                async () => {
-                  await ensureCurrent();
-                  const invite = await client.createInvite(
-                    channel.id,
-                    {
-                      max_age: Number(maxAge),
-                      max_uses: Number(maxUses),
-                      unique: false,
-                      temporary: false,
-                    },
-                    `Requested by ${context.userId}; message ${origin.messageId}`,
-                  );
-                  const inviteUrl = `https://discord.gg/${invite.code}${
-                    eventId ? `?event=${eventId}` : ""
-                  }`;
-                  return {
-                    ok: true,
-                    inviteUrl,
-                    message: `Here's your ${eventId ? "event " : ""}invite!~\n${inviteUrl}`,
-                  };
-                },
-                isCurrent,
-              );
-              results.push(result);
-              if (result.ok) await finishPending();
-              return result;
-            }
-            throw new Error("That Discord action is not supported.");
+            if (name === "get_discord_event_context") return await eventContext();
+            if (!Object.hasOwn(tools, name))
+              throw new Error("That Discord action is not supported.");
+            const tool = tools[name as keyof typeof tools];
+            authorize(args, tool.kind);
+            result = await tool.run(args);
+            if (result.ok) finishPending();
           } catch (error) {
-            const result = errorResult(error);
-            results.push(result);
-            return result;
+            result = errorResult(error);
           }
+          results.push(result);
+          return result;
         },
       };
       return session;

@@ -1,5 +1,5 @@
 # Environment files are loaded only where asked for: `bun run start` and
-# `bun run dev` pass --env-file=.env. Tests and scripts never read .env.
+# `bun run dev` pass --env-file=.env, and so do the sandbox and eval scripts. Tests never read .env.
 env = false
 
 [install]

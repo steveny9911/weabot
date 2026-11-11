@@ -1,11 +1,11 @@
 import { afterEach, expect, setSystemTime, spyOn, test } from "bun:test";
+import { assert } from "../../tests/support/assert.ts";
 import type { AiService } from "../ai/types.ts";
 import type { AppConfig } from "../config.ts";
 import { bunCron, type CronRegistrar, registerCronJobs } from "./scheduler.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { StorageService } from "../services/storage.ts";
-import { assert } from "../../tests/support/assert.ts";
 
 const SCHEDULES = {
   "Daily Retro Poll": "0 5 * * *",
@@ -24,12 +24,13 @@ function register(storage: Partial<StorageService> = {}, maintenance?: () => voi
   } as unknown as DiscordClient;
   registerCronJobs(
     cron,
-    { channelIds: ["channel"] } as AppConfig,
-    discord,
-    storage as StorageService,
-    new Intl.DateTimeFormat("en-US"),
-    {} as AiService,
-    {} as RateLimitService,
+    {
+      config: { channelIds: ["channel"] } as AppConfig,
+      discord,
+      storage: storage as StorageService,
+      ai: {} as AiService,
+      rateLimit: {} as RateLimitService,
+    },
     maintenance,
   );
   return jobs;
@@ -63,11 +64,14 @@ test("the production registrar runs jobs in UTC and logs a failing job instead o
   }
 });
 
-test("the six jobs keep their UTC schedules in any process time zone", () => {
+test("the six jobs are registered with their UTC schedules", () => {
   const jobs = register();
   expect(Object.fromEntries([...jobs].map(([name, job]) => [name, job.schedule]))).toStrictEqual(
     SCHEDULES,
   );
+});
+
+test("the job schedules give the same run times in any process time zone", () => {
   const savedTz = process.env.TZ;
   const from = Date.parse("2026-03-07T23:59:00Z"); // DST starts in Los Angeles on 2026-03-08
   const nextRuns = (): string[] => {
@@ -98,4 +102,21 @@ test("the six jobs keep their UTC schedules in any process time zone", () => {
     if (savedTz === undefined) delete process.env.TZ;
     else process.env.TZ = savedTz;
   }
+});
+
+test("the Poll Result Collection job asks storage for expired polls", async () => {
+  let asked = 0;
+  const jobs = register({
+    getExpiredPolls: () => {
+      asked++;
+      return Promise.resolve([]);
+    },
+  });
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await jobs.get("Poll Result Collection")!.handler();
+  } finally {
+    log.mockRestore();
+  }
+  expect(asked).toBe(1);
 });

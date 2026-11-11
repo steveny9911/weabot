@@ -23,8 +23,11 @@ export function errorResult(error: unknown): ActionResult {
     message: error instanceof Error ? error.message : "The Discord action failed.",
   };
 }
+export const eventUrl = (guildId: string, eventId: string) =>
+  `https://discord.com/events/${guildId}/${eventId}`;
+
 export function eventResult(event: DiscordScheduledEvent, reused = false): ActionResult {
-  const eventUrl = `https://discord.com/events/${event.guild_id}/${event.id}`;
+  const url = eventUrl(event.guild_id, event.id);
   const start = Math.floor(Date.parse(event.scheduled_start_time) / 1000);
   const end = event.scheduled_end_time
     ? Math.floor(Date.parse(event.scheduled_end_time) / 1000)
@@ -32,14 +35,14 @@ export function eventResult(event: DiscordScheduledEvent, reused = false): Actio
   return {
     ok: true,
     eventId: event.id,
-    eventUrl,
+    eventUrl: url,
     channelId: event.channel_id,
     message:
       `${
         reused
           ? "Ehehe~ your event is already waiting for you! (｡•ᴗ•｡)"
           : "Ehehe~ I made your event! (｡•ᴗ•｡)"
-      }\n${event.name}\n` + `<t:${start}:F>${end ? ` – <t:${end}:F>` : ""}\n${eventUrl}`,
+      }\n${event.name}\n` + `<t:${start}:F>${end ? ` – <t:${end}:F>` : ""}\n${url}`,
   };
 }
 

@@ -17,14 +17,13 @@ import { createLandmineQueries } from "./src/db/landmines.ts";
 import { createLandmineService } from "./src/features/landmine.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
-import { withProviderLimits } from "./src/ai/providers/index.ts";
 import { createServer } from "./src/app/server.ts";
 import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
 import { startGateway } from "./src/app/gateway.ts";
 import type { ChannelScope, FeatureConfig } from "./src/feature_config.ts";
 import type { BotDependencies } from "./src/bot/handle_message.ts";
 
-const config = withProviderLimits(loadConfig());
+const config = loadConfig();
 
 const channelsLabel = (channelIds: ChannelScope) =>
   channelIds === "all" ? "all" : channelIds.join(", ");
@@ -40,11 +39,12 @@ const discord = createDiscordClient(config.discordToken);
 const rateLimit = createRateLimitService(db, config);
 const aiService = createAiService(config);
 const webSearch = createWebSearchService(config);
-const linkOpen = createLinkOpenService(config);
+const linkOpen = createLinkOpenService();
 const tweets = createTweetService();
 
 const botDeps: BotDependencies = {
   config,
+  discord,
   usageService: createUsageService(config),
   aiService,
   rateLimitService: rateLimit,
@@ -52,7 +52,7 @@ const botDeps: BotDependencies = {
   storageService: storage,
   webSearchService: webSearch,
   tweetService: tweets,
-  landmineService: createLandmineService({ config, mines: createLandmineQueries(db) }),
+  landmineService: createLandmineService({ config, mines: createLandmineQueries(db), discord }),
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
     db,
@@ -62,25 +62,10 @@ const botDeps: BotDependencies = {
   ),
 };
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-  timeZone: config.timeZone,
-});
-
 startGateway(config, botDeps);
-registerCronJobs(
-  bunCron,
-  config,
-  discord,
-  storage,
-  dateFormatter,
-  aiService,
-  rateLimit,
-  createMaintenanceJob(db, actionTurns),
-);
-createServer(config, discord, storage, dateFormatter, rateLimit, config.httpPort);
+const jobDeps = { config, discord, storage, rateLimit };
+registerCronJobs(bunCron, { ...jobDeps, ai: aiService }, createMaintenanceJob(db, actionTurns));
+createServer(jobDeps, config.httpPort);
 
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);

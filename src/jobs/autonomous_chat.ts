@@ -1,15 +1,15 @@
 /** Joins active conversations only when explicitly enabled and every guardrail passes. */
 import type { AiService } from "../ai/types.ts";
-import { getBotUserId } from "../discord/messages.ts";
 import { participateInChannel } from "../features/autonomous_chat/participate.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { JobDeps } from "./channel_posts.ts";
 
-/** Returns the job. It skips a run while the previous one is still active. */
+/** Returns the job. It skips a run while the previous one is still active. `clock` is for tests. */
 export function createAutonomousChatJob(
   { config, discord, storage }: JobDeps,
   aiService: AiService,
   rateLimit: RateLimitService,
+  clock: { now?: () => number; random?: () => number } = {},
 ): () => Promise<void> {
   let autonomousChatRunning = false;
 
@@ -26,7 +26,7 @@ export function createAutonomousChatJob(
 
     autonomousChatRunning = true;
     try {
-      const botUserId = await getBotUserId(config);
+      const botUserId = await discord.getBotUserId();
       if (!botUserId) {
         console.error("[CRON] Autonomous chat skipped because bot user id is unavailable");
         return;
@@ -41,6 +41,7 @@ export function createAutonomousChatJob(
             ai: aiService,
             rateLimit,
             botId: botUserId,
+            ...clock,
           });
           console.log("[AUTONOMOUS OUTCOME]", JSON.stringify({ channelId, ...outcome }));
         } catch {

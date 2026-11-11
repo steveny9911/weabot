@@ -1,16 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  type ChannelInvitePayload,
-  DiscordApiError,
-  type DiscordChannel,
-  type DiscordEventsClient,
-  type DiscordGuild,
-  type DiscordInvite,
-  type DiscordMember,
-  DiscordPermissions as P,
-  type DiscordScheduledEvent,
-  type ScheduledEventPayload,
-} from "../../discord/events.ts";
+import { DiscordApiError, DiscordPermissions as P } from "../../discord/events.ts";
 import {
   createDiscordActionService,
   type DiscordActionContext,
@@ -21,108 +10,30 @@ import { hasExplicitActionRequest } from "./intent.ts";
 import { formatActionResults } from "./results.ts";
 import { type Database, openDatabase } from "../../db/database.ts";
 import { TurnStore, turnKey } from "./state.ts";
+import {
+  actionContext,
+  BOT,
+  existingEvent,
+  GUILD,
+  NOW,
+  STAGE,
+  StubEvents,
+  TEXT,
+  USER,
+  VOICE,
+} from "../../../tests/support/discord_actions.ts";
 
-const GUILD = "100";
-const USER = "200";
-const BOT = "300";
-const TEXT = "400";
-const VOICE = "401";
-const STAGE = "402";
 const CAPABILITIES =
   P.CREATE_EVENTS | P.CREATE_INSTANT_INVITE | P.MANAGE_CHANNELS | P.MUTE_MEMBERS | P.MOVE_MEMBERS;
-const NOW = Date.parse("2025-01-01T12:00:00Z");
 const REQUEST = "Create Movie night on September 5 at 8pm in Lounge and share an invite.";
-
-class StubDiscord implements DiscordEventsClient {
-  guild: DiscordGuild = {
-    id: GUILD,
-    owner_id: "999",
-    roles: [
-      { id: GUILD, permissions: String(P.VIEW_CHANNEL | P.CONNECT) },
-      { id: "201", permissions: String(CAPABILITIES) },
-      { id: "301", permissions: String(CAPABILITIES) },
-    ],
-  };
-  members: Record<string, DiscordMember> = {
-    [USER]: { user: { id: USER }, roles: ["201"] },
-    [BOT]: { user: { id: BOT, bot: true }, roles: ["301"] },
-    "202": { user: { id: "202" }, roles: ["201"] },
-  };
-  channels: DiscordChannel[] = [
-    { id: TEXT, guild_id: GUILD, name: "Bot Sandbox", type: 0 },
-    { id: VOICE, guild_id: GUILD, name: "Lounge", type: 2 },
-    { id: STAGE, guild_id: GUILD, name: "Stage", type: 13 },
-  ];
-  events: DiscordScheduledEvent[] = [];
-  eventWrites: Array<{ guildId: string; payload: ScheduledEventPayload; reason?: string }> = [];
-  inviteWrites: Array<{ channelId: string; payload: ChannelInvitePayload; reason?: string }> = [];
-  eventFailure: Error | undefined;
-  inviteFailure: Error | undefined;
-  beforeEvent: (() => Promise<void>) | undefined;
-
-  getGuild(_guildId: string): Promise<DiscordGuild> {
-    return Promise.resolve(this.guild);
-  }
-  getMember(_guildId: string, userId: string): Promise<DiscordMember> {
-    return Promise.resolve(this.members[userId]);
-  }
-  getChannels(_guildId: string): Promise<DiscordChannel[]> {
-    return Promise.resolve(this.channels);
-  }
-  listScheduledEvents(_guildId: string): Promise<DiscordScheduledEvent[]> {
-    return Promise.resolve(this.events);
-  }
-  getScheduledEvent(_guildId: string, eventId: string): Promise<DiscordScheduledEvent> {
-    return Promise.resolve(this.events.find((event) => event.id === eventId)!);
-  }
-  cancelScheduledEvent(_guildId: string, _eventId: string): Promise<DiscordScheduledEvent> {
-    return Promise.reject(new Error("Unexpected cancellation in a creation test."));
-  }
-  async createScheduledEvent(
-    guildId: string,
-    payload: ScheduledEventPayload,
-    reason?: string,
-  ): Promise<DiscordScheduledEvent> {
-    this.eventWrites.push({ guildId, payload, reason });
-    if (this.beforeEvent) await this.beforeEvent();
-    if (this.eventFailure) throw this.eventFailure;
-    const created: DiscordScheduledEvent = {
-      ...payload,
-      id: String(500 + this.eventWrites.length),
-      guild_id: guildId,
-      channel_id: payload.channel_id ?? null,
-      creator_id: BOT,
-      status: 1,
-    };
-    this.events.push(created);
-    return created;
-  }
-  createInvite(
-    channelId: string,
-    payload: ChannelInvitePayload,
-    reason?: string,
-  ): Promise<DiscordInvite> {
-    this.inviteWrites.push({ channelId, payload, reason });
-    if (this.inviteFailure) return Promise.reject(this.inviteFailure);
-    return Promise.resolve({
-      code: "sandbox-invite",
-      guild: { id: GUILD },
-      channel: { id: channelId },
-    });
-  }
-}
-
-function context(overrides: Partial<DiscordActionContext> = {}): DiscordActionContext {
-  return {
-    guildId: GUILD,
-    channelId: TEXT,
-    userId: USER,
-    botId: BOT,
-    messageId: "600",
-    content: REQUEST,
-    ...overrides,
-  };
-}
+const context = (overrides: Partial<DiscordActionContext> = {}) =>
+  actionContext(REQUEST, overrides);
+const stub = () =>
+  new StubEvents({
+    everyone: P.VIEW_CHANNEL | P.CONNECT,
+    requester: CAPABILITIES,
+    bot: CAPABILITIES,
+  });
 
 function eventArgs(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -150,32 +61,18 @@ function inviteArgs(overrides: Record<string, unknown> = {}): Record<string, unk
   };
 }
 
-function existingEvent(overrides: Partial<DiscordScheduledEvent> = {}): DiscordScheduledEvent {
-  return {
-    id: "550",
-    guild_id: GUILD,
-    channel_id: VOICE,
-    creator_id: BOT,
-    entity_type: 2,
-    status: 1,
-    name: "Movie night",
-    scheduled_start_time: "2025-09-06T03:00:00.000Z",
-    ...overrides,
-  };
-}
-
 const KEY = turnKey(GUILD, TEXT, USER);
 
 async function fixture(
   run: (
-    client: StubDiscord,
+    client: StubEvents,
     service: DiscordActionService,
     turns: TurnStore<PendingRequest>,
     db: Database,
   ) => Promise<void>,
 ): Promise<void> {
   using db = openDatabase(":memory:");
-  const client = new StubDiscord();
+  const client = stub();
   const turns = new TurnStore<PendingRequest>(() => NOW);
   await run(
     client,
@@ -185,7 +82,7 @@ async function fixture(
   );
 }
 
-function denyRole(client: StubDiscord, memberId: string, permission: bigint) {
+function denyRole(client: StubEvents, memberId: string, permission: bigint) {
   const roleId = client.members[memberId].roles[0];
   const role = client.guild.roles.find((item) => item.id === roleId)!;
   role.permissions = String(BigInt(role.permissions) & ~permission);
@@ -364,6 +261,7 @@ test("Stage creation uses a Stage channel and requires both parties' moderator p
       );
       expect(result.ok).toStrictEqual(false);
       expect(String(result.message)).toContain(member === USER ? "You need" : "Haru needs");
+      expect(String(result.message)).toContain("Create Events and Stage moderator");
       expect(client.eventWrites.length).toStrictEqual(0);
     });
   }
@@ -655,7 +553,7 @@ test("invalid or past event times and mismatched channel kinds cannot reach Disc
 
 test("a session whose turn expired after 20 minutes cannot write or ask", async () => {
   using db = openDatabase(":memory:");
-  const client = new StubDiscord();
+  const client = stub();
   let now = NOW;
   const turns = new TurnStore<PendingRequest>(() => now);
   const service = createDiscordActionService(client, db, "America/Vancouver", () => now, turns);

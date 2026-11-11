@@ -3,15 +3,17 @@
 import type { Database } from "bun:sqlite";
 import { createChatStateQueries } from "../db/chat_state.ts";
 import { createVoteQueries } from "../db/votes.ts";
-import {
-  type DailyStats,
-  isNewerHumanMessage,
-  type PollRecord,
-  type StorageService,
+import type { Mood } from "../types/bot.ts";
+import type {
+  AutonomousParticipationRecord,
+  ContextResetRecord,
+  DailyStats,
+  PollRecord,
+  VoteRecord,
 } from "../types/storage.ts";
 
-export { isNewerHumanMessage };
-export type { ContextStorageService, StorageService } from "../types/storage.ts";
+export type StorageService = ReturnType<typeof createStorageService>;
+export type ContextStorageService = Pick<StorageService, "setContextReset" | "getContextReset">;
 
 function previousDate(date: string): string {
   const value = new Date(`${date}T00:00:00Z`);
@@ -19,31 +21,44 @@ function previousDate(date: string): string {
   return value.toISOString().slice(0, 10);
 }
 
-export function createStorageService(db: Database, now: () => number = Date.now): StorageService {
+/** How many of the latest votes, newest first, are "glue" on consecutive days. */
+function glueStreak(history: VoteRecord[]): number {
+  let count = 0;
+  let expectedDate = history[0]?.date;
+  for (const record of history) {
+    if (record.mood !== "glue" || record.date !== expectedDate) break;
+    count++;
+    expectedDate = previousDate(record.date);
+  }
+  return count;
+}
+
+export function createStorageService(db: Database, now: () => number = Date.now) {
   const votes = createVoteQueries(db);
   const chat = createChatStateQueries(db);
 
   return {
-    async recordVote(channelId, userId, userName, mood, date) {
-      votes.recordVote({
-        channelId,
-        odUserId: userId,
-        odUserName: userName,
-        mood,
-        date,
-        timestamp: now(),
-      });
+    async recordVote(
+      channelId: string,
+      userId: string,
+      userName: string,
+      mood: Mood,
+      date: string,
+    ) {
+      votes.recordVote({ channelId, userId, userName, mood, date, timestamp: now() });
     },
 
-    async getUserHistory(channelId, userId, limit = 30) {
+    /** Most recent first. */
+    async getUserHistory(channelId: string, userId: string, limit = 30) {
       return votes.userHistory(channelId, userId, limit);
     },
 
-    async getVotesForDate(channelId, date) {
+    async getVotesForDate(channelId: string, date: string) {
       return votes.votesForDate(channelId, date);
     },
 
-    async getStats(channelId, startDate, endDate) {
+    /** One entry per UTC day from `startDate` to `endDate`, both included. */
+    async getStats(channelId: string, startDate: string, endDate: string) {
       const stats = new Map<string, DailyStats>();
       // Every day in the range, stepping in UTC so a DST change cannot skip or repeat a day.
       const current = new Date(startDate);
@@ -62,25 +77,18 @@ export function createStorageService(db: Database, now: () => number = Date.now)
       return [...stats.values()];
     },
 
-    async getConsecutiveGlueCount(channelId, userId) {
-      const history = votes.userHistory(channelId, userId, 30);
-      if (history.length === 0 || history[0].mood !== "glue") return 0;
-
-      let count = 1;
-      let expectedDate = previousDate(history[0].date);
-      for (const record of history.slice(1)) {
-        if (record.mood !== "glue" || record.date !== expectedDate) break;
-        count++;
-        expectedDate = previousDate(record.date);
-      }
-      return count;
+    /** Consecutive "glue" days, counting back from the user's latest vote. */
+    async getConsecutiveGlueCount(channelId: string, userId: string) {
+      return glueStreak(votes.userHistory(channelId, userId, 30));
     },
 
-    async getUsersAtRisk(channelId, threshold) {
-      const atRisk = [];
+    /** The glue streak of each user with at least `threshold` consecutive "glue" days. */
+    async getUsersAtRisk(channelId: string, threshold: number) {
+      const atRisk: VoteRecord[][] = [];
       for (const userId of votes.voters(channelId)) {
-        const count = await this.getConsecutiveGlueCount(channelId, userId);
-        if (count >= threshold) atRisk.push(votes.userHistory(channelId, userId, count));
+        const history = votes.userHistory(channelId, userId, 30);
+        const count = glueStreak(history);
+        if (count >= threshold) atRisk.push(history.slice(0, count));
       }
       return atRisk;
     },
@@ -104,19 +112,22 @@ export function createStorageService(db: Database, now: () => number = Date.now)
       }
     },
 
-    async setContextReset(record) {
+    /** The latest context reset of a channel or thread; history before it is never context. */
+    async setContextReset(record: ContextResetRecord) {
       chat.setContextReset(record);
     },
 
-    async getContextReset(channelId) {
+    async getContextReset(channelId: string) {
       return chat.getContextReset(channelId);
     },
 
-    async getAutonomousParticipation(channelId) {
+    /** The latest autonomous attempt in a channel or thread. */
+    async getAutonomousParticipation(channelId: string) {
       return chat.getParticipation(channelId);
     },
 
-    async claimAutonomousParticipation(record, cooldownMs) {
+    /** Atomically consumes a newer human message watermark and the channel cooldown. */
+    async claimAutonomousParticipation(record: AutonomousParticipationRecord, cooldownMs: number) {
       if (
         !record.channelId ||
         !record.latestHumanMessageId ||
@@ -131,11 +142,12 @@ export function createStorageService(db: Database, now: () => number = Date.now)
       return chat.claimParticipation(record, cooldownMs);
     },
 
+    /** Extends the cooldown from completion without replacing a newer message claim. */
     async finishAutonomousParticipation(
-      channelId,
-      latestHumanMessageId,
-      finishedAt,
-      reactionEmoji,
+      channelId: string,
+      latestHumanMessageId: string,
+      finishedAt: number,
+      reactionEmoji?: string,
     ) {
       if (!Number.isSafeInteger(finishedAt) || finishedAt < 0) {
         throw new RangeError("Invalid autonomous participation completion time");

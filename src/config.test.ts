@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { throws } from "../tests/support/assert.ts";
-import { readFileSync } from "node:fs";
 import { loadConfig, type ConfigFile } from "./config.ts";
 
 const SECRETS = [
@@ -52,7 +51,6 @@ test("loadConfig needs a Discord token and a channel", () => {
 test("an empty config.yaml gives the defaults", () => {
   const config = load();
   expect(config.channelIds).toStrictEqual(["chan-1"]);
-  expect(config.channelId).toStrictEqual("chan-1");
   expect(config.databasePath).toStrictEqual("./data/haru.sqlite3");
   expect(config.httpPort).toStrictEqual(8000);
   expect(config.timeZone).toStrictEqual("America/Los_Angeles");
@@ -296,8 +294,8 @@ test("startup stops on a setting it cannot use, and says which", () => {
   );
 });
 
-test("config.example.yaml loads", () => {
-  const example = Bun.YAML.parse(readFileSync("config.example.yaml", "utf8")) as ConfigFile;
+test("config.example.yaml loads", async () => {
+  const example = Bun.YAML.parse(await Bun.file("config.example.yaml").text()) as ConfigFile;
   const config = load({ ...example, discord: { ...example.discord, channel_ids: ["chan-1"] } });
   expect(config.channelIds).toStrictEqual(["chan-1"]);
 });

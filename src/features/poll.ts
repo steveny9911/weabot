@@ -1,20 +1,14 @@
-import type { CreatePollMessagePayload, PollAnswer } from "../discord/types.ts";
-import type { MoodPollConfig } from "../types/bot.ts";
+import type { CreatePollMessagePayload } from "../discord/types.ts";
+import { MOOD_POLL_HOURS, MOODS } from "../types/bot.ts";
 
-export function buildMoodPollPayload(
-  dateString: string,
-  config: MoodPollConfig,
-): CreatePollMessagePayload {
-  const answers: PollAnswer[] = config.moods.map((mood) => ({
-    poll_media: { text: mood },
-  }));
-
+/** The daily mood poll: one answer per mood, open for `MOOD_POLL_HOURS`. */
+export function buildMoodPollPayload(dateString: string): CreatePollMessagePayload {
   return {
     poll: {
       question: { text: `Mood (${dateString})` },
-      answers,
-      duration: config.durationHours,
-      allow_multiselect: config.allowMultiselect,
+      answers: MOODS.map((mood) => ({ poll_media: { text: mood } })),
+      duration: MOOD_POLL_HOURS,
+      allow_multiselect: false,
     },
   };
 }

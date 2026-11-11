@@ -1,7 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { createRequestHandler, createServer, serverOptions } from "./server.ts";
 import { realFetch } from "../../tests/support/setup.ts";
-import type { AppConfig } from "../config.ts";
 import { testConfig } from "../../tests/support/config.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
@@ -25,12 +24,11 @@ function fixture(token?: string) {
   };
   const discord = new Proxy({}, { get: () => neverCall }) as DiscordClient;
   const storage = new Proxy({}, { get: () => neverCall }) as StorageService;
-  const handler = createRequestHandler(
-    { adminHttpToken: token } as AppConfig,
+  const handler = createRequestHandler({
+    config: testConfig({ adminHttpToken: token }),
     discord,
     storage,
-    new Intl.DateTimeFormat("en-US"),
-  );
+  });
   return { handler, calls: () => calls };
 }
 
@@ -113,12 +111,11 @@ test("authorized POST can perform an admin operation and authenticated GET can r
     getExpiredPolls: () => Promise.resolve([]),
     getAllPendingPolls: () => Promise.resolve([]),
   } as unknown as StorageService;
-  const handler = createRequestHandler(
-    { adminHttpToken: "test-secret", channelId: "sandbox" } as AppConfig,
-    {} as DiscordClient,
+  const handler = createRequestHandler({
+    config: testConfig({ adminHttpToken: "test-secret", channelIds: ["sandbox"] }),
+    discord: {} as DiscordClient,
     storage,
-    new Intl.DateTimeFormat("en-US"),
-  );
+  });
   const headers = { Authorization: "Bearer test-secret" };
   expect(
     (
@@ -140,17 +137,16 @@ test("an admin trigger for a disabled feature posts nothing and answers 409", as
   const neverCall = () => {
     throw new Error("a disabled feature must not post or read");
   };
-  const handler = createRequestHandler(
-    testConfig({
+  const handler = createRequestHandler({
+    config: testConfig({
       adminHttpToken: "test-secret",
       moodPoll: { enabled: false },
       weeklyStats: { enabled: false },
       wellness: { enabled: false },
     }),
-    new Proxy({}, { get: () => neverCall }) as DiscordClient,
-    new Proxy({}, { get: () => neverCall }) as StorageService,
-    new Intl.DateTimeFormat("en-US"),
-  );
+    discord: new Proxy({}, { get: () => neverCall }) as DiscordClient,
+    storage: new Proxy({}, { get: () => neverCall }) as StorageService,
+  });
   for (const route of ["/trigger_poll", "/trigger_stats", "/trigger_alert"]) {
     const response = await handler(
       new Request(`http://localhost${route}`, {
@@ -165,11 +161,7 @@ test("an admin trigger for a disabled feature posts nothing and answers 409", as
 
 test("the production server answers health checks on Bun.serve", async () => {
   const server = createServer(
-    {} as AppConfig,
-    {} as DiscordClient,
-    {} as StorageService,
-    new Intl.DateTimeFormat("en-US"),
-    undefined,
+    { config: testConfig(), discord: {} as DiscordClient, storage: {} as StorageService },
     0,
   );
   try {

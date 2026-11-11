@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
-import type { AiService } from "../ai/types.ts";
-import type { AppConfig } from "../config.ts";
-import { registerCronJobs } from "../app/scheduler.ts";
+import { testConfig } from "../../tests/support/config.ts";
 import { createRequestHandler } from "../app/server.ts";
 import type { PollRecord } from "../types/storage.ts";
 import {
@@ -10,16 +8,10 @@ import {
   type DiscordClient,
   type PollAnswerVoters,
 } from "../discord/client.ts";
-import type { RateLimitService } from "../services/rate_limit.ts";
 import { createStorageService, type StorageService } from "../services/storage.ts";
 import { openDatabase } from "../db/database.ts";
+import { collectExpiredPolls } from "./collect_polls.ts";
 
-const config = {
-  channelId: "channel",
-  channelIds: ["channel"],
-  adminHttpToken: "test-admin-token",
-} as AppConfig & { adminHttpToken: string };
-const formatter = new Intl.DateTimeFormat("en-US");
 const moods = ["umazing", "ok", "glue"];
 const poll: PollRecord = {
   messageId: "poll",
@@ -30,36 +22,10 @@ const poll: PollRecord = {
   collected: false,
 };
 
-type Mode = "HTTP" | "scheduled";
-function collectionRunner(mode: Mode, discord: DiscordClient, storage: StorageService) {
-  if (mode === "HTTP") {
-    const handler = createRequestHandler(config, discord, storage, formatter);
-    return () =>
-      handler(
-        new Request("http://localhost/trigger_collect", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${config.adminHttpToken}` },
-        }),
-      );
-  }
-
-  // Exercise the callback actually registered by the scheduler, without real cron jobs.
-  const jobs = new Map<string, () => Promise<void> | void>();
-  registerCronJobs(
-    (name, _schedule, task) => jobs.set(name, task),
-    config,
-    discord,
-    storage,
-    formatter,
-    {} as AiService,
-    {} as RateLimitService,
-  );
-  const run = jobs.get("Poll Result Collection");
-  if (!run) throw new Error("Poll collection cron was not registered");
-  return async () => {
-    await run();
-    return undefined;
-  };
+/** Runs one collection and returns how many polls were collected and how many failed. */
+async function collect(discord: DiscordClient, storage: StorageService) {
+  const { collected, failed } = await collectExpiredPolls(discord, storage);
+  return { collected: collected.length, failed: failed.length };
 }
 
 function mockFetch(handler: (url: URL) => Response): () => void {
@@ -92,23 +58,16 @@ function success(url: URL, zero = false): Response {
   });
 }
 
-async function assertCollectionResponse(response: Response | undefined, status: number) {
-  if (response) {
-    expect(response.status).toStrictEqual(status);
-    expect(await response.text()).toContain(status === 500 ? "pending retry" : "Collected");
-  }
-}
-
 async function assertThreeVotes(storage: StorageService) {
   const votes = await storage.getVotesForDate(poll.channelId, poll.date);
-  expect(votes.map(({ odUserId, mood }) => ({ odUserId, mood }))).toStrictEqual([
-    { odUserId: "101", mood: "umazing" },
-    { odUserId: "102", mood: "ok" },
-    { odUserId: "103", mood: "glue" },
+  expect(votes.map(({ userId, mood }) => ({ userId, mood }))).toStrictEqual([
+    { userId: "101", mood: "umazing" },
+    { userId: "102", mood: "ok" },
+    { userId: "103", mood: "glue" },
   ]);
   expect((await storage.getStats(poll.channelId, poll.date, poll.date))[0].total).toStrictEqual(3);
   for (const vote of votes) {
-    expect(await storage.getUserHistory(poll.channelId, vote.odUserId)).toStrictEqual([vote]);
+    expect(await storage.getUserHistory(poll.channelId, vote.userId)).toStrictEqual([vote]);
   }
   expect(await storage.getExpiredPolls()).toStrictEqual([]);
 }
@@ -159,144 +118,174 @@ const retrievalFailures: [string, (url: URL) => Response | undefined][] = [
   ],
 ];
 
-for (const mode of ["HTTP", "scheduled"] as const) {
-  for (const [name, failure] of retrievalFailures) {
-    test(`${mode} collection: ${name} remains pending and successful retry preserves every vote`, async () => {
-      using kv = openDatabase(":memory:");
-      const storage = createStorageService(kv);
-      await storage.savePendingPoll(poll);
-      let failing = true;
-      let requests = 0;
-      const restore = mockFetch((url) => {
-        requests++;
-        return (failing ? failure(url) : undefined) ?? success(url);
-      });
-      try {
-        const run = collectionRunner(mode, createDiscordClient("token"), storage);
-        await assertCollectionResponse(await run(), 500);
-        expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
-        expect(await storage.getVotesForDate(poll.channelId, poll.date)).toStrictEqual([]);
-        failing = false;
-        await assertCollectionResponse(await run(), 200);
-        await assertThreeVotes(storage);
-        const afterSuccess = requests;
-        const repeated = await run();
-        if (repeated) expect(repeated.status).toStrictEqual(200);
-        expect(requests).toStrictEqual(afterSuccess);
-      } finally {
-        restore();
-      }
-    });
-  }
-
-  test(`${mode} collection: finalized zero-vote poll is marked collected`, async () => {
+for (const [name, failure] of retrievalFailures) {
+  test(`collection: ${name} remains pending and successful retry preserves every vote`, async () => {
     using kv = openDatabase(":memory:");
     const storage = createStorageService(kv);
     await storage.savePendingPoll(poll);
-    const restore = mockFetch((url) => success(url, true));
+    let failing = true;
+    let requests = 0;
+    const restore = mockFetch((url) => {
+      requests++;
+      return (failing ? failure(url) : undefined) ?? success(url);
+    });
     try {
-      await assertCollectionResponse(
-        await collectionRunner(mode, createDiscordClient("token"), storage)(),
-        200,
-      );
-      expect(await storage.getExpiredPolls()).toStrictEqual([]);
+      const discord = createDiscordClient("token");
+      expect(await collect(discord, storage)).toStrictEqual({ collected: 0, failed: 1 });
+      expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
       expect(await storage.getVotesForDate(poll.channelId, poll.date)).toStrictEqual([]);
-      expect(await storage.getAllPendingPolls()).toStrictEqual([]);
-      expect(
-        kv.query("SELECT collected_at IS NOT NULL AS collected FROM polls").all(),
-      ).toStrictEqual([{ collected: 1 }]);
+      failing = false;
+      expect(await collect(discord, storage)).toStrictEqual({ collected: 1, failed: 0 });
+      await assertThreeVotes(storage);
+      const afterSuccess = requests;
+      expect(await collect(discord, storage)).toStrictEqual({ collected: 0, failed: 0 });
+      expect(requests).toStrictEqual(afterSuccess);
     } finally {
       restore();
     }
   });
-
-  for (const stage of ["second vote", "collection marker"] as const) {
-    test(`${mode} collection: failure persisting ${stage} retries without duplicate votes or history`, async () => {
-      using kv = openDatabase(":memory:");
-      const storage = createStorageService(kv);
-      await storage.savePendingPoll(poll);
-      let writes = 0;
-      let failing = true;
-      const wrapped: StorageService = {
-        ...storage,
-        recordVote(...args) {
-          writes++;
-          if (failing && stage === "second vote" && writes === 2) {
-            throw new Error("Injected disk failure");
-          }
-          return storage.recordVote(...args);
-        },
-        markPollCollected(id) {
-          if (failing && stage === "collection marker") throw new Error("Injected marker failure");
-          return storage.markPollCollected(id);
-        },
-      };
-      const restore = mockFetch(success);
-      try {
-        const run = collectionRunner(mode, createDiscordClient("token"), wrapped);
-        await assertCollectionResponse(await run(), 500);
-        expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
-        expect((await storage.getVotesForDate(poll.channelId, poll.date)).length).toStrictEqual(
-          stage === "second vote" ? 1 : 3,
-        );
-        failing = false;
-        await assertCollectionResponse(await run(), 200);
-        await assertThreeVotes(storage);
-      } finally {
-        restore();
-      }
-    });
-  }
-
-  test(`${mode} collection: one failed poll does not block another expired poll`, async () => {
-    using kv = openDatabase(":memory:");
-    const storage = createStorageService(kv);
-    await storage.savePendingPoll(poll);
-    await storage.savePendingPoll({ ...poll, messageId: "poll-2", date: "2026-09-02" });
-    const restore = mockFetch((url) =>
-      url.pathname.endsWith("/messages/poll")
-        ? new Response("Forbidden", { status: 403 })
-        : success(url),
-    );
-    try {
-      const result = await collectionRunner(mode, createDiscordClient("token"), storage)();
-      await assertCollectionResponse(result, 500);
-      expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
-      expect((await storage.getVotesForDate(poll.channelId, "2026-09-02")).length).toStrictEqual(3);
-      expect(await storage.getVotesForDate(poll.channelId, poll.date)).toStrictEqual([]);
-    } finally {
-      restore();
-    }
-  });
-
-  for (const name of [
-    "empty answers",
-    "partial answers",
-    "unknown mood",
-    "duplicate mood",
-    "duplicate voter",
-  ] as const) {
-    test(`${mode} collection: ${name} from a client cannot be silently skipped`, async () => {
-      using kv = openDatabase(":memory:");
-      const storage = createStorageService(kv);
-      await storage.savePendingPoll(poll);
-      let answers: PollAnswerVoters[] = moods.map((text, i) => ({
-        answerId: i + 1,
-        answerText: text,
-        voters: [{ odUserId: String(i + 1), odUserName: text }],
-      }));
-      if (name === "empty answers") answers = [];
-      if (name === "partial answers") answers = answers.slice(0, 2);
-      if (name === "unknown mood") answers[2].answerText = "mystery";
-      if (name === "duplicate mood") answers[2].answerText = "ok";
-      if (name === "duplicate voter") answers[2].voters = answers[0].voters;
-      const discord = {
-        ...createDiscordClient("token"),
-        getPollVoters: () => Promise.resolve(answers),
-      };
-      await assertCollectionResponse(await collectionRunner(mode, discord, storage)(), 500);
-      expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
-      expect(await storage.getVotesForDate(poll.channelId, poll.date)).toStrictEqual([]);
-    });
-  }
 }
+
+test(`collection: finalized zero-vote poll is marked collected`, async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  await storage.savePendingPoll(poll);
+  const restore = mockFetch((url) => success(url, true));
+  try {
+    expect(await collect(createDiscordClient("token"), storage)).toStrictEqual({
+      collected: 1,
+      failed: 0,
+    });
+    expect(await storage.getExpiredPolls()).toStrictEqual([]);
+    expect(await storage.getVotesForDate(poll.channelId, poll.date)).toStrictEqual([]);
+    expect(await storage.getAllPendingPolls()).toStrictEqual([]);
+    expect(kv.query("SELECT collected_at IS NOT NULL AS collected FROM polls").all()).toStrictEqual(
+      [{ collected: 1 }],
+    );
+  } finally {
+    restore();
+  }
+});
+
+for (const stage of ["second vote", "collection marker"] as const) {
+  test(`collection: failure persisting ${stage} retries without duplicate votes or history`, async () => {
+    using kv = openDatabase(":memory:");
+    const storage = createStorageService(kv);
+    await storage.savePendingPoll(poll);
+    let writes = 0;
+    let failing = true;
+    const wrapped: StorageService = {
+      ...storage,
+      recordVote(...args) {
+        writes++;
+        if (failing && stage === "second vote" && writes === 2) {
+          throw new Error("Injected disk failure");
+        }
+        return storage.recordVote(...args);
+      },
+      markPollCollected(id) {
+        if (failing && stage === "collection marker") throw new Error("Injected marker failure");
+        return storage.markPollCollected(id);
+      },
+    };
+    const restore = mockFetch(success);
+    try {
+      const discord = createDiscordClient("token");
+      expect(await collect(discord, wrapped)).toStrictEqual({ collected: 0, failed: 1 });
+      expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
+      expect((await storage.getVotesForDate(poll.channelId, poll.date)).length).toStrictEqual(
+        stage === "second vote" ? 1 : 3,
+      );
+      failing = false;
+      expect(await collect(discord, wrapped)).toStrictEqual({ collected: 1, failed: 0 });
+      await assertThreeVotes(storage);
+    } finally {
+      restore();
+    }
+  });
+}
+
+test(`collection: one failed poll does not block another expired poll`, async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  await storage.savePendingPoll(poll);
+  await storage.savePendingPoll({ ...poll, messageId: "poll-2", date: "2026-09-02" });
+  const restore = mockFetch((url) =>
+    url.pathname.endsWith("/messages/poll")
+      ? new Response("Forbidden", { status: 403 })
+      : success(url),
+  );
+  try {
+    expect(await collect(createDiscordClient("token"), storage)).toStrictEqual({
+      collected: 1,
+      failed: 1,
+    });
+    expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
+    expect((await storage.getVotesForDate(poll.channelId, "2026-09-02")).length).toStrictEqual(3);
+    expect(await storage.getVotesForDate(poll.channelId, poll.date)).toStrictEqual([]);
+  } finally {
+    restore();
+  }
+});
+
+for (const name of [
+  "empty answers",
+  "partial answers",
+  "unknown mood",
+  "duplicate mood",
+  "duplicate voter",
+] as const) {
+  test(`collection: ${name} from a client cannot be silently skipped`, async () => {
+    using kv = openDatabase(":memory:");
+    const storage = createStorageService(kv);
+    await storage.savePendingPoll(poll);
+    let answers: PollAnswerVoters[] = moods.map((text, i) => ({
+      answerId: i + 1,
+      answerText: text,
+      voters: [{ userId: String(i + 1), userName: text }],
+    }));
+    if (name === "empty answers") answers = [];
+    if (name === "partial answers") answers = answers.slice(0, 2);
+    if (name === "unknown mood") answers[2].answerText = "mystery";
+    if (name === "duplicate mood") answers[2].answerText = "ok";
+    if (name === "duplicate voter") answers[2].voters = answers[0].voters;
+    const discord = {
+      ...createDiscordClient("token"),
+      getPollVoters: () => Promise.resolve(answers),
+    };
+    expect(await collect(discord, storage)).toStrictEqual({ collected: 0, failed: 1 });
+    expect(await storage.getExpiredPolls()).toStrictEqual([poll]);
+    expect(await storage.getVotesForDate(poll.channelId, poll.date)).toStrictEqual([]);
+  });
+}
+
+test("/trigger_collect reports collected votes, and a failure as 500 pending retry", async () => {
+  using kv = openDatabase(":memory:");
+  const storage = createStorageService(kv);
+  await storage.savePendingPoll(poll);
+  await storage.savePendingPoll({ ...poll, messageId: "poll-2", date: "2026-09-02" });
+  const handler = createRequestHandler({
+    config: testConfig({ adminHttpToken: "token" }),
+    discord: createDiscordClient("token"),
+    storage,
+  });
+  const restore = mockFetch((url) =>
+    url.pathname.endsWith("/messages/poll")
+      ? new Response("Forbidden", { status: 403 })
+      : success(url),
+  );
+  try {
+    const response = await handler(
+      new Request("http://localhost/trigger_collect", {
+        method: "POST",
+        headers: { Authorization: "Bearer token" },
+      }),
+    );
+    expect(response.status).toStrictEqual(500);
+    const text = await response.text();
+    expect(text).toContain("Collected 3 votes from 1 poll(s); 1 failed");
+    expect(text).toContain("Poll poll (2026-09-01): failed; pending retry");
+  } finally {
+    restore();
+  }
+});

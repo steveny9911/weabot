@@ -2,7 +2,7 @@
 import type { AppConfig } from "../config.ts";
 import { formatTime, isCommand } from "../bot/commands.ts";
 import { isActiveIn } from "../feature_config.ts";
-import { sendMessage, timeoutMember } from "../discord/messages.ts";
+import type { DiscordClient } from "../discord/client.ts";
 import type { createLandmineQueries } from "../db/landmines.ts";
 
 export interface LandmineService {
@@ -13,13 +13,12 @@ export interface LandmineService {
 export interface LandmineDependencies {
   config: AppConfig;
   mines: ReturnType<typeof createLandmineQueries>;
+  discord: Pick<DiscordClient, "sendMessage" | "timeoutMember">;
   random?: () => number;
-  timeout?: typeof timeoutMember;
-  send?: typeof sendMessage;
 }
 
 export function createLandmineService(deps: LandmineDependencies): LandmineService {
-  const { config, mines, random = Math.random, timeout = timeoutMember, send = sendMessage } = deps;
+  const { config, mines, discord, random = Math.random } = deps;
 
   return {
     async step(message) {
@@ -49,7 +48,12 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         let timedOut = "";
         if (config.landmine.timeout.enabled) {
           const seconds = config.landmine.timeout.seconds;
-          const result = await timeout(config, guildId, userId, seconds, "Stepped on a landmine");
+          const result = await discord.timeoutMember(
+            guildId,
+            userId,
+            seconds,
+            "Stepped on a landmine",
+          );
           if (!result.ok) {
             mines.refund();
             console.error(`[LANDMINE] Could not time out ${userId}: ${result.error}`);
@@ -60,8 +64,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
 
         const gif = config.landmine.gifs[Math.floor(random() * config.landmine.gifs.length)];
         console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
-        const sent = await send(
-          config,
+        const sent = await discord.sendMessage(
           channelId,
           `💥<@${userId}>💥 stepped on a landmine${timedOut}! ` +
             `(${remaining.toLocaleString("en-US")} landmines remaining)` +

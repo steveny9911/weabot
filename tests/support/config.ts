@@ -24,7 +24,6 @@ function defaults(): AppConfig {
   const channels = () => ["test-channel"];
   return {
     discordToken: "test-token",
-    channelId: "test-channel",
     channelIds: channels(),
     databasePath: ":memory:",
     httpPort: 8000,

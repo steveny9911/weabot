@@ -2,7 +2,6 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { rejects } from "../../tests/support/assert.ts";
 import { BlockedDestinationError, createPublicFetch, resolveAddresses } from "./public_fetch.ts";
 import { createLinkOpenService } from "./link_open.ts";
-import type { AppConfig } from "../config.ts";
 
 const publicV4 = "93.184.216.34";
 const publicV6 = "2606:4700:4700::1111";
@@ -222,7 +221,7 @@ test("link service validates DNS at every redirect, including same-host rebindin
         );
       },
     });
-    const service = createLinkOpenService({} as AppConfig, { fetch });
+    const service = createLinkOpenService({ fetch });
     expect(await service.open("http://public.example/start")).toStrictEqual({
       ok: false,
       error: "redirect_blocked",
@@ -253,7 +252,7 @@ test("allowed redirects still yield HTML context through the protected transport
       );
     },
   });
-  const service = createLinkOpenService({} as AppConfig, { fetch });
+  const service = createLinkOpenService({ fetch });
   expect(await service.open("http://public.example/start")).toStrictEqual({
     ok: true,
     page: { domain: "second.example", title: "Working", excerpt: "Public links work." },

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { assert, rejects } from "../../tests/support/assert.ts";
 import { createDiscordClient } from "./client.ts";
@@ -200,8 +200,8 @@ test("getPollVoters paginates every answer using exact snowflake cursors", async
   try {
     const result = await createDiscordClient("token").getPollVoters("channel", "poll");
     expect(result[0].voters.length).toStrictEqual(205);
-    expect(result[0].voters[0].odUserName).toStrictEqual("Display name");
-    expect(result[0].voters[204].odUserName).toStrictEqual("user-204");
+    expect(result[0].voters[0].userName).toStrictEqual("Display name");
+    expect(result[0].voters[204].userName).toStrictEqual("user-204");
     expect(requests[2]).toContain(`after=${base + 99n}`);
     expect(requests[3]).toContain(`after=${base + 199n}`);
     expect(requests.length).toStrictEqual(6);
@@ -298,5 +298,140 @@ test("single-message revalidation rejects wrong IDs and missing messages", async
     expect((await client.getMessage!("channel", "target"))?.hasOwnReaction).toStrictEqual(true);
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test("getBotUserId caches the ID, but not a failure", async () => {
+  let status = 401;
+  let requests = 0;
+  const fetchMock = mockFetch(() => {
+    requests++;
+    return Response.json({ id: "bot-1" }, { status });
+  });
+  try {
+    const client = createDiscordClient("token");
+    expect(await client.getBotUserId()).toStrictEqual(undefined);
+    status = 200;
+    expect(await client.getBotUserId()).toStrictEqual("bot-1");
+    expect(await client.getBotUserId()).toStrictEqual("bot-1");
+    expect(requests).toStrictEqual(2);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("getBotUserId makes no request without a token", async () => {
+  let requests = 0;
+  const fetchMock = mockFetch(() => {
+    requests++;
+    return Response.json({ id: "bot-1" });
+  });
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(await createDiscordClient("").getBotUserId()).toStrictEqual(undefined);
+    expect(requests).toStrictEqual(0);
+  } finally {
+    logged.mockRestore();
+    fetchMock.restore();
+  }
+});
+
+test("sendMessage without a channel id fails without a request", async () => {
+  let requests = 0;
+  const fetchMock = mockFetch(() => {
+    requests++;
+    return Response.json({});
+  });
+  try {
+    const result = await createDiscordClient("token").sendMessage("", "hi");
+    expect(result).toStrictEqual({ ok: false, error: "missing channelId" });
+    expect(requests).toStrictEqual(0);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("sendMessage posts text, can suppress mentions, and reports a refusal", async () => {
+  const bodies: unknown[] = [];
+  let status = 200;
+  const fetchMock = mockFetch((url, init) => {
+    expect(url).toStrictEqual("https://discord.com/api/v10/channels/chan/messages");
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response("Missing Access", { status });
+  });
+  try {
+    const client = createDiscordClient("token");
+    expect(await client.sendMessage("chan", "hi", true)).toStrictEqual({ ok: true });
+    status = 403;
+    expect(await client.sendMessage("chan", "hello")).toStrictEqual({
+      ok: false,
+      error: "Discord post error 403: Missing Access",
+    });
+    expect(bodies).toStrictEqual([
+      { content: "hi", allowed_mentions: { parse: [] } },
+      { content: "hello" },
+    ]);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("timeoutMember patches the member with a timeout end and an audit reason", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchMock = mockFetch((url, init) => {
+    requests.push({ url, init });
+    return new Response("{}", { status: 200 });
+  });
+  try {
+    const before = Date.now();
+    const result = await createDiscordClient("test-token").timeoutMember("g", "u", 60, "Because");
+    expect(result).toStrictEqual({ ok: true });
+    expect(requests).toHaveLength(1);
+    const { url, init } = requests[0];
+    expect(url).toStrictEqual("https://discord.com/api/v10/guilds/g/members/u");
+    expect(init?.method).toStrictEqual("PATCH");
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["Authorization"]).toStrictEqual("Bot test-token");
+    expect(headers["X-Audit-Log-Reason"]).toStrictEqual("Because");
+    const until = Date.parse(JSON.parse(init?.body as string).communication_disabled_until);
+    expect(until).toBeGreaterThanOrEqual(before + 60_000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 60_000);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("timeoutMember reports a Discord refusal", async () => {
+  const fetchMock = mockFetch(() => new Response("Missing Permissions", { status: 403 }));
+  try {
+    expect(await createDiscordClient("token").timeoutMember("g", "u", 60, "Because")).toStrictEqual(
+      { ok: false, error: "Discord timeout error 403: Missing Permissions" },
+    );
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("sendMessage and timeoutMember report a network error once, without retrying the write", async () => {
+  let requests = 0;
+  const fetchMock = mockFetch(() => {
+    requests++;
+    throw new Error("network down");
+  });
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const client = createDiscordClient("token");
+    expect(await client.sendMessage("chan", "hi")).toStrictEqual({
+      ok: false,
+      error: "Error: network down",
+    });
+    expect(await client.timeoutMember("g", "u", 60, "Because")).toStrictEqual({
+      ok: false,
+      error: "Error: network down",
+    });
+    expect(requests).toStrictEqual(2);
+  } finally {
+    logged.mockRestore();
+    fetchMock.restore();
   }
 });

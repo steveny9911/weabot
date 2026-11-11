@@ -4,7 +4,6 @@ import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { createServer, type Socket } from "node:net";
 import { requestPinned } from "../src/net/public_fetch.ts";
 import { createLinkOpenService } from "../src/net/link_open.ts";
-import type { AppConfig } from "../src/config.ts";
 import { realFetch } from "./support/setup.ts";
 import { assert } from "./support/assert.ts";
 import { ca } from "./fixtures/link_tls.ts";
@@ -22,7 +21,7 @@ afterAll(() => {
 /** Bypass only DNS policy for isolated transport fixtures, retaining the actual
  * production HTTP/TLS implementation and all service-level response handling. */
 function fixtureService(timeoutMs = 200) {
-  return createLinkOpenService({} as AppConfig, {
+  return createLinkOpenService({
     timeoutMs,
     fetch: (url, init) => requestPinned(new URL(url), "127.0.0.1", init.signal ?? undefined, ca),
   });

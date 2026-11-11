@@ -2,11 +2,12 @@ import { expect, spyOn, test } from "bun:test";
 import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 import { openDatabase } from "../db/database.ts";
 import { createLandmineQueries } from "../db/landmines.ts";
+import type { SendResult } from "../discord/client.ts";
 import { createLandmineService } from "./landmine.ts";
 
 function setup(
   overrides: NonNullable<ConfigOverrides["landmine"]> = {},
-  options: { random?: number; timeoutOk?: boolean } = {},
+  options: { random?: number; timeoutOk?: boolean; send?: () => Promise<SendResult> } = {},
 ) {
   const db = openDatabase(":memory:");
   const mines = createLandmineQueries(db);
@@ -16,13 +17,15 @@ function setup(
     config: testConfig({ landmine: { enabled: true, chance: 0.5 } }, { landmine: overrides }),
     mines,
     random: () => options.random ?? 0,
-    timeout: async (_config, ...args) => {
-      timeouts.push(args);
-      return options.timeoutOk === false ? { ok: false, error: "403" } : { ok: true };
-    },
-    send: async (_config, channelId, content) => {
-      sent.push(`${channelId}: ${content}`);
-      return { ok: true, text: content };
+    discord: {
+      timeoutMember: async (...args) => {
+        timeouts.push(args);
+        return options.timeoutOk === false ? { ok: false, error: "403" } : { ok: true };
+      },
+      sendMessage: async (channelId, content) => {
+        sent.push(`${channelId}: ${content}`);
+        return options.send ? options.send() : { ok: true };
+      },
     },
   });
   return { db, mines, service, timeouts, sent };
@@ -117,17 +120,15 @@ test("a chance of 0 is never a landmine", async () => {
 });
 
 test("a failed announcement does not put the landmine back", async () => {
-  const { db, mines } = setup();
-  const failing = createLandmineService({
-    config: testConfig({ landmine: { enabled: true, chance: 0.5 } }),
-    mines,
-    random: () => 0,
-    timeout: async () => ({ ok: true }),
-    send: async () => {
-      throw new Error("send failed");
+  const { db, mines, service } = setup(
+    {},
+    {
+      send: async () => {
+        throw new Error("send failed");
+      },
     },
-  });
-  await failing.step(message());
+  );
+  await service.step(message());
   expect(mines.claim()).toBe(99_998);
   db.close();
 });
@@ -156,14 +157,7 @@ test("a safe roll and a failed announcement are logged", async () => {
   const error = spyOn(console, "error").mockImplementation((m) => void logs.push(String(m)));
   try {
     await setup({}, { random: 0.9 }).service.step(message());
-    const { mines } = setup();
-    await createLandmineService({
-      config: testConfig({ landmine: { enabled: true, chance: 0.5 } }),
-      mines,
-      random: () => 0,
-      timeout: async () => ({ ok: true }),
-      send: async () => ({ ok: false, error: "403" }),
-    }).step(message());
+    await setup({}, { send: async () => ({ ok: false, error: "403" }) }).service.step(message());
   } finally {
     log.mockRestore();
     error.mockRestore();

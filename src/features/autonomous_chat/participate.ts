@@ -2,7 +2,7 @@
 import type { AiService, AutonomousParticipation } from "../../ai/types.ts";
 import type { AppConfig } from "../../config.ts";
 import type { DiscordClient } from "../../discord/client.ts";
-import type { StorageService } from "../../types/storage.ts";
+import type { StorageService } from "../../services/storage.ts";
 import type { RateLimitService } from "../../services/rate_limit.ts";
 import { AUTONOMOUS_CHAT_GUIDANCE, decideAutonomousChatReply } from "./decision.ts";
 import {
@@ -114,16 +114,9 @@ export async function participateInChannel(
     );
     if (!p || p.action === "silent") return { status: "silent", action: "silent" };
     if (p.action === "react") {
-      const intent =
-        p.intent ??
-        (p.emoji === "🎉"
-          ? "celebration"
-          : p.emoji === "❤️" || p.emoji === "👍"
-            ? "appreciation"
-            : "amusement");
       if (
         !decision.reactionMessageIds?.includes(p.messageId) ||
-        !isAllowedReaction(p.emoji, intent, choices)
+        !isAllowedReaction(p.emoji, p.intent, choices)
       ) {
         return { status: "invalid reaction" };
       }
@@ -164,7 +157,7 @@ export async function participateInChannel(
         if (
           fresh.channelId !== channelId ||
           fresh.guildId !== context?.guildId ||
-          !isAllowedReaction(p.emoji, intent, availableReactions(fresh))
+          !isAllowedReaction(p.emoji, p.intent, availableReactions(fresh))
         ) {
           return { status: "expression unavailable before delivery" };
         }

@@ -4,7 +4,7 @@ import { mapDiscordMessage, type RecentDiscordMessage } from "../features/chat_c
 import type { ReactionContext } from "../features/reactions.ts";
 import { readReactionContext } from "./reaction_context.ts";
 import { fetchWithRetry } from "../net/retry.ts";
-import { DISCORD_API_BASE as API_BASE } from "./api.ts";
+import { botJsonHeaders, DISCORD_API_BASE as API_BASE } from "./api.ts";
 
 const REACTION_TIMEOUT_MS = 15_000;
 
@@ -14,8 +14,8 @@ export type MessagePayload =
   | { content: string; allowed_mentions?: { parse: string[] } };
 
 export interface PollVoter {
-  odUserId: string;
-  odUserName: string;
+  userId: string;
+  userName: string;
 }
 
 export interface PollAnswerVoters {
@@ -24,9 +24,25 @@ export interface PollAnswerVoters {
   voters: PollVoter[];
 }
 
-/** Discord REST calls used by jobs. Reads and posts retry; reactions are sent once. */
+export type SendResult = { ok: true } | { ok: false; error: string };
+
+/** Haru's Discord REST calls. Reads retry; writes retry only a 429; reactions are sent once. */
 export interface DiscordClient {
+  /** The bot's own user ID, read once and then cached; undefined if Discord cannot say. */
+  getBotUserId(): Promise<string | undefined>;
+
   postMessage(channelId: string, payload: MessagePayload): Promise<Response>;
+
+  /** A text reply. `suppressMentions` sends it without pinging anyone. */
+  sendMessage(channelId: string, content: string, suppressMentions?: boolean): Promise<SendResult>;
+
+  /** Times a member out for `seconds`; needs Timeout Members. */
+  timeoutMember(
+    guildId: string,
+    userId: string,
+    seconds: number,
+    reason: string,
+  ): Promise<SendResult>;
 
   addReaction(channelId: string, messageId: string, emoji: string): Promise<Response>;
 
@@ -42,19 +58,80 @@ export interface DiscordClient {
 }
 
 export function createDiscordClient(token: string): DiscordClient {
-  const headers = {
-    Authorization: `Bot ${token}`,
-    "Content-Type": "application/json",
-  };
+  const headers = botJsonHeaders(token);
+  let botUserId: string | undefined;
+
+  const postMessage = (channelId: string, payload: MessagePayload) =>
+    fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+  /** A write whose response body is not needed. Logs and returns the error; never throws. */
+  async function write(label: string, send: () => Promise<Response>): Promise<SendResult> {
+    let error: string;
+    try {
+      const response = await send();
+      if (response.ok) {
+        await response.body?.cancel();
+        return { ok: true };
+      }
+      error = `Discord ${label} error ${response.status}: ${await response.text()}`;
+    } catch (thrown) {
+      error = String(thrown);
+    }
+    console.error(`[DISCORD] ${error}`);
+    return { ok: false, error };
+  }
 
   return {
-    async postMessage(channelId, payload) {
-      return await fetchWithRetry(`${API_BASE}/channels/${channelId}/messages`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
+    async getBotUserId() {
+      if (botUserId) return botUserId;
+      if (!token) {
+        console.error("Cannot fetch bot user id: DISCORD_TOKEN missing");
+        return undefined;
+      }
+      try {
+        const response = await fetchWithRetry(`${API_BASE}/users/@me`, { headers });
+        if (!response.ok) {
+          await response.body?.cancel();
+          console.error("Failed to fetch bot user info:", response.status);
+          return undefined;
+        }
+        botUserId = ((await response.json()) as { id: string }).id;
+        return botUserId;
+      } catch (error) {
+        console.error("Error fetching bot user id:", error);
+        return undefined;
+      }
     },
+
+    postMessage,
+
+    sendMessage: (channelId, content, suppressMentions = false) =>
+      channelId
+        ? write("post", () =>
+            postMessage(channelId, {
+              content,
+              ...(suppressMentions ? { allowed_mentions: { parse: [] } } : {}),
+            }),
+          )
+        : Promise.resolve({ ok: false, error: "missing channelId" }),
+
+    timeoutMember: (guildId, userId, seconds, reason) =>
+      write("timeout", () =>
+        fetchWithRetry(
+          `${API_BASE}/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(userId)}`,
+          {
+            method: "PATCH",
+            headers: { ...headers, "X-Audit-Log-Reason": reason },
+            body: JSON.stringify({
+              communication_disabled_until: new Date(Date.now() + seconds * 1000).toISOString(),
+            }),
+          },
+        ),
+      ),
 
     async addReaction(channelId, messageId, emoji) {
       const controller = new AbortController();
@@ -105,26 +182,21 @@ export function createDiscordClient(token: string): DiscordClient {
     getReactionContext: (channelId, botId) => readReactionContext(token, channelId, botId),
 
     async getMessage(channelId, messageId) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REACTION_TIMEOUT_MS);
-      try {
-        const response = await fetchWithRetry(
-          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(
-            messageId,
-          )}`,
-          { headers, signal: controller.signal, redirect: "error" },
-        );
-        if (!response.ok) {
-          await response.body?.cancel();
-          return null;
-        }
-        const data = (await response.json()) as Record<string, unknown> | null;
-        return data && typeof data === "object" && data.id === messageId
-          ? mapDiscordMessage(data)
-          : null;
-      } finally {
-        clearTimeout(timer);
+      // One deadline for every attempt together, including reading the body.
+      const response = await fetchWithRetry(
+        `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(
+          messageId,
+        )}`,
+        { headers, signal: AbortSignal.timeout(REACTION_TIMEOUT_MS), redirect: "error" },
+      );
+      if (!response.ok) {
+        await response.body?.cancel();
+        return null;
       }
+      const data = (await response.json()) as Record<string, unknown> | null;
+      return data && typeof data === "object" && data.id === messageId
+        ? mapDiscordMessage(data)
+        : null;
     },
 
     async getPollVoters(channelId, messageId) {
@@ -216,8 +288,8 @@ export function createDiscordClient(token: string): DiscordClient {
             const id = BigInt(user.id);
             if (id > nextAfter) nextAfter = id;
             voters.push({
-              odUserId: user.id,
-              odUserName: (user.global_name ?? user.username ?? user.id) as string,
+              userId: user.id,
+              userName: (user.global_name ?? user.username ?? user.id) as string,
             });
           }
           if (voters.length > expectedCount) {

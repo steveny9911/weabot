@@ -1,13 +1,20 @@
 /** Posts a mood stats embed covering the last `days` UTC calendar days to the weekly_stats channels. */
 import { buildStatsEmbed } from "../features/stats.ts";
-import type { ChannelPost, JobDeps, LogTag } from "./channel_posts.ts";
+import { type ChannelPost, type JobDeps, type LogTag, postToChannels } from "./channel_posts.ts";
 
 export interface StatsPostOptions {
   days: number;
   title: string;
-  /** Lower-case name used in logs, such as "weekly stats". */
+  /** Name used in logs, such as "weekly stats". */
   label: string;
   tag: LogTag;
+}
+
+/** The UTC dates from `days` days ago through today, both ends inclusive (as stats always were). */
+export function lastDays(days: number, now = new Date()): { start: string; end: string } {
+  const start = new Date(now);
+  start.setUTCDate(start.getUTCDate() - days);
+  return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
 }
 
 export async function postStats(
@@ -18,31 +25,11 @@ export async function postStats(
     console.log(`${tag} Stats skipped because weekly stats are disabled`);
     return [];
   }
-  const endDate = new Date();
-  const startDate = new Date(endDate);
-  // UTC calendar days, so the window is the same in any process time zone.
-  startDate.setUTCDate(startDate.getUTCDate() - days);
-  const capitalized = label[0].toUpperCase() + label.slice(1);
-  const posts: ChannelPost[] = [];
-
-  for (const channelId of config.weeklyStats.channelIds) {
-    const stats = await storage.getStats(
-      channelId,
-      startDate.toISOString().split("T")[0],
-      endDate.toISOString().split("T")[0],
-    );
-    const embed = buildStatsEmbed(stats, title);
-    const response = await discord.postMessage(channelId, embed);
-
-    if (response.ok) {
-      console.log(`${tag} ${capitalized} posted in ${channelId}!`);
-      posts.push({ channelId, ok: true, detail: "" });
-    } else {
-      const body = await response.text();
-      console.error(`${tag} Failed to post ${label} in ${channelId}: ${response.status}`);
-      console.error(body);
-      posts.push({ channelId, ok: false, detail: body });
-    }
-  }
-  return posts;
+  const { start, end } = lastDays(days);
+  return await postToChannels(
+    discord,
+    config.weeklyStats.channelIds,
+    { label, tag },
+    async (channelId) => buildStatsEmbed(await storage.getStats(channelId, start, end), title),
+  );
 }
