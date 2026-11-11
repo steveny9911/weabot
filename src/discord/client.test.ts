@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { assert, rejects } from "../../tests/support/assert.ts";
 import { createDiscordClient } from "./client.ts";
@@ -377,6 +377,30 @@ test("timeoutMember reports a Discord refusal", async () => {
       { ok: false, error: "Discord timeout error 403: Missing Permissions" },
     );
   } finally {
+    fetchMock.restore();
+  }
+});
+
+test("sendMessage and timeoutMember report a network error once, without retrying the write", async () => {
+  let requests = 0;
+  const fetchMock = mockFetch(() => {
+    requests++;
+    throw new Error("network down");
+  });
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const client = createDiscordClient("token");
+    expect(await client.sendMessage("chan", "hi")).toStrictEqual({
+      ok: false,
+      error: "Error: network down",
+    });
+    expect(await client.timeoutMember("g", "u", 60, "Because")).toStrictEqual({
+      ok: false,
+      error: "Error: network down",
+    });
+    expect(requests).toStrictEqual(2);
+  } finally {
+    logged.mockRestore();
     fetchMock.restore();
   }
 });

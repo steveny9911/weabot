@@ -69,3 +69,20 @@ test("the six jobs are registered with their UTC schedules", () => {
     SCHEDULES,
   );
 });
+
+test("the Poll Result Collection job asks storage for expired polls", async () => {
+  let asked = 0;
+  const jobs = register({
+    getExpiredPolls: () => {
+      asked++;
+      return Promise.resolve([]);
+    },
+  });
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await jobs.get("Poll Result Collection")!.handler();
+  } finally {
+    log.mockRestore();
+  }
+  expect(asked).toBe(1);
+});
