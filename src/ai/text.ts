@@ -20,14 +20,8 @@ export function uwuify(text: string, enabled: boolean): string {
   return out;
 }
 
+/** Drops a leading "hi", "hello there" etc.; a reply that is only a greeting stays as it is. */
 export function sanitizeReply(raw: string): string {
-  let sanitized = raw
-    .replace(/\b(I(')?m sorry|I cannot|I can't|I couldn't|unable to)\b/gi, "")
-    .trim();
-
-  sanitized = sanitized
-    .replace(/^(?:hey(?: there)?|hello(?: there)?|hi(?: there)?|yo|greetings)[,!.\s-]*/i, "")
-    .trim();
-
-  return sanitized;
+  const greeting = /^(?:hey(?: there)?|hello(?: there)?|hi(?: there)?|yo|greetings)[,!.\s-]*/i;
+  return raw.replace(greeting, "").trim() || raw;
 }

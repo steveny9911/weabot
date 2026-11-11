@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { asFetch } from "../../tests/support/fetch.ts";
 import { assert } from "../../tests/support/assert.ts";
-import { AUTONOMOUS_REACTION_EMOJIS } from "./participation.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "./participation.ts";
+import { reactionChoices } from "../features/reactions.ts";
 import { createAiService } from "./service.ts";
 import type { AiParticipationOptions } from "./types.ts";
 import type { AppConfig } from "../config.ts";
@@ -330,21 +331,19 @@ test("generateReply truncates input when aiMaxInputChars is set", async () => {
   }
 });
 
-test("generateReply sanitizes greetings and apology phrasing", async () => {
-  const mock = mockFetch({
-    output_text: "Hello there, I'm sorry I cannot do that!",
-    usage: { total_tokens: 22 },
-  });
-
-  try {
-    const service = createAiService(createMockConfig());
-    const result = await service.generateReply([{ author: "user", content: "help" }]);
-    expect(result.ok).toStrictEqual(true);
-    if (result.ok) {
-      expect(result.text).toStrictEqual("do that!");
+test("generateReply drops a leading greeting but keeps the meaning and a greeting-only reply", async () => {
+  for (const [reply, expected] of [
+    ["Hello there, I'm sorry I cannot do that!", "I'm sorry I cannot do that!"],
+    ["Hi there!", "Hi there!"],
+  ]) {
+    const mock = mockFetch({ output_text: reply, usage: { total_tokens: 22 } });
+    try {
+      const service = createAiService(createMockConfig());
+      const result = await service.generateReply([{ author: "user", content: "help" }]);
+      expect(result.ok && result.text).toStrictEqual(expected);
+    } finally {
+      mock.restore();
     }
-  } finally {
-    mock.restore();
   }
 });
 test("a reply to a video cannot poison subsequent text-only AI requests", async () => {
@@ -404,17 +403,12 @@ const participationOptions: AiParticipationOptions = {
   mode: "autonomous",
   instructions: "You are joining the memes channel. Keep it natural and occasional.",
   allowedMessageIds: ["100", "101"],
+  reactionChoices: reactionChoices(null, undefined, () => 0),
 };
 
 function choice(action: string, text = "", messageId = "", emoji = ""): string {
   const intent =
-    action === "react"
-      ? emoji === "🎉"
-        ? "celebration"
-        : emoji === "❤️" || emoji === "👍"
-          ? "appreciation"
-          : "amusement"
-      : "";
+    participationOptions.reactionChoices.find((option) => option.emoji === emoji)?.intent ?? "";
   const reason = action === "react" ? "acknowledgment" : "no_contribution";
   return JSON.stringify({ action, text, messageId, emoji, intent, reason });
 }
@@ -442,51 +436,7 @@ test("autonomous participation uses developer guidance, context IDs, strict JSON
     expect(body.tool_choice).toStrictEqual("none");
     expect(body.parallel_tool_calls).toStrictEqual(undefined);
     expect(executions).toStrictEqual(0);
-    expect(body.text).toStrictEqual({
-      format: {
-        type: "json_schema",
-        name: "autonomous_participation",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            action: { type: "string", enum: ["reply", "react", "silent"] },
-            text: { type: "string" },
-            messageId: { type: "string" },
-            emoji: { type: "string" },
-            intent: {
-              type: "string",
-              enum: [
-                "",
-                "amusement",
-                "dry_amusement",
-                "appreciation",
-                "celebration",
-                "concern",
-                "disapproval",
-              ],
-            },
-            reason: {
-              type: "string",
-              enum: [
-                "shared_joke",
-                "acknowledgment",
-                "achievement",
-                "kindness",
-                "concern",
-                "unkindness",
-                "useful_answer",
-                "no_contribution",
-                "incomplete",
-                "ambiguous",
-              ],
-            },
-          },
-          required: ["action", "text", "messageId", "emoji", "intent", "reason"],
-          additionalProperties: false,
-        },
-      },
-    });
+    expect(body.text).toStrictEqual({ format: AUTONOMOUS_PARTICIPATION_FORMAT });
     const input = body.input as Array<Record<string, unknown>>;
     expect(input.length).toStrictEqual(2);
     expect(input[0].role).toStrictEqual("developer");
@@ -494,7 +444,7 @@ test("autonomous participation uses developer guidance, context IDs, strict JSON
     expect(guidance).toContain(participationOptions.instructions);
     expect(guidance).toContain("Keep the persona from the saved prompt");
     expect(guidance).toContain('["100","101"]');
-    for (const emoji of AUTONOMOUS_REACTION_EMOJIS) expect(guidance).toContain(emoji);
+    for (const { emoji } of participationOptions.reactionChoices) expect(guidance).toContain(emoji);
     const content = input[1].content as Array<Record<string, unknown>>;
     expect(String(content[0].text)).toContain("[message ID: 100] alice:");
     expect(String(content[0].text)).toContain("[message ID: 101] bob:");
@@ -534,9 +484,8 @@ test("autonomous reply preserves its text without greeting removal or UwU rewrit
   }
 });
 
-test("autonomous reactions accept the fixed Unicode palette and return no fallback text", async () => {
-  expect(AUTONOMOUS_REACTION_EMOJIS).toStrictEqual(["😄", "😂", "🤣", "❤️", "👍", "🎉", "🐴"]);
-  for (const emoji of AUTONOMOUS_REACTION_EMOJIS) {
+test("autonomous reactions accept each supplied choice and return no fallback text", async () => {
+  for (const { emoji, intent } of participationOptions.reactionChoices) {
     const mock = mockFetch({
       output_text: choice("react", "", "100", emoji),
       usage: { total_tokens: 25 },
@@ -555,12 +504,7 @@ test("autonomous reactions accept the fixed Unicode palette and return no fallba
           action: "react",
           messageId: "100",
           emoji,
-          intent:
-            emoji === "🎉"
-              ? "celebration"
-              : emoji === "❤️" || emoji === "👍"
-                ? "appreciation"
-                : "amusement",
+          intent,
           reason: "acknowledgment",
         },
       });

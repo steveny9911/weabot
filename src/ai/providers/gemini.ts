@@ -34,7 +34,6 @@ export function createGeminiProvider(
   return {
     label: "Gemini",
     missingKeyError: "AI_API_KEY not set",
-    capabilities: { tools: true, autonomous: true },
     start(request) {
       let calls = 0;
       let contents: Content[] | undefined;

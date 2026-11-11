@@ -17,14 +17,13 @@ import { createLandmineQueries } from "./src/db/landmines.ts";
 import { createLandmineService } from "./src/features/landmine.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
-import { withProviderLimits } from "./src/ai/providers/index.ts";
 import { createServer } from "./src/app/server.ts";
 import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
 import { startGateway } from "./src/app/gateway.ts";
 import type { ChannelScope, FeatureConfig } from "./src/feature_config.ts";
 import type { BotDependencies } from "./src/bot/handle_message.ts";
 
-const config = withProviderLimits(loadConfig());
+const config = loadConfig();
 
 const channelsLabel = (channelIds: ChannelScope) =>
   channelIds === "all" ? "all" : channelIds.join(", ");

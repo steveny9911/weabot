@@ -7,7 +7,7 @@ export type AutonomousParticipation =
       action: "react";
       messageId: string;
       emoji: string;
-      intent?: ReactionIntent;
+      intent: ReactionIntent;
       reason?: DecisionReason;
     }
   | { action: "silent"; reason?: DecisionReason };
@@ -25,7 +25,7 @@ export interface AiSuccessResult {
 export interface AiErrorResult {
   ok: false;
   error: string;
-  /** Tokens reported before an action or autonomous request failed. */
+  /** Tokens used before the request failed. */
   tokensUsed?: number;
   requestsUsed?: number;
 }
@@ -47,7 +47,8 @@ export interface AiParticipationOptions {
   instructions: string;
   /** Recent human message IDs that may receive one reaction. */
   allowedMessageIds: string[];
-  reactionChoices?: ReactionChoice[];
+  /** The only intent/emoji pairs a reaction may use. */
+  reactionChoices: ReactionChoice[];
 }
 
 export interface AiService {

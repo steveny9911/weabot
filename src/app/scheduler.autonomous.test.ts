@@ -67,7 +67,7 @@ const react: AiResult = {
   ok: true,
   text: "",
   tokensUsed: 10,
-  participation: { action: "react", messageId: "message", emoji: "😂" },
+  participation: { action: "react", messageId: "message", emoji: "😂", intent: "amusement" },
 };
 const silent: AiResult = {
   ok: true,
@@ -332,7 +332,7 @@ for (const target of ["self-message", "bot-message", "already-reacted", "unknown
         ok: true,
         text: "",
         tokensUsed: 10,
-        participation: { action: "react", messageId: target, emoji: "😂" },
+        participation: { action: "react", messageId: target, emoji: "😂", intent: "amusement" },
       },
       async (fixture) => {
         fixture.messages.set("channel", [

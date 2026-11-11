@@ -8,7 +8,6 @@ import type { Fetcher } from "../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
 import { createAiService } from "../service.ts";
 import { createGeminiProvider } from "./gemini.ts";
-import { withProviderLimits } from "./index.ts";
 
 let dir: string;
 let promptFile: string;
@@ -146,20 +145,6 @@ test("startup stops without a model, a prompt file, or prompt text", () => {
   );
   writeFileSync(promptFile, "  \n");
   throws(() => createGeminiProvider(config()), Error, "is empty");
-});
-
-test("Gemini keeps Discord actions and autonomous chat", () => {
-  const limited = withProviderLimits(
-    config({ discordActions: { enabled: true }, autonomousChat: { enabled: true } }),
-  );
-  expect(limited.discordActions.enabled).toBe(true);
-  expect(limited.autonomousChat.enabled).toBe(true);
-
-  const openai = withProviderLimits(
-    testConfig({ discordActions: { enabled: true }, autonomousChat: { enabled: true } }),
-  );
-  expect(openai.discordActions.enabled).toBe(true);
-  expect(openai.autonomousChat.enabled).toBe(true);
 });
 
 test("thinking is turned down to the lowest level unless AI_THINKING is on", async () => {

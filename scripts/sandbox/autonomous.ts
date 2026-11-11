@@ -7,11 +7,14 @@
  * Every mode is a dry run. Choices are reported for human review; a different
  * valid choice does not fail this stochastic smoke test.
  */
-import { AUTONOMOUS_REACTION_EMOJIS } from "../../src/ai/participation.ts";
 import { createAiService } from "../../src/ai/service.ts";
 import type { AutonomousParticipation } from "../../src/ai/types.ts";
 import { loadConfig } from "../../src/config.ts";
 import { AUTONOMOUS_CHAT_GUIDANCE } from "../../src/features/autonomous_chat/decision.ts";
+import { reactionChoices } from "../../src/features/reactions.ts";
+
+/** The Unicode reactions Haru offers when no server emoji are known. */
+const CHOICES = reactionChoices(null, undefined, () => 0);
 
 const FIXTURES = [
   {
@@ -63,7 +66,7 @@ function validateChoice(
         : "Reply must contain only a nonempty text contribution of at most 280 characters.";
     case "react":
       return allowedIds.includes(choice.messageId) &&
-        AUTONOMOUS_REACTION_EMOJIS.some((emoji) => emoji === choice.emoji) &&
+        CHOICES.some((option) => option.emoji === choice.emoji) &&
         text === "" &&
         Object.keys(choice).length === 5
         ? undefined
@@ -100,6 +103,7 @@ async function main(): Promise<void> {
       mode: "autonomous",
       instructions: `${AUTONOMOUS_CHAT_GUIDANCE} The channel is #${fixture.channel}.`,
       allowedMessageIds,
+      reactionChoices: CHOICES,
     });
     const validationError = result.ok
       ? validateChoice(result.participation, result.text, allowedMessageIds)
