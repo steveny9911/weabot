@@ -16,7 +16,8 @@ export function startGateway(
   }
 
   let ws: WebSocket | null = null;
-  let heartbeatHandle: number | undefined;
+  let heartbeatStart: ReturnType<typeof setTimeout> | undefined;
+  let heartbeatHandle: ReturnType<typeof setInterval> | undefined;
   let heartbeatIntervalMs = 45000;
   let seq: number | null = null;
   let awaitingHeartbeatAck = false;
@@ -24,13 +25,6 @@ export function startGateway(
   function sendHeartbeat(): void {
     try {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-      if (awaitingHeartbeatAck) {
-        console.warn("Missed heartbeat ACK, reconnecting gateway");
-        ws.close();
-        return;
-      }
-
       ws.send(JSON.stringify({ op: 1, d: seq }));
       awaitingHeartbeatAck = true;
     } catch (e) {
@@ -38,22 +32,33 @@ export function startGateway(
     }
   }
 
-  function startHeartbeatLoop(interval: number): void {
-    heartbeatIntervalMs = interval;
+  /** A scheduled beat: reconnects instead if Discord never acknowledged the last one. */
+  function heartbeatTick(): void {
+    if (awaitingHeartbeatAck && ws?.readyState === WebSocket.OPEN) {
+      console.warn("Missed heartbeat ACK, reconnecting gateway");
+      ws.close();
+      return;
+    }
+    sendHeartbeat();
+  }
+
+  function stopHeartbeat(): void {
+    clearTimeout(heartbeatStart);
+    clearInterval(heartbeatHandle);
+    heartbeatStart = heartbeatHandle = undefined;
     awaitingHeartbeatAck = false;
+  }
 
-    if (heartbeatHandle) clearInterval(heartbeatHandle);
-
-    const jitter = Math.random();
-    setTimeout(
+  function startHeartbeatLoop(interval: number): void {
+    stopHeartbeat();
+    heartbeatIntervalMs = interval;
+    // Discord asks for the first beat after a random part of the interval.
+    heartbeatStart = setTimeout(
       () => {
-        sendHeartbeat();
-
-        heartbeatHandle = setInterval(() => {
-          sendHeartbeat();
-        }, heartbeatIntervalMs) as unknown as number;
+        heartbeatTick();
+        heartbeatHandle = setInterval(heartbeatTick, heartbeatIntervalMs);
       },
-      Math.floor(heartbeatIntervalMs * jitter),
+      Math.floor(heartbeatIntervalMs * Math.random()),
     );
   }
 
@@ -135,6 +140,7 @@ export function startGateway(
         } else if (op === 0 && t === "MESSAGE_CREATE" && d) {
           await onMessage(d as Record<string, unknown>, deps);
         } else if (op === 1) {
+          // Discord asks for a beat now; answer even if the last one is unacknowledged.
           sendHeartbeat();
         } else if (op === 11) {
           awaitingHeartbeatAck = false;
@@ -150,9 +156,7 @@ export function startGateway(
 
     ws.onclose = (ev: CloseEvent) => {
       console.warn("Gateway socket closed", ev.code, ev.reason);
-      if (heartbeatHandle) clearInterval(heartbeatHandle);
-      heartbeatHandle = undefined;
-      awaitingHeartbeatAck = false;
+      stopHeartbeat();
       setTimeout(connect, 5000);
     };
 

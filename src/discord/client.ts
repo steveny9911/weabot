@@ -24,7 +24,7 @@ export interface PollAnswerVoters {
   voters: PollVoter[];
 }
 
-/** Discord REST calls used by jobs. Reads and posts retry; reactions are sent once. */
+/** Discord REST calls used by jobs. Reads retry; posts retry only a 429; reactions are sent once. */
 export interface DiscordClient {
   postMessage(channelId: string, payload: MessagePayload): Promise<Response>;
 
@@ -105,26 +105,21 @@ export function createDiscordClient(token: string): DiscordClient {
     getReactionContext: (channelId, botId) => readReactionContext(token, channelId, botId),
 
     async getMessage(channelId, messageId) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REACTION_TIMEOUT_MS);
-      try {
-        const response = await fetchWithRetry(
-          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(
-            messageId,
-          )}`,
-          { headers, signal: controller.signal, redirect: "error" },
-        );
-        if (!response.ok) {
-          await response.body?.cancel();
-          return null;
-        }
-        const data = (await response.json()) as Record<string, unknown> | null;
-        return data && typeof data === "object" && data.id === messageId
-          ? mapDiscordMessage(data)
-          : null;
-      } finally {
-        clearTimeout(timer);
+      // One deadline for every attempt together, including reading the body.
+      const response = await fetchWithRetry(
+        `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(
+          messageId,
+        )}`,
+        { headers, signal: AbortSignal.timeout(REACTION_TIMEOUT_MS), redirect: "error" },
+      );
+      if (!response.ok) {
+        await response.body?.cancel();
+        return null;
       }
+      const data = (await response.json()) as Record<string, unknown> | null;
+      return data && typeof data === "object" && data.id === messageId
+        ? mapDiscordMessage(data)
+        : null;
     },
 
     async getPollVoters(channelId, messageId) {
