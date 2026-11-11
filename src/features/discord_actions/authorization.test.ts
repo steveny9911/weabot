@@ -1,31 +1,22 @@
 import { expect, test } from "bun:test";
-import {
-  createDiscordActionService,
-  type DiscordActionContext,
-  type DiscordActionService,
-} from "./service.ts";
+import { createDiscordActionService, type DiscordActionService } from "./service.ts";
 import { hasExplicitActionRequest } from "./intent.ts";
 import { openDatabase } from "../../db/database.ts";
+import { DiscordPermissions as P } from "../../discord/events.ts";
 import {
-  type DiscordEventsClient,
-  DiscordPermissions as P,
-  type DiscordScheduledEvent,
-} from "../../discord/events.ts";
+  actionContext,
+  existingEvent,
+  NOW,
+  StubEvents,
+  VOICE,
+} from "../../../tests/support/discord_actions.ts";
 
-const GUILD = "100";
-const USER = "200";
-const BOT = "300";
-const CHANNEL = "400";
-const EVENT = "500";
-const EVENT_REQUEST = "Create the Movie night event on January 1 2027 at 8pm in General.";
-const INVITE_REQUEST = "Please create an invite to General.";
+const EVENT_REQUEST = "Create the Movie night event on January 1 2027 at 8pm in Lounge.";
+const INVITE_REQUEST = "Please create an invite to Lounge.";
 const CANCEL_REQUEST = "Cancel the Movie night event.";
-const NOW = Date.parse("2026-09-04T12:00:00Z");
 type Action = "create_discord_event" | "create_discord_invite" | "cancel_discord_event";
 
-function context(content: string, messageId = "600"): DiscordActionContext {
-  return { guildId: GUILD, channelId: CHANNEL, userId: USER, botId: BOT, messageId, content };
-}
+const context = (content: string, messageId = "600") => actionContext(content, { messageId });
 
 function args(action: Action, request: string): Record<string, unknown> {
   if (action === "cancel_discord_event") {
@@ -34,7 +25,7 @@ function args(action: Action, request: string): Record<string, unknown> {
   if (action === "create_discord_invite") {
     return {
       request_quote: request,
-      channel_id: CHANNEL,
+      channel_id: VOICE,
       event_id: null,
       max_age: 60,
       max_uses: 1,
@@ -45,7 +36,7 @@ function args(action: Action, request: string): Record<string, unknown> {
     name: "Movie night",
     description: null,
     entity_type: "voice",
-    channel_id: CHANNEL,
+    channel_id: VOICE,
     location: null,
     start_time: "2027-01-01T20:00:00",
     end_time: null,
@@ -53,61 +44,24 @@ function args(action: Action, request: string): Record<string, unknown> {
   };
 }
 
+/** The writes Discord received, as the actions that caused them. */
+const written = (client: StubEvents): Action[] => [
+  ...client.eventWrites.map((): Action => "create_discord_event"),
+  ...client.inviteWrites.map((): Action => "create_discord_invite"),
+  ...client.cancellationWrites.map((): Action => "cancel_discord_event"),
+];
+
+/** A service on a server where everyone may do everything, so only the request text decides. */
 async function fixture(
-  run: (service: DiscordActionService, writes: Action[]) => Promise<void>,
+  run: (service: DiscordActionService, client: StubEvents) => Promise<void>,
 ): Promise<void> {
-  const kv = openDatabase(":memory:");
-  const writes: Action[] = [];
-  const event: DiscordScheduledEvent = {
-    id: EVENT,
-    guild_id: GUILD,
-    name: "Movie night",
-    channel_id: CHANNEL,
-    entity_type: 2,
-    status: 1,
-    creator_id: BOT,
-    scheduled_start_time: "2027-01-02T04:00:00.000Z",
-  };
-  const client: DiscordEventsClient = {
-    getGuild: () =>
-      Promise.resolve({
-        id: GUILD,
-        owner_id: USER,
-        roles: [{ id: GUILD, permissions: String(P.ADMINISTRATOR) }],
-      }),
-    getMember: (_guildId, id) => Promise.resolve({ user: { id, bot: id === BOT }, roles: [] }),
-    getChannels: () =>
-      Promise.resolve([{ id: CHANNEL, guild_id: GUILD, name: "General", type: 2 }]),
-    // The existing cancellation target differs in time from creation requests.
-    listScheduledEvents: () =>
-      Promise.resolve([{ ...event, scheduled_start_time: "2027-02-01T20:00:00Z" }]),
-    getScheduledEvent: () => Promise.resolve(event),
-    createScheduledEvent: (_guildId, payload) => {
-      writes.push("create_discord_event");
-      return Promise.resolve({
-        ...event,
-        ...payload,
-        channel_id: payload.channel_id ?? null,
-        id: "501",
-      });
-    },
-    createInvite: () => {
-      writes.push("create_discord_invite");
-      return Promise.resolve({ code: "test-only", guild: { id: GUILD }, channel: { id: CHANNEL } });
-    },
-    cancelScheduledEvent: () => {
-      writes.push("cancel_discord_event");
-      return Promise.resolve({ ...event, status: 4 });
-    },
-  };
-  try {
-    await run(
-      createDiscordActionService(client, kv, "America/Vancouver", () => NOW),
-      writes,
-    );
-  } finally {
-    kv.close();
-  }
+  using db = openDatabase(":memory:");
+  const all = P.ADMINISTRATOR;
+  const client = new StubEvents({ everyone: all, requester: all, bot: all }, [existingEvent()]);
+  await run(
+    createDiscordActionService(client, db, "America/Vancouver", () => NOW),
+    client,
+  );
 }
 
 test("Discord multiline quotes cannot authorize any action or pending clarification", async () => {
@@ -117,7 +71,7 @@ test("Discord multiline quotes cannot authorize any action or pending clarificat
     ["cancel_discord_event", CANCEL_REQUEST],
   ] as const) {
     for (const marker of [">>> From Alex:", ">>>"]) {
-      await fixture(async (service, writes) => {
+      await fixture(async (service, client) => {
         const content = `Haru, summarize this quoted message:\n${marker}\n${request}`;
         expect(hasExplicitActionRequest(content)).toStrictEqual(false);
         const session = await service.createSession(context(content));
@@ -130,9 +84,9 @@ test("Discord multiline quotes cannot authorize any action or pending clarificat
             })
           ).ok,
         ).toStrictEqual(false);
-        const followup = await service.createSession(context("General", "601"));
+        const followup = await service.createSession(context("Lounge", "601"));
         expect((await followup.executeTool(action, args(action, request))).ok).toStrictEqual(false);
-        expect(writes).toStrictEqual([]);
+        expect(written(client)).toStrictEqual([]);
       });
     }
   }
@@ -145,12 +99,12 @@ test("event creation, invitation, and cancellation require their own request aut
   };
   for (const requested of Object.keys(requests) as Action[]) {
     for (const attempted of Object.keys(requests) as Action[]) {
-      await fixture(async (service, writes) => {
+      await fixture(async (service, client) => {
         const request = requests[requested];
         const session = await service.createSession(context(request));
         const result = await session.executeTool(attempted, args(attempted, request));
         expect(result.ok).toStrictEqual(attempted === requested);
-        expect(writes).toStrictEqual(attempted === requested ? [attempted] : []);
+        expect(written(client)).toStrictEqual(attempted === requested ? [attempted] : []);
       });
     }
   }
@@ -162,7 +116,7 @@ test("requesting an invitation for an existing event does not authorize event cr
     "Create an event invitation for Movie night.",
     "Create a Movie night event invite.",
   ]) {
-    await fixture(async (service, writes) => {
+    await fixture(async (service, client) => {
       const session = await service.createSession(context(request));
       expect(
         (await session.executeTool("create_discord_event", args("create_discord_event", request)))
@@ -172,7 +126,7 @@ test("requesting an invitation for an existing event does not authorize event cr
         (await session.executeTool("create_discord_invite", args("create_discord_invite", request)))
           .ok,
       ).toStrictEqual(true);
-      expect(writes).toStrictEqual(["create_discord_invite"]);
+      expect(written(client)).toStrictEqual(["create_discord_invite"]);
     });
   }
 });
@@ -182,17 +136,17 @@ test("pending clarification retains the original action kind for an ordinary ans
     ["create_discord_invite", INVITE_REQUEST],
     ["cancel_discord_event", "Cancel the event."],
   ] as const) {
-    await fixture(async (service, writes) => {
+    await fixture(async (service, client) => {
       const initial = await service.createSession(context(request));
       const clarification = await initial.executeTool("clarify_discord_action", {
         request_quote: request,
         question: action === "cancel_discord_event" ? "Which event?" : "Which channel?",
       });
       expect(clarification.needsClarification).toStrictEqual(true);
-      const reply = action === "cancel_discord_event" ? "Movie night" : "General";
+      const reply = action === "cancel_discord_event" ? "Movie night" : "Lounge";
       const followup = await service.createSession(context(reply, "601"));
       expect((await followup.executeTool(action, args(action, request))).ok).toStrictEqual(true);
-      expect(writes).toStrictEqual([action]);
+      expect(written(client)).toStrictEqual([action]);
     });
   }
 });

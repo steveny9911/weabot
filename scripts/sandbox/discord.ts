@@ -113,7 +113,7 @@ async function main(): Promise<void> {
     discord,
     aiService: localAi,
     rateLimitService: createRateLimitService(db, config),
-    linkOpenService: createLinkOpenService(config),
+    linkOpenService: createLinkOpenService(),
     storageService: createStorageService(db),
     discordActionService: createDiscordActionService(events, db, config.timeZone),
   };

@@ -39,7 +39,7 @@ const discord = createDiscordClient(config.discordToken);
 const rateLimit = createRateLimitService(db, config);
 const aiService = createAiService(config);
 const webSearch = createWebSearchService(config);
-const linkOpen = createLinkOpenService(config);
+const linkOpen = createLinkOpenService();
 const tweets = createTweetService();
 
 const botDeps: BotDependencies = {

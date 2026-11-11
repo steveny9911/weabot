@@ -3,7 +3,6 @@
  * only, few redirects, and no local, private or metadata hosts.
  */
 
-import type { AppConfig } from "../config.ts";
 import {
   isBlockedHost,
   BlockedDestinationError,
@@ -173,7 +172,6 @@ function isRedirectStatus(status: number): boolean {
 }
 
 export function createLinkOpenService(
-  _config: AppConfig,
   dependencies: { fetch?: LinkFetch; timeoutMs?: number } = {},
 ): LinkOpenService {
   const fetchPage = dependencies.fetch ?? createPublicFetch();

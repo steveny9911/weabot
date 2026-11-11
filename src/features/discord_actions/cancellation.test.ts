@@ -33,20 +33,16 @@ function args(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 async function fixture(
   run: (client: StubEvents, service: DiscordActionService, kv: Database) => Promise<void>,
 ): Promise<void> {
-  const kv = openDatabase(":memory:");
+  using kv = openDatabase(":memory:");
   const client = new StubEvents(
     { everyone: CHANNEL_PERMISSIONS, requester: P.MANAGE_EVENTS, bot: P.CREATE_EVENTS },
     [existingEvent()],
   );
-  try {
-    await run(
-      client,
-      createDiscordActionService(client, kv, "America/Vancouver", () => NOW),
-      kv,
-    );
-  } finally {
-    kv.close();
-  }
+  await run(
+    client,
+    createDiscordActionService(client, kv, "America/Vancouver", () => NOW),
+    kv,
+  );
 }
 
 function setPermissions(client: StubEvents, userId: string, permissions: bigint) {
