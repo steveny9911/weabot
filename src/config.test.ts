@@ -104,7 +104,7 @@ test("an empty config.yaml gives the defaults", () => {
     enabled: false,
     channelIds: ["chan-1"],
     chance: 0.1,
-    timeout: { enabled: true, seconds: 60 },
+    stepPenalty: { enabled: true, timeoutSeconds: 60 },
     gifs: [],
   });
 });
@@ -142,7 +142,7 @@ landmine:
   channel_ids: ["chan-8"]
   chance: 0.25
   gifs: [https://a.example/1.gif]
-  timeout: { enabled: false, seconds: 30 }
+  step_penalty: { enabled: false, timeout_seconds: 30 }
 `) as ConfigFile,
   );
   expect(config.channelIds).toStrictEqual(["chan-5", "chan-6"]);
@@ -184,7 +184,7 @@ landmine:
     enabled: true,
     channelIds: ["chan-8"],
     chance: 0.25,
-    timeout: { enabled: false, seconds: 30 },
+    stepPenalty: { enabled: false, timeoutSeconds: 30 },
     gifs: ["https://a.example/1.gif"],
   });
 });
@@ -196,13 +196,13 @@ test("null values in config.yaml use the defaults", () => {
   expect(config.aiDailyRequestQuota).toBeUndefined();
 });
 
-test("context messages and landmine timeouts are capped at their limits", () => {
+test("context messages and landmine step penalty timeouts are capped at their limits", () => {
   const config = load({
     ai: { context: { max_messages: 500 } },
-    landmine: { timeout: { seconds: 9e9 } },
+    landmine: { step_penalty: { timeout_seconds: 9e9 } },
   });
   expect(config.aiContextMaxMessages).toStrictEqual(100);
-  expect(config.landmine.timeout.seconds).toStrictEqual(28 * 86_400);
+  expect(config.landmine.stepPenalty.timeoutSeconds).toStrictEqual(28 * 86_400);
 });
 
 test("an unknown AI provider fails at startup", () => {
@@ -289,8 +289,8 @@ test("startup stops on a setting it cannot use, and says which", () => {
   fails("landmines: {}", "Unknown setting landmines");
   fails("landmine: true", "landmine in config.yaml must be a section");
   fails(
-    "landmine: { timeout: { enabled: 1 } }",
-    "landmine.timeout.enabled in config.yaml must be true or false",
+    "landmine: { step_penalty: { enabled: 1 } }",
+    "landmine.step_penalty.enabled in config.yaml must be true or false",
   );
 });
 

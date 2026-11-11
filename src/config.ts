@@ -96,8 +96,8 @@ export interface AppConfig {
   landmine: FeatureConfig & {
     /** Chance in [0, 1] that a message is a landmine. */
     chance: number;
-    /** Whether stepping on a landmine also times the user out. */
-    timeout: { enabled: boolean; seconds: number };
+    /** What happens to whoever steps on a landmine: a Discord timeout, if enabled. */
+    stepPenalty: { enabled: boolean; timeoutSeconds: number };
     /** GIF links; the announcement ends with one picked at random. Empty means no GIF. */
     gifs: string[];
   };
@@ -157,7 +157,7 @@ export interface ConfigFile {
   landmine?: ReactiveFeatureFile & {
     chance?: number;
     gifs?: string[];
-    timeout?: { enabled?: boolean; seconds?: number };
+    step_penalty?: { enabled?: boolean; timeout_seconds?: number };
   };
 }
 
@@ -260,10 +260,10 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     landmine: {
       ...reactiveFeature("landmine", mine, false),
       chance: mine?.chance ?? 0.1,
-      timeout: {
-        enabled: mine?.timeout?.enabled ?? true,
+      stepPenalty: {
+        enabled: mine?.step_penalty?.enabled ?? true,
         // Discord allows timeouts of up to 28 days.
-        seconds: Math.min(mine?.timeout?.seconds ?? 60, 28 * 86_400),
+        timeoutSeconds: Math.min(mine?.step_penalty?.timeout_seconds ?? 60, 28 * 86_400),
       },
       gifs: mine?.gifs ?? [],
     },

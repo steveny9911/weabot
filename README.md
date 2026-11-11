@@ -216,11 +216,11 @@ Mention Haru to chat, or use a command:
 
 Configure landmines in the `landmine` section of `config.yaml`. With `enabled: true`, every message
 in the landmine channels has a `chance` of being a landmine. Haru announces whoever steps on one
-with the number of landmines left, and by default (`timeout.enabled: true`) the author is also timed
-out for `timeout.seconds`. With timeouts off it only announces, and nothing slows down a user who
-sends many messages, so landmines run out faster. If `gifs` lists GIF links, one picked at random is
-added to the end of the announcement. There are 100,000 landmines in total, shared by all servers
-and saved in the database; once they are gone, nothing happens.
+with the number of landmines left, and by default (`step_penalty.enabled: true`) the author is also
+timed out for `step_penalty.timeout_seconds`. With the penalty off it only announces, and nothing
+slows down a user who sends many messages, so landmines run out faster. If `gifs` lists GIF links,
+one picked at random is added to the end of the announcement. There are 100,000 landmines in total,
+shared by all servers and saved in the database; once they are gone, nothing happens.
 
 A timeout is Discord's own, so the user cannot send messages in **any** channel of the server until
 it ends. The bot needs the **Timeout Members** permission and a role above the members it times out.

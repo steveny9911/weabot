@@ -171,15 +171,15 @@ landmine:
   #   - https://tenor.com/b0tMp.gif
   #   - https://tenor.com/b0pv2.gif
 
-  # Also time out whoever steps on one. The timeout is server-wide, needs the bot's Timeout Members
-  # permission and a role above the members, and never works on the owner or administrators (their
-  # landmine is not used up). false only announces, and then nothing slows down a user who sends
-  # many messages, so landmines run out faster.
-  timeout:
+  # What happens to whoever steps on a landmine. The timeout is server-wide, needs the bot's Timeout
+  # Members permission and a role above the members, and never works on the owner or administrators
+  # (their landmine is not used up). enabled: false only announces, and then nothing slows down a
+  # user who sends many messages, so landmines run out faster.
+  step_penalty:
     # true or false.
     enabled: true
     # Whole number of seconds. Maximum 28 days (2419200); larger values are cut to 28 days.
-    seconds: 60
+    timeout_seconds: 60
 
 # The \usage command shows "Unavailable" for missing values. With Gemini it shows today's requests
 # and tokens counted by Haru and needs none of this. OPENAI_ADMIN_KEY (in `.env`) enables OpenAI
