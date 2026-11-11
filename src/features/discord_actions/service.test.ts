@@ -261,6 +261,7 @@ test("Stage creation uses a Stage channel and requires both parties' moderator p
       );
       expect(result.ok).toStrictEqual(false);
       expect(String(result.message)).toContain(member === USER ? "You need" : "Haru needs");
+      expect(String(result.message)).toContain("Create Events and Stage moderator");
       expect(client.eventWrites.length).toStrictEqual(0);
     });
   }

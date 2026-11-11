@@ -603,7 +603,7 @@ export function createDiscordActionService(
             access,
             channel,
             P.CREATE_EVENTS | rules.bits,
-            `Create Events, ${rules.label}`,
+            type === 2 ? `Create Events, ${rules.label}` : "Create Events and Stage moderator",
           );
           payload.channel_id = channel.id;
         }
