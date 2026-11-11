@@ -13,11 +13,11 @@ export async function loadContext(
   discord: Pick<DiscordClient, "getRecentMessages">,
   config: AppConfig,
   channelId: string,
-  limit: number,
   triggerMessage: Record<string, unknown>,
   resetAfterMs?: number,
 ): Promise<Array<Record<string, unknown>>> {
   const trigger = mapDiscordMessage(triggerMessage);
+  const limit = config.aiContextMaxMessages;
   let recent: RecentDiscordMessage[] = [];
   try {
     recent = await discord.getRecentMessages(channelId, limit);
