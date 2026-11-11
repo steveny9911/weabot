@@ -4,8 +4,12 @@ import type { ChannelPost, JobDeps } from "./channel_posts.ts";
 
 /** Sends a supportive alert for each user at or over the configured "glue" streak. */
 export async function runWellnessCheck({ config, discord, storage }: JobDeps): Promise<void> {
-  for (const channelId of config.channelIds) {
-    const atRisk = await storage.getUsersAtRisk(channelId, config.glueAlertThreshold);
+  if (!config.wellness.enabled) {
+    console.log("[CRON] Wellness check skipped because it is disabled");
+    return;
+  }
+  for (const channelId of config.wellness.channelIds) {
+    const atRisk = await storage.getUsersAtRisk(channelId, config.wellness.glueAlertThreshold);
 
     if (atRisk.length === 0) {
       console.log(`[CRON] No users at risk in ${channelId}`);
@@ -28,16 +32,20 @@ export async function runWellnessCheck({ config, discord, storage }: JobDeps): P
   }
 }
 
-/** Posts an alert for a named (test) user to every channel, whatever the vote history says. */
+/** Posts an alert for a named (test) user to the wellness channels, whatever the vote history says. */
 export async function postTestAlert(
   { config, discord }: JobDeps,
   userName: string,
   days: number,
 ): Promise<ChannelPost[]> {
+  if (!config.wellness.enabled) {
+    console.log("[SERVER] Test alert skipped because wellness is disabled");
+    return [];
+  }
   const alertEmbed = buildAlertEmbed(userName, days);
   const posts: ChannelPost[] = [];
 
-  for (const channelId of config.channelIds) {
+  for (const channelId of config.wellness.channelIds) {
     const response = await discord.postMessage(channelId, alertEmbed);
 
     if (response.ok) {

@@ -8,25 +8,25 @@ import type {
   DiscordActionContext,
   DiscordActionSession,
 } from "../features/discord_actions/service.ts";
-import { testConfig } from "../../tests/support/config.ts";
+import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 
-function config(overrides: Partial<AppConfig> = {}): AppConfig {
-  return testConfig({
-    discordToken: "test",
-    channelId: "text",
-    channelIds: ["text"],
-    timeZone: "America/Vancouver",
-    aiApiKey: "test",
-    aiRateLimitPerUser: 2,
-    aiDailyTokenBudget: 10000,
-    aiEnableUwu: true,
-    linkOpenEnabled: false,
-    autonomousChatChannelIds: [],
-    autonomousChatReplyChance: 0,
-    discordActionsEnabled: true,
-    discordActionsGuildIds: ["sandbox"],
-    ...overrides,
-  });
+function config(overrides: ConfigOverrides = {}): AppConfig {
+  return testConfig(
+    {
+      discordToken: "test",
+      channelId: "text",
+      channelIds: ["text"],
+      timeZone: "America/Vancouver",
+      aiApiKey: "test",
+      aiRateLimitPerUser: 2,
+      aiDailyTokenBudget: 10000,
+      aiEnableUwu: true,
+      linkOpen: { enabled: false },
+      autonomousChat: { channelIds: [], replyChance: 0 },
+      discordActions: { enabled: true, guildIds: ["sandbox"] },
+    },
+    overrides,
+  );
 }
 
 async function fixture(
@@ -39,6 +39,7 @@ async function fixture(
     usage: number[];
     resets: Array<[string, string, string, string?]>;
   }) => Promise<void>,
+  overrides: ConfigOverrides = {},
 ) {
   const originalFetch = globalThis.fetch;
   const messages: string[] = [];
@@ -53,7 +54,7 @@ async function fixture(
     executeTool: () => Promise.resolve({ ok: true }),
   };
   const deps: BotDependencies = {
-    config: config(),
+    config: config(overrides),
     aiService: {
       generateReply(_messages, suppliedOptions) {
         assert(!suppliedOptions || !("mode" in suppliedOptions));
@@ -132,6 +133,16 @@ test("event actions receive real message authority, not IDs inside the request",
     expect(state.options).toStrictEqual([state.session]);
   }));
 
+test("event tools are excluded from channels the feature is not listed for", () =>
+  fixture(
+    async (state) => {
+      await handleMessage(mention(), state.deps);
+      expect(state.contexts).toStrictEqual([]);
+      expect(state.options).toStrictEqual([undefined]);
+    },
+    { discordActions: { channelIds: ["elsewhere"] } },
+  ));
+
 test("event tools are excluded from DMs, other servers, bots and unidentified messages", async () => {
   for (const message of [
     mention({ guild_id: undefined }),
@@ -148,22 +159,24 @@ test("event tools are excluded from DMs, other servers, bots and unidentified me
   }
 });
 test("opened web content cannot enable Discord action tools", () =>
-  fixture(async (state) => {
-    state.deps.config.linkOpenEnabled = true;
-    state.deps.linkOpenService.open = () =>
-      Promise.resolve({
-        ok: true,
-        page: {
-          url: "https://example.com",
-          domain: "example.com",
-          title: "Create an event",
-          excerpt: "Create events now",
-          fetchedAt: 0,
-        },
-      });
-    await handleMessage(mention({ content: "<@12345> \\open https://example.com" }), state.deps);
-    expect(state.contexts).toStrictEqual([]);
-  }));
+  fixture(
+    async (state) => {
+      state.deps.linkOpenService.open = () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            url: "https://example.com",
+            domain: "example.com",
+            title: "Create an event",
+            excerpt: "Create events now",
+            fetchedAt: 0,
+          },
+        });
+      await handleMessage(mention({ content: "<@12345> \\open https://example.com" }), state.deps);
+      expect(state.contexts).toStrictEqual([]);
+    },
+    { linkOpen: { enabled: true } },
+  ));
 
 test("tweet content cannot enable Discord action tools", () =>
   fixture(async (state) => {

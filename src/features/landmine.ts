@@ -1,6 +1,7 @@
 /** Landmines: any message may be one. Haru announces who stepped on it and can time them out. */
 import type { AppConfig } from "../config.ts";
 import { formatTime, isCommand } from "../bot/commands.ts";
+import { isActiveIn } from "../feature_config.ts";
 import { sendMessage, timeoutMember } from "../discord/messages.ts";
 import type { createLandmineQueries } from "../db/landmines.ts";
 
@@ -27,14 +28,13 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
       const userId = (message["author"] as { id?: unknown } | undefined)?.id;
       // Only what a person typed: a normal message (0) or a reply (19), not joins, pins, boosts...
       const type = message["type"] ?? 0;
-      if (!config.landmineEnabled) return;
       if (type !== 0 && type !== 19) return;
       if (typeof guildId !== "string" || typeof channelId !== "string") return;
       if (typeof userId !== "string") return;
-      if (!config.landmineChannelIds.includes(channelId)) return;
+      if (!isActiveIn(config.landmine, channelId)) return;
       if (isCommand(message["content"] as string | undefined)) return;
       const roll = random();
-      if (roll >= config.landmineChance) {
+      if (roll >= config.landmine.chance) {
         console.log(`[LANDMINE] Safe: ${userId} in ${channelId} (rolled ${roll.toFixed(3)})`);
         return;
       }
@@ -47,8 +47,8 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         }
 
         let timedOut = "";
-        if (config.landmineTimeoutEnabled) {
-          const seconds = config.landmineTimeoutSeconds;
+        if (config.landmine.timeout.enabled) {
+          const seconds = config.landmine.timeout.seconds;
           const result = await timeout(config, guildId, userId, seconds, "Stepped on a landmine");
           if (!result.ok) {
             mines.refund();
@@ -58,7 +58,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
           timedOut = ` and has been timed out for ${formatTime(seconds * 1000)}`;
         }
 
-        const gif = config.landmineGifs[Math.floor(random() * config.landmineGifs.length)];
+        const gif = config.landmine.gifs[Math.floor(random() * config.landmine.gifs.length)];
         console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
         const sent = await send(
           config,

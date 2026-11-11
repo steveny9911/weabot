@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { throws } from "../tests/support/assert.ts";
+import { readFileSync } from "node:fs";
 import { loadConfig, type ConfigFile } from "./config.ts";
 
 const SECRETS = [
@@ -55,8 +56,15 @@ test("an empty config.yaml gives the defaults", () => {
   expect(config.databasePath).toStrictEqual("./data/haru.sqlite3");
   expect(config.httpPort).toStrictEqual(8000);
   expect(config.timeZone).toStrictEqual("America/Los_Angeles");
-  expect(config.glueAlertThreshold).toStrictEqual(7);
+  expect(config.moodPoll).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
+  expect(config.wellness).toStrictEqual({
+    enabled: true,
+    channelIds: ["chan-1"],
+    glueAlertThreshold: 7,
+  });
+  expect(config.weeklyStats).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
   expect(config.aiEnabled).toStrictEqual(true);
+  expect(config.aiChat).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
   expect(config.aiProvider).toStrictEqual("openai");
   expect(config.aiModels).toStrictEqual([]);
   expect(config.aiSystemPromptFile).toBeUndefined();
@@ -70,26 +78,37 @@ test("an empty config.yaml gives the defaults", () => {
   expect(config.aiContextMaxMessages).toStrictEqual(40);
   expect(config.aiContextInactivityMinutes).toStrictEqual(20);
   expect(config.usageOpenaiProjectId).toBeUndefined();
-  expect(config.webSearchEnabled).toStrictEqual(false);
-  expect(config.webSearchMaxResults).toStrictEqual(3);
-  expect(config.linkOpenEnabled).toStrictEqual(true);
-  expect(config.tweetReadEnabled).toStrictEqual(true);
-  expect(config.discordActionsEnabled).toStrictEqual(true);
-  expect(config.discordActionsGuildIds).toStrictEqual([]);
-  expect(config.autonomousChatEnabled).toStrictEqual(false);
-  expect(config.autonomousChatChannelIds).toStrictEqual(["chan-1"]);
-  expect(config.autonomousChatMinHumanMessages).toStrictEqual(4);
-  expect(config.autonomousChatActivityWindowMinutes).toStrictEqual(20);
-  expect(config.autonomousChatCooldownMinutes).toStrictEqual(1);
-  expect(config.autonomousChatReplyChance).toStrictEqual(0.35);
-  expect(config.autonomousChatMaxContextMessages).toStrictEqual(40);
-  expect(config.autonomousChatRequestPercent).toStrictEqual(30);
-  expect(config.landmineEnabled).toStrictEqual(false);
-  expect(config.landmineChannelIds).toStrictEqual(["chan-1"]);
-  expect(config.landmineChance).toStrictEqual(0.1);
-  expect(config.landmineTimeoutEnabled).toStrictEqual(true);
-  expect(config.landmineTimeoutSeconds).toStrictEqual(60);
-  expect(config.landmineGifs).toStrictEqual([]);
+  expect(config.webSearch).toStrictEqual({
+    enabled: false,
+    channelIds: ["chan-1"],
+    apiKey: undefined,
+    maxResults: 3,
+  });
+  expect(config.linkOpen).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
+  expect(config.tweetRead).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
+  expect(config.discordActions).toStrictEqual({
+    enabled: true,
+    channelIds: ["chan-1"],
+    guildIds: [],
+  });
+  expect(config.autonomousChat).toStrictEqual({
+    enabled: false,
+    channelIds: ["chan-1"],
+    minHumanMessages: 4,
+    activityWindowMinutes: 20,
+    cooldownMinutes: 1,
+    replyChance: 0.35,
+    settleSeconds: 8,
+    maxContextMessages: 40,
+    requestPercent: 30,
+  });
+  expect(config.landmine).toStrictEqual({
+    enabled: false,
+    channelIds: ["chan-1"],
+    chance: 0.1,
+    timeout: { enabled: true, seconds: 60 },
+    gifs: [],
+  });
 });
 
 test("settings come from config.yaml", () => {
@@ -97,7 +116,6 @@ test("settings come from config.yaml", () => {
     Bun.YAML.parse(`
 discord:
   channel_ids: ["chan-5", "chan-5", "chan-6"]
-  actions: { enabled: false, guild_ids: ["guild-1"] }
 general: { db_path: /tmp/x.sqlite3, http_port: 9000, time_zone: America/Vancouver }
 ai:
   provider: gemini
@@ -107,10 +125,15 @@ ai:
   uwu: false
   context: { max_messages: 10 }
   budget: { daily_request_quota: 500, mention_percent: 80 }
-features:
-  web_search: { enabled: true, max_results: 5 }
-  tweet_read: false
+ai_chat: { enabled: false, channel_ids: ["chan-4"] }
+web_search: { enabled: true, max_results: 5, channel_ids: all }
+tweet_read: { enabled: false }
+link_open: { channel_ids: ["chan-9"] }
+discord_actions: { enabled: false, guild_ids: ["guild-1"] }
 usage: { openai_project_id: proj-1 }
+mood_poll: { enabled: false, channel_ids: ["chan-2"] }
+wellness: { channel_ids: ["chan-3"], glue_alert_threshold: 3 }
+weekly_stats: { enabled: false }
 autonomous_chat:
   enabled: true
   channel_ids: ["chan-7"]
@@ -125,8 +148,11 @@ landmine:
 `) as ConfigFile,
   );
   expect(config.channelIds).toStrictEqual(["chan-5", "chan-6"]);
-  expect(config.discordActionsEnabled).toStrictEqual(false);
-  expect(config.discordActionsGuildIds).toStrictEqual(["guild-1"]);
+  expect(config.discordActions).toStrictEqual({
+    enabled: false,
+    channelIds: ["chan-5", "chan-6"],
+    guildIds: ["guild-1"],
+  });
   expect(config.databasePath).toStrictEqual("/tmp/x.sqlite3");
   expect(config.httpPort).toStrictEqual(9000);
   expect(config.timeZone).toStrictEqual("America/Vancouver");
@@ -138,20 +164,31 @@ landmine:
   expect(config.aiContextMaxMessages).toStrictEqual(10);
   expect(config.aiDailyRequestQuota).toStrictEqual(500);
   expect(config.aiDailyRequestPercent).toStrictEqual(80);
-  expect(config.webSearchEnabled).toStrictEqual(true);
-  expect(config.webSearchMaxResults).toStrictEqual(5);
-  expect(config.tweetReadEnabled).toStrictEqual(false);
+  expect(config.aiChat).toStrictEqual({ enabled: false, channelIds: ["chan-4"] });
+  expect(config.webSearch).toMatchObject({ enabled: true, channelIds: "all", maxResults: 5 });
+  expect(config.tweetRead.enabled).toStrictEqual(false);
+  expect(config.linkOpen).toStrictEqual({ enabled: true, channelIds: ["chan-9"] });
   expect(config.usageOpenaiProjectId).toStrictEqual("proj-1");
-  expect(config.autonomousChatEnabled).toStrictEqual(true);
-  expect(config.autonomousChatChannelIds).toStrictEqual(["chan-7"]);
-  expect(config.autonomousChatReplyChance).toStrictEqual(0.6);
-  expect(config.autonomousChatCooldownMinutes).toStrictEqual(5);
-  expect(config.landmineEnabled).toStrictEqual(true);
-  expect(config.landmineChannelIds).toStrictEqual(["chan-8"]);
-  expect(config.landmineChance).toStrictEqual(0.25);
-  expect(config.landmineGifs).toStrictEqual(["https://a.example/1.gif"]);
-  expect(config.landmineTimeoutEnabled).toStrictEqual(false);
-  expect(config.landmineTimeoutSeconds).toStrictEqual(30);
+  expect(config.moodPoll).toStrictEqual({ enabled: false, channelIds: ["chan-2"] });
+  expect(config.wellness).toStrictEqual({
+    enabled: true,
+    channelIds: ["chan-3"],
+    glueAlertThreshold: 3,
+  });
+  expect(config.weeklyStats).toStrictEqual({ enabled: false, channelIds: ["chan-5", "chan-6"] });
+  expect(config.autonomousChat).toMatchObject({
+    enabled: true,
+    channelIds: ["chan-7"],
+    replyChance: 0.6,
+    cooldownMinutes: 5,
+  });
+  expect(config.landmine).toStrictEqual({
+    enabled: true,
+    channelIds: ["chan-8"],
+    chance: 0.25,
+    timeout: { enabled: false, seconds: 30 },
+    gifs: ["https://a.example/1.gif"],
+  });
 });
 
 test("null values in config.yaml use the defaults", () => {
@@ -167,7 +204,7 @@ test("context messages and landmine timeouts are capped at their limits", () => 
     landmine: { timeout: { seconds: 9e9 } },
   });
   expect(config.aiContextMaxMessages).toStrictEqual(100);
-  expect(config.landmineTimeoutSeconds).toStrictEqual(28 * 86_400);
+  expect(config.landmine.timeout.seconds).toStrictEqual(28 * 86_400);
 });
 
 test("an unknown AI provider fails at startup", () => {
@@ -198,20 +235,69 @@ test("secrets come from the environment and empty ones count as unset", () => {
   );
   expect(config.adminHttpToken).toBeUndefined();
   expect(config.openaiAdminKey).toStrictEqual("admin");
-  expect(config.webSearchApiKey).toBeUndefined();
-  expect(config.webSearchEnabled).toStrictEqual(false);
+  expect(config.webSearch.apiKey).toBeUndefined();
+  expect(config.webSearch.enabled).toStrictEqual(false);
 });
 
 test("web search turns on when a Brave key is set, unless config.yaml says otherwise", () => {
   const secrets = { BRAVE_SEARCH_API_KEY: "key" };
-  expect(load({}, secrets).webSearchEnabled).toStrictEqual(true);
-  expect(load({ features: { web_search: { enabled: false } } }, secrets).webSearchEnabled).toBe(
-    false,
-  );
+  expect(load({}, secrets).webSearch.enabled).toStrictEqual(true);
+  expect(load({ web_search: { enabled: false } }, secrets).webSearch.enabled).toBe(false);
 });
 
 test("AI_API_KEY wins, and OPENAI_API_KEY only works for the openai provider", () => {
   expect(load({}, { OPENAI_API_KEY: "old" }).aiApiKey).toStrictEqual("old");
   expect(load({}, { AI_API_KEY: "new", OPENAI_API_KEY: "old" }).aiApiKey).toStrictEqual("new");
   expect(load({ ai: { provider: "gemini" } }, { OPENAI_API_KEY: "old" }).aiApiKey).toBeUndefined();
+});
+
+/** Loads a YAML snippet next to a channel and expects a startup error containing `message`. */
+function fails(yaml: string, message: string) {
+  const file = Bun.YAML.parse(`discord: { channel_ids: ["c"] }\n${yaml}`) as ConfigFile;
+  withSecrets({ DISCORD_TOKEN: "t" }, () => throws(() => loadConfig(file), Error, message));
+}
+
+test("channel_ids can be all, and an empty or null list falls back to the bot's channels", () => {
+  expect(load({ landmine: { channel_ids: "all" } }).landmine.channelIds).toStrictEqual("all");
+  for (const yaml of ["landmine: { channel_ids: [] }", "landmine: { channel_ids: null }"]) {
+    expect(load(Bun.YAML.parse(yaml) as ConfigFile).landmine.channelIds).toStrictEqual(["chan-1"]);
+  }
+});
+
+test("null sections and settings use the defaults", () => {
+  const yaml =
+    "landmine: null\nautonomous_chat: { enabled: null }\ndiscord_actions: { guild_ids: null }";
+  const config = load(Bun.YAML.parse(yaml) as ConfigFile);
+  expect(config.landmine.enabled).toStrictEqual(false);
+  expect(config.autonomousChat.enabled).toStrictEqual(false);
+  expect(config.discordActions.guildIds).toStrictEqual([]);
+});
+
+test("startup stops on a setting it cannot use, and says which", () => {
+  fails(
+    "autonomous_chat: { channel_ids: all }",
+    'autonomous_chat.channel_ids in config.yaml cannot be "all"',
+  );
+  fails("landmine: { channel_ids: [all] }", "write all without brackets");
+  fails(
+    "landmine: { channel_ids: chan }",
+    "landmine.channel_ids in config.yaml must be a list of quoted strings",
+  );
+  fails(
+    "landmine: { channel_ids: [123] }",
+    "landmine.channel_ids in config.yaml must be a list of quoted strings",
+  );
+  fails("landmine: { chanse: 0.5 }", "Unknown setting landmine.chanse");
+  fails("landmines: {}", "Unknown setting landmines");
+  fails("landmine: true", "landmine in config.yaml must be a section");
+  fails(
+    "landmine: { timeout: { enabled: 1 } }",
+    "landmine.timeout.enabled in config.yaml must be true or false",
+  );
+});
+
+test("config.example.yaml loads", () => {
+  const example = Bun.YAML.parse(readFileSync("config.example.yaml", "utf8")) as ConfigFile;
+  const config = load({ ...example, discord: { ...example.discord, channel_ids: ["chan-1"] } });
+  expect(config.channelIds).toStrictEqual(["chan-1"]);
 });

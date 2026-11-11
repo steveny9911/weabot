@@ -14,7 +14,7 @@ export function createAutonomousChatJob(
   let autonomousChatRunning = false;
 
   return async () => {
-    if (!config.autonomousChatEnabled) return;
+    if (!config.autonomousChat.enabled) return;
     if (!config.aiEnabled || !config.aiApiKey) {
       console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
       return;
@@ -32,7 +32,7 @@ export function createAutonomousChatJob(
         return;
       }
 
-      for (const channelId of config.autonomousChatChannelIds) {
+      for (const channelId of config.autonomousChat.channelIds) {
         try {
           const outcome = await participateInChannel(channelId, {
             config,

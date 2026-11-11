@@ -13,21 +13,22 @@ import type { LinkOpenError } from "../net/link_open.ts";
 import type { SearchResult } from "../net/web_search.ts";
 import { haruGreetingGifPool } from "../features/reaction_gif.ts";
 import type { ContextResetRecord } from "../types/storage.ts";
-import { testConfig } from "../../tests/support/config.ts";
+import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 
-function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return testConfig({
-    channelId: "chan-1",
-    channelIds: ["chan-1"],
-    timeZone: "America/Los_Angeles",
-    aiApiKey: "sk-test-key",
-    aiRateLimitPerUser: 2,
-    aiDailyTokenBudget: 10000000,
-    webSearchEnabled: true,
-    webSearchApiKey: "brave-key",
-    autonomousChatChannelIds: ["chan-1"],
-    ...overrides,
-  });
+function createMockConfig(overrides: ConfigOverrides = {}): AppConfig {
+  return testConfig(
+    {
+      channelId: "chan-1",
+      channelIds: ["chan-1"],
+      timeZone: "America/Los_Angeles",
+      aiApiKey: "sk-test-key",
+      aiRateLimitPerUser: 2,
+      aiDailyTokenBudget: 10000000,
+      webSearch: { enabled: true, apiKey: "brave-key" },
+      autonomousChat: { channelIds: ["chan-1"] },
+    },
+    overrides,
+  );
 }
 
 function mockFetchMessages(messages: Array<Record<string, unknown>>): { restore: () => void } {
@@ -327,7 +328,7 @@ const tweetMention = "<@12345> what do you think? https://x.com/kay/status/123";
 test("tweet link adds the tweet text and photos to the AI context", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
-    const ctx = createDeps(createMockConfig({ webSearchEnabled: true }));
+    const ctx = createDeps(createMockConfig({ webSearch: { enabled: true } }));
     const photoUrls = ["https://pbs.twimg.com/a.jpg"];
     ctx.deps.tweetService = {
       read: () =>
@@ -364,10 +365,10 @@ test("unreadable tweet sends a fallback message and skips AI", async () => {
   }
 });
 
-test("tweet links are plain text when TWEET_READ_ENABLED is off", async () => {
+test("tweet links are plain text when tweet reading is off", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
-    const ctx = createDeps(createMockConfig({ tweetReadEnabled: false }));
+    const ctx = createDeps(createMockConfig({ tweetRead: { enabled: false } }));
     ctx.deps.tweetService = { read: () => Promise.reject(new Error("should not be called")) };
 
     await handleMessage(createMentionMessage(tweetMention), ctx.deps);
@@ -381,7 +382,7 @@ test("tweet links are plain text when TWEET_READ_ENABLED is off", async () => {
 test("non-open mention still uses auto-search flow", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
-    const config = createMockConfig({ webSearchEnabled: true });
+    const config = createMockConfig({ webSearch: { enabled: true } });
     const ctx = createDeps(config, {
       webSearchResult: {
         ok: true,
@@ -406,7 +407,7 @@ test("non-open mention still uses auto-search flow", async () => {
 test("handleMessage posts one greeting GIF when final reply has greeting trigger", async () => {
   const fetchMock = mockDiscordApiFetch();
   try {
-    const config = createMockConfig({ webSearchEnabled: false });
+    const config = createMockConfig({ webSearch: { enabled: false } });
     const ctx = createDeps(config, {
       aiResult: { ok: true, text: "Ciallo! Hello there~", tokensUsed: 7 },
     });
@@ -555,7 +556,7 @@ test("handleMessage ignores non-mention and bot-authored messages", async () => 
   }
 });
 test("handleMessage persists reset and does not reload pre-reset Discord history", async () => {
-  const config = createMockConfig({ webSearchEnabled: false });
+  const config = createMockConfig({ webSearch: { enabled: false } });
   const preloadFetch = mockFetchMessages([
     {
       id: "ctx-1",
@@ -680,7 +681,7 @@ test("handleMessage handles open-command disabled and malformed cases", async ()
   {
     const fetchMock = mockDiscordApiFetch();
     try {
-      const config = createMockConfig({ linkOpenEnabled: false });
+      const config = createMockConfig({ linkOpen: { enabled: false } });
       const ctx = createDeps(config);
       await handleMessage(createMentionMessage("<@12345> \\open https://example.com"), ctx.deps);
       expect(ctx.aiCalls.length).toStrictEqual(0);
@@ -908,5 +909,59 @@ test("landmines are not rolled for bot messages", async () => {
     expect(stepped).toBe(0);
   } finally {
     mock.restore();
+  }
+});
+
+test("link open, tweet reading and web search follow their own channels", async () => {
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const elsewhere = { channelIds: ["elsewhere"] };
+    const ctx = createDeps(
+      createMockConfig({
+        linkOpen: elsewhere,
+        tweetRead: elsewhere,
+        webSearch: { enabled: true, ...elsewhere },
+      }),
+    );
+    ctx.deps.tweetService = { read: () => Promise.reject(new Error("should not be called")) };
+
+    await handleMessage(createMentionMessage("<@12345> \\open https://example.com"), ctx.deps);
+    expect(ctx.linkCalls.length).toStrictEqual(0);
+    expect(fetchMock.postedMessages[0]).toContain("turned off");
+
+    await handleMessage(createMentionMessage(tweetMention), ctx.deps);
+    await handleMessage(createMentionMessage("<@12345> what is bun?"), ctx.deps);
+    expect(ctx.webSearchCalls.length).toStrictEqual(0);
+    expect(ctx.aiCalls.length).toStrictEqual(2);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("mentions get no reply where AI chat is off, but \\reset still answers", async () => {
+  for (const aiChat of [{ enabled: false }, { channelIds: ["elsewhere"] }]) {
+    const fetchMock = mockDiscordApiFetch();
+    try {
+      const ctx = createDeps(createMockConfig({ aiChat }));
+      await handleMessage(createMentionMessage("<@12345> hello"), ctx.deps);
+      expect(ctx.aiCalls.length).toStrictEqual(0);
+      expect(fetchMock.postedMessages).toStrictEqual([]);
+
+      await handleMessage(createMentionMessage("<@12345> \\reset"), ctx.deps);
+      expect(fetchMock.postedMessages.length).toStrictEqual(1);
+    } finally {
+      fetchMock.restore();
+    }
+  }
+});
+
+test("ai.enabled is the master switch: no reply even where AI chat is on", async () => {
+  const fetchMock = mockDiscordApiFetch();
+  try {
+    const ctx = createDeps(createMockConfig({ aiEnabled: false, aiChat: { enabled: true } }));
+    await handleMessage(createMentionMessage("<@12345> hello"), ctx.deps);
+    expect(ctx.aiCalls.length).toStrictEqual(0);
+  } finally {
+    fetchMock.restore();
   }
 });

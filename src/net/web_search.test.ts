@@ -6,16 +6,17 @@ import {
   extractAutoSearchQuery,
 } from "./web_search.ts";
 import type { AppConfig } from "../config.ts";
-import { testConfig } from "../../tests/support/config.ts";
+import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 
-function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return testConfig({
-    aiApiKey: "sk-test-key",
-    aiRateLimitPerUser: 2,
-    webSearchEnabled: true,
-    webSearchApiKey: "brave-key",
-    ...overrides,
-  });
+function createMockConfig(overrides: ConfigOverrides = {}): AppConfig {
+  return testConfig(
+    {
+      aiApiKey: "sk-test-key",
+      aiRateLimitPerUser: 2,
+      webSearch: { enabled: true, apiKey: "brave-key" },
+    },
+    overrides,
+  );
 }
 
 function mockFetch(
@@ -72,7 +73,7 @@ test("formatSearchResultsForContext truncates long snippets and fills blank titl
 });
 
 test("web search returns error when disabled", async () => {
-  const service = createWebSearchService(createMockConfig({ webSearchEnabled: false }));
+  const service = createWebSearchService(createMockConfig({ webSearch: { enabled: false } }));
   const result = await service.search("bun");
   expect(result.ok).toStrictEqual(false);
 });

@@ -55,6 +55,12 @@ const today = () => new Date().toISOString().split("T")[0];
 
 /** Lists each channel's result; succeeds if at least one channel got the post. */
 function postReport(posts: ChannelPost[], title: string, showDetail = false): Response {
+  // A job posts nothing only when its feature is disabled.
+  if (posts.length === 0) {
+    return new Response("ℹ️ Nothing posted: this feature is disabled in config.yaml", {
+      status: 409,
+    });
+  }
   const lines = posts.map((post) =>
     post.ok
       ? `✅ ${post.channelId}${showDetail ? `: ${post.detail}` : ""}`
@@ -180,8 +186,11 @@ export function createRequestHandler(
       "checking alerts",
       async () => {
         const results = [];
-        for (const channelId of config.channelIds) {
-          const atRisk = await storage.getUsersAtRisk(channelId, config.glueAlertThreshold);
+        for (const channelId of config.wellness.channelIds) {
+          const atRisk = await storage.getUsersAtRisk(
+            channelId,
+            config.wellness.glueAlertThreshold,
+          );
           results.push({
             channelId,
             usersAtRisk: atRisk.map((history) => ({

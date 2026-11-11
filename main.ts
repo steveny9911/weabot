@@ -21,9 +21,15 @@ import { withProviderLimits } from "./src/ai/providers/index.ts";
 import { createServer } from "./src/app/server.ts";
 import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
 import { startGateway } from "./src/app/gateway.ts";
+import type { ChannelScope, FeatureConfig } from "./src/feature_config.ts";
 import type { BotDependencies } from "./src/bot/handle_message.ts";
 
 const config = withProviderLimits(loadConfig());
+
+const channelsLabel = (channelIds: ChannelScope) =>
+  channelIds === "all" ? "all" : channelIds.join(", ");
+const onOff = (feature: FeatureConfig) =>
+  `${feature.enabled ? "on" : "off"}, channels: ${channelsLabel(feature.channelIds)}`;
 
 const db = openDatabase(config.databasePath);
 const storage = createStorageService(db);
@@ -80,7 +86,6 @@ console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);
 console.log(`   Database: ${config.databasePath}`);
 console.log(`   Timezone: ${config.timeZone}`);
-console.log(`   Glue Alert Threshold: ${config.glueAlertThreshold} days`);
 console.log("");
 console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
@@ -92,32 +97,27 @@ console.log(`   Max Input Chars: ${maxInputLabel}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
 console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
 console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);
-console.log(`   Discord Event/Invite Actions: ${config.discordActionsEnabled}`);
 if (!config.aiApiKey) {
   console.log("   ⚠️  AI_API_KEY not set - AI chat disabled");
 }
 
 console.log("");
-console.log("🌐 Web Search:");
-console.log(`   Enabled: ${config.webSearchEnabled}`);
-console.log(`   Max Results: ${config.webSearchMaxResults}`);
-if (!config.webSearchApiKey) {
-  console.log("   ⚠️  BRAVE_SEARCH_API_KEY not set - web search disabled");
+console.log("🧩 Features:");
+const features = {
+  "Mention replies": config.aiChat,
+  "Web search": config.webSearch,
+  "Link open": config.linkOpen,
+  "Tweet reading": config.tweetRead,
+  "Event/invite actions": config.discordActions,
+  "Autonomous chat": config.autonomousChat,
+  Landmines: config.landmine,
+  "Mood poll": config.moodPoll,
+  "Weekly stats": config.weeklyStats,
+  "Wellness alerts": config.wellness,
+};
+for (const [name, feature] of Object.entries(features)) {
+  console.log(`   ${name}: ${onOff(feature)}`);
 }
-console.log("");
-console.log("🔗 Link Open:");
-console.log(`   Enabled: ${config.linkOpenEnabled}`);
-console.log("");
-console.log("💣 Landmines:");
-console.log(`   Enabled: ${config.landmineEnabled}`);
-console.log(`   Channels: ${config.landmineChannelIds.join(", ")}`);
-console.log(`   Chance: ${config.landmineChance}`);
-console.log("");
-console.log("💬 Autonomous Chat:");
-console.log(`   Enabled: ${config.autonomousChatEnabled}`);
-console.log(`   Channels: ${config.autonomousChatChannelIds.join(", ")}`);
-console.log(`   Min Human Messages: ${config.autonomousChatMinHumanMessages}`);
-console.log(`   Activity Window: ${config.autonomousChatActivityWindowMinutes} minutes`);
-console.log(`   Cooldown: ${config.autonomousChatCooldownMinutes} minutes`);
-console.log(`   Reply Chance: ${config.autonomousChatReplyChance}`);
-console.log(`   Max Context Messages: ${config.autonomousChatMaxContextMessages}`);
+if (config.webSearch.enabled && !config.webSearch.apiKey) {
+  console.log("   ⚠️  BRAVE_SEARCH_API_KEY not set - web search will fail");
+}

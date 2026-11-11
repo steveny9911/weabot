@@ -1,4 +1,4 @@
-/** Posts the daily mood poll to every configured channel and records it for later collection. */
+/** Posts the daily mood poll to the mood_poll channels and records it for later collection. */
 import { buildMoodPollPayload } from "../features/poll.ts";
 import { DEFAULT_MOOD_CONFIG } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
@@ -9,12 +9,16 @@ export async function postMoodPolls(
   dateFormatter: Intl.DateTimeFormat,
   tag: LogTag,
 ): Promise<ChannelPost[]> {
+  if (!config.moodPoll.enabled) {
+    console.log(`${tag} Mood poll skipped because it is disabled`);
+    return [];
+  }
   const now = new Date();
   const dateString = dateFormatter.format(now);
   const payload = buildMoodPollPayload(dateString, DEFAULT_MOOD_CONFIG);
   const posts: ChannelPost[] = [];
 
-  for (const channelId of config.channelIds) {
+  for (const channelId of config.moodPoll.channelIds) {
     const response = await discord.postMessage(channelId, payload);
 
     if (response.ok) {

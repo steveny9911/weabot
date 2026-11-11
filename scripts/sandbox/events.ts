@@ -79,12 +79,12 @@ async function main(): Promise<void> {
   const dryRun = args.has("--dry-run");
   const keep = args.has("--keep");
   ensure(!(dryRun && keep), "--keep is only meaningful for a live run.");
+  const base = loadConfig();
   const config = {
-    ...loadConfig(),
+    ...base,
     channelId: TEXT_CHANNEL_ID,
     channelIds: [TEXT_CHANNEL_ID],
-    autonomousChatEnabled: false,
-    autonomousChatChannelIds: [],
+    autonomousChat: { ...base.autonomousChat, enabled: false, channelIds: [] },
     aiEnabled: true,
     aiEnableUwu: false,
     aiMaxInputChars: 0,
