@@ -46,8 +46,8 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         }
 
         let timedOut = "";
-        if (config.landmine.timeout.enabled) {
-          const seconds = config.landmine.timeout.seconds;
+        if (config.landmine.stepPenalty.enabled) {
+          const seconds = config.landmine.stepPenalty.timeoutSeconds;
           const result = await discord.timeoutMember(
             guildId,
             userId,

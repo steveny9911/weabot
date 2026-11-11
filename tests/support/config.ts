@@ -62,7 +62,7 @@ function defaults(): AppConfig {
       enabled: false,
       channelIds: channels(),
       chance: 0.1,
-      timeout: { enabled: true, seconds: 60 },
+      stepPenalty: { enabled: true, timeoutSeconds: 60 },
       gifs: [],
     },
   };

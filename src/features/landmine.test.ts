@@ -49,7 +49,7 @@ test("a message that is a landmine times out its author and announces it", async
 });
 
 test("with timeouts off a landmine only announces, and the user is not timed out", async () => {
-  const { service, timeouts, sent, mines } = setup({ timeout: { enabled: false } });
+  const { service, timeouts, sent, mines } = setup({ stepPenalty: { enabled: false } });
   await service.step(message());
   expect(timeouts).toHaveLength(0);
   expect(sent).toStrictEqual([
@@ -70,7 +70,7 @@ test("the announcement ends with a GIF picked from the list", async () => {
 });
 
 test("the announcement uses the configured timeout", async () => {
-  const { service, sent } = setup({ timeout: { seconds: 30 } });
+  const { service, sent } = setup({ stepPenalty: { timeoutSeconds: 30 } });
   await service.step(message());
   expect(sent[0]).toContain("timed out for 30 seconds!");
 });

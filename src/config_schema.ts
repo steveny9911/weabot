@@ -51,7 +51,7 @@ const KEYS: Keys<ConfigFile> = {
     channel_ids: true,
     chance: true,
     gifs: true,
-    timeout: { enabled: true, seconds: true },
+    step_penalty: { enabled: true, timeout_seconds: true },
   },
 };
 
