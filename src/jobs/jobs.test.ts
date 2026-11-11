@@ -78,14 +78,29 @@ test("mood polls post to every channel, record successful polls for collection, 
   ]);
   expect(logs).toStrictEqual([
     "log: [CRON] Posted poll in good: message m1",
-    "error: [CRON] Failed to post poll in bad: 403 Missing Access",
     "log: [STORAGE] Saved pending poll m1 for 2026-11-05",
+    "error: [CRON] Failed to post poll in bad: 403 Missing Access",
   ]);
 });
 
-test("stats cover the last N UTC days, today included, and log with the caller's tag", async () => {
+test("a mood poll already posted stays recorded when a later channel's post throws", async () => {
+  const { deps, storage } = fixture();
+  let calls = 0;
+  deps.discord = {
+    postMessage() {
+      if (++calls === 2) return Promise.reject(new Error("network down"));
+      return Promise.resolve(Response.json({ id: `m${calls}` }));
+    },
+  } as unknown as DiscordClient;
+
+  await expect(postMoodPolls(deps, "[CRON]")).rejects.toThrow("network down");
+  expect((await storage.getAllPendingPolls()).map((poll) => poll.messageId)).toStrictEqual(["m1"]);
+});
+
+test("stats cover from N days ago through today, UTC, and log with the caller's tag", async () => {
   const storage = createStorageService(openDatabase(":memory:"));
   for (const [mood, date] of [
+    ["ok", "2026-10-28"],
     ["glue", "2026-10-29"],
     ["ok", "2026-10-30"],
     ["glue", "2026-11-05"],
@@ -106,7 +121,7 @@ test("stats cover the last N UTC days, today included, and log with the caller's
   ]);
   const embed = JSON.stringify(posts[0].payload);
   expect(embed).toContain("📊 Weekly Mood Summary");
-  expect(embed).toContain("Total responses: 2");
+  expect(embed).toContain("Total responses: 3");
   expect(logs).toStrictEqual([
     "log: [CRON] Posted weekly stats in good: message m1",
     "error: [CRON] Failed to post weekly stats in bad: 403 Missing Access",

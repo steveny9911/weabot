@@ -10,10 +10,10 @@ export interface StatsPostOptions {
   tag: LogTag;
 }
 
-/** The first and last UTC dates of the `days` calendar days ending today. */
+/** The UTC dates from `days` days ago through today, both ends inclusive (as stats always were). */
 export function lastDays(days: number, now = new Date()): { start: string; end: string } {
   const start = new Date(now);
-  start.setUTCDate(start.getUTCDate() - (days - 1));
+  start.setUTCDate(start.getUTCDate() - days);
   return { start: start.toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
 }
 

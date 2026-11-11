@@ -14,22 +14,19 @@ export async function postMoodPolls(
   const now = Date.now();
   const title = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: config.timeZone });
   const payload = buildMoodPollPayload(title.format(now));
-  const posts = await postToChannels(
+  return await postToChannels(
     discord,
     config.moodPoll.channelIds,
     { label: "poll", tag },
     () => payload,
+    ({ channelId, detail: messageId }) =>
+      storage.savePendingPoll({
+        messageId,
+        channelId,
+        date: new Date(now).toISOString().slice(0, 10),
+        createdAt: now,
+        expiresAt: now + MOOD_POLL_HOURS * 60 * 60 * 1000,
+        collected: false,
+      }),
   );
-  for (const { channelId, ok, detail: messageId } of posts) {
-    if (!ok) continue;
-    await storage.savePendingPoll({
-      messageId,
-      channelId,
-      date: new Date(now).toISOString().slice(0, 10),
-      createdAt: now,
-      expiresAt: now + MOOD_POLL_HOURS * 60 * 60 * 1000,
-      collected: false,
-    });
-  }
-  return posts;
 }

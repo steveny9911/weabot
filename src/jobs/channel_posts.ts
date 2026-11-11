@@ -19,12 +19,16 @@ export interface ChannelPost {
   detail: string;
 }
 
-/** Posts to each channel in turn, logging every result as `tag` and naming the post `label`. */
+/**
+ * Posts to each channel in turn, logging every result as `tag` and naming the post `label`.
+ * `onPosted` runs right after each successful post, so a later channel failing cannot lose it.
+ */
 export async function postToChannels(
   discord: DiscordClient,
   channelIds: string[],
   { label, tag }: { label: string; tag: LogTag },
   payloadFor: (channelId: string) => MessagePayload | Promise<MessagePayload>,
+  onPosted?: (post: ChannelPost) => void | Promise<void>,
 ): Promise<ChannelPost[]> {
   const posts: ChannelPost[] = [];
   for (const channelId of channelIds) {
@@ -32,7 +36,9 @@ export async function postToChannels(
     if (response.ok) {
       const { id } = (await response.json()) as { id: string };
       console.log(`${tag} Posted ${label} in ${channelId}: message ${id}`);
-      posts.push({ channelId, ok: true, detail: id });
+      const post = { channelId, ok: true, detail: id };
+      posts.push(post);
+      await onPosted?.(post);
     } else {
       const body = await response.text();
       console.error(`${tag} Failed to post ${label} in ${channelId}: ${response.status} ${body}`);
