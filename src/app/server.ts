@@ -1,15 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
-import type { AppConfig } from "../config.ts";
-import type { DiscordClient } from "../discord/client.ts";
-import type { StorageService } from "../services/storage.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import { collectExpiredPolls } from "../jobs/collect_polls.ts";
-import type { ChannelPost } from "../jobs/channel_posts.ts";
+import type { ChannelPost, JobDeps } from "../jobs/channel_posts.ts";
 import { postMoodPolls } from "../jobs/mood_poll.ts";
-import { postStats } from "../jobs/stats.ts";
+import { lastDays, postStats } from "../jobs/stats.ts";
 import { postTestAlert } from "../jobs/wellness.ts";
 import { buildStatsEmbed } from "../features/stats.ts";
-import type { Mood } from "../types/bot.ts";
+import { isMood, MOODS } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
 
 const WRITES = new Set([
@@ -71,26 +68,20 @@ function postReport(posts: ChannelPost[], title: string, showDetail = false): Re
     : new Response(`❌ Failed:\n${lines.join("\n")}`, { status: 500 });
 }
 
+/** What the admin routes read and post with; `rateLimit` backs /ai-usage. */
+type ServerDeps = JobDeps & { rateLimit?: RateLimitService };
+
 /** Health is public; every other route needs `ADMIN_HTTP_TOKEN` and is off without it. */
-export function createRequestHandler(
-  config: AppConfig,
-  discord: DiscordClient,
-  storage: StorageService,
-  dateFormatter: Intl.DateTimeFormat,
-  rateLimit?: RateLimitService,
-) {
-  const deps = { config, discord, storage };
+export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
+  const { config, discord, storage } = deps;
+  const defaultChannel = config.channelIds[0];
 
   const routes: Record<string, [label: string, run: (url: URL) => Promise<Response>]> = {
     "/trigger_poll": [
       "posting poll",
       async () => {
         console.log("[SERVER] Triggering poll...");
-        return postReport(
-          await postMoodPolls(deps, dateFormatter, "[SERVER]"),
-          "Poll posted",
-          true,
-        );
+        return postReport(await postMoodPolls(deps, "[SERVER]"), "Poll posted", true);
       },
     ],
     "/trigger_stats": [
@@ -143,10 +134,10 @@ export function createRequestHandler(
     "/vote": [
       "recording vote",
       async (url) => {
-        const channelId = url.searchParams.get("channelId") ?? config.channelId;
+        const channelId = url.searchParams.get("channelId") ?? defaultChannel;
         const userId = url.searchParams.get("user");
         const userName = url.searchParams.get("name") ?? "TestUser";
-        const mood = url.searchParams.get("mood") as Mood | null;
+        const mood = url.searchParams.get("mood");
         const date = url.searchParams.get("date") ?? today();
         if (!userId || !mood) {
           return new Response(
@@ -155,8 +146,8 @@ export function createRequestHandler(
             { status: 400 },
           );
         }
-        if (!["umazing", "ok", "glue"].includes(mood)) {
-          return new Response("Invalid mood. Must be: umazing, ok, or glue", { status: 400 });
+        if (!isMood(mood)) {
+          return new Response(`Invalid mood. Must be one of: ${MOODS.join(", ")}`, { status: 400 });
         }
         await storage.recordVote(channelId, userId, userName, mood, date);
         console.log(
@@ -168,16 +159,10 @@ export function createRequestHandler(
     "/stats": [
       "getting stats",
       async (url) => {
-        const channelId = url.searchParams.get("channelId") ?? config.channelId;
+        const channelId = url.searchParams.get("channelId") ?? defaultChannel;
         const days = parseInt(url.searchParams.get("days") ?? "7", 10);
-        const endDate = new Date();
-        const startDate = new Date(endDate);
-        startDate.setUTCDate(startDate.getUTCDate() - days);
-        const stats = await storage.getStats(
-          channelId,
-          startDate.toISOString().split("T")[0],
-          endDate.toISOString().split("T")[0],
-        );
+        const { start, end } = lastDays(days);
+        const stats = await storage.getStats(channelId, start, end);
         const embed = buildStatsEmbed(stats, `📊 Mood Stats (Last ${days} Days)`);
         return json({ channelId, stats, embed });
       },
@@ -209,7 +194,7 @@ export function createRequestHandler(
     "/user-history": [
       "getting user history",
       async (url) => {
-        const channelId = url.searchParams.get("channelId") ?? config.channelId;
+        const channelId = url.searchParams.get("channelId") ?? defaultChannel;
         const userId = url.searchParams.get("user");
         if (!userId) {
           return new Response(
@@ -270,7 +255,7 @@ export function createRequestHandler(
         const expiresInMs = parseInt(url.searchParams.get("expiresIn") ?? "0", 10);
         const pollRecord: PollRecord = {
           messageId,
-          channelId: url.searchParams.get("channelId") ?? config.channelId,
+          channelId: url.searchParams.get("channelId") ?? defaultChannel,
           date: url.searchParams.get("date") ?? today(),
           createdAt: Date.now(),
           expiresAt: Date.now() + expiresInMs,
@@ -326,15 +311,6 @@ export function serverOptions(handler: (req: Request) => Promise<Response>, port
   } satisfies Bun.Serve.Options<undefined>;
 }
 
-export function createServer(
-  config: AppConfig,
-  discord: DiscordClient,
-  storage: StorageService,
-  dateFormatter: Intl.DateTimeFormat,
-  rateLimit?: RateLimitService,
-  port = 8000,
-) {
-  return Bun.serve(
-    serverOptions(createRequestHandler(config, discord, storage, dateFormatter, rateLimit), port),
-  );
+export function createServer(deps: ServerDeps, port = 8000) {
+  return Bun.serve(serverOptions(createRequestHandler(deps), port));
 }

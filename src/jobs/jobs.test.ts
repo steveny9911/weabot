@@ -56,11 +56,9 @@ function fixture(
   return { deps, posts, storage };
 }
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" });
-
 test("mood polls post to every channel, record successful polls for collection, and report failures", async () => {
   const { deps, posts, storage } = fixture();
-  const results = await postMoodPolls(deps, dateFormatter, "[CRON]");
+  const results = await postMoodPolls(deps, "[CRON]");
 
   expect(results).toStrictEqual([
     { channelId: "good", ok: true, detail: "m1" },
@@ -79,17 +77,21 @@ test("mood polls post to every channel, record successful polls for collection, 
     },
   ]);
   expect(logs).toStrictEqual([
+    "log: [CRON] Posted poll in good: message m1",
+    "error: [CRON] Failed to post poll in bad: 403 Missing Access",
     "log: [STORAGE] Saved pending poll m1 for 2026-11-05",
-    "log: [CRON] Poll posted in good! Message ID: m1",
-    "error: [CRON] Failed to post poll in bad: 403",
-    "error: Missing Access",
   ]);
 });
 
-test("stats cover the last N UTC days and log with the caller's tag and label", async () => {
+test("stats cover the last N UTC days, today included, and log with the caller's tag", async () => {
   const storage = createStorageService(openDatabase(":memory:"));
-  await storage.recordVote("good", "u1", "User One", "ok", "2026-10-29");
-  await storage.recordVote("good", "u1", "User One", "glue", "2026-11-05");
+  for (const [mood, date] of [
+    ["glue", "2026-10-29"],
+    ["ok", "2026-10-30"],
+    ["glue", "2026-11-05"],
+  ] as const) {
+    await storage.recordVote("good", "u1", "User One", mood, date);
+  }
   const { deps, posts } = fixture(storage);
   const results = await postStats(deps, {
     days: 7,
@@ -99,16 +101,15 @@ test("stats cover the last N UTC days and log with the caller's tag and label", 
   });
 
   expect(results).toStrictEqual([
-    { channelId: "good", ok: true, detail: "" },
+    { channelId: "good", ok: true, detail: "m1" },
     { channelId: "bad", ok: false, detail: "Missing Access" },
   ]);
   const embed = JSON.stringify(posts[0].payload);
   expect(embed).toContain("📊 Weekly Mood Summary");
   expect(embed).toContain("Total responses: 2");
   expect(logs).toStrictEqual([
-    "log: [CRON] Weekly stats posted in good!",
-    "error: [CRON] Failed to post weekly stats in bad: 403",
-    "error: Missing Access",
+    "log: [CRON] Posted weekly stats in good: message m1",
+    "error: [CRON] Failed to post weekly stats in bad: 403 Missing Access",
   ]);
 });
 
@@ -126,9 +127,9 @@ test("the wellness check alerts each user at or over the glue streak, per channe
   expect(JSON.stringify(posts[0].payload)).toContain("User One");
   expect(logs).toStrictEqual([
     "log: [CRON] Found 1 user(s) at risk in good",
-    "log: [CRON] Alert sent for User One in good",
+    "log: [CRON] Posted alert for User One in good: message m1",
     "log: [CRON] Found 1 user(s) at risk in bad",
-    "error: [CRON] Failed to send alert for User One in bad",
+    "error: [CRON] Failed to post alert for User One in bad: 403 Missing Access",
   ]);
 });
 test("the test alert posts the named user's alert to every channel", async () => {
@@ -136,13 +137,13 @@ test("the test alert posts the named user's alert to every channel", async () =>
   const results = await postTestAlert(deps, "TestUser", 3);
 
   expect(results).toStrictEqual([
-    { channelId: "good", ok: true, detail: "" },
+    { channelId: "good", ok: true, detail: "m1" },
     { channelId: "bad", ok: false, detail: "Missing Access" },
   ]);
   expect(JSON.stringify(posts[0].payload)).toContain("TestUser");
   expect(logs).toStrictEqual([
-    "log: [SERVER] Alert posted in good!",
-    "error: [SERVER] Failed to post alert in bad: 403",
+    "log: [SERVER] Posted alert in good: message m1",
+    "error: [SERVER] Failed to post alert in bad: 403 Missing Access",
   ]);
 });
 
@@ -152,7 +153,7 @@ test("each job posts only to its own feature's channels", async () => {
     weeklyStats: { channelIds: ["stats-only"] },
     wellness: { channelIds: ["wellness-only"] },
   });
-  await postMoodPolls(deps, dateFormatter, "[CRON]");
+  await postMoodPolls(deps, "[CRON]");
   await postStats(deps, { days: 7, title: "t", label: "weekly stats", tag: "[CRON]" });
   await postTestAlert(deps, "TestUser", 3);
   expect(posts.map((post) => post.channelId)).toStrictEqual([
@@ -171,7 +172,7 @@ test("a disabled feature posts nothing and records nothing", async () => {
   await storage.recordVote("good", "u1", "User One", "glue", "2026-11-03");
   await storage.recordVote("good", "u1", "User One", "glue", "2026-11-04");
 
-  expect(await postMoodPolls(deps, dateFormatter, "[CRON]")).toStrictEqual([]);
+  expect(await postMoodPolls(deps, "[CRON]")).toStrictEqual([]);
   expect(
     await postStats(deps, { days: 7, title: "t", label: "weekly stats", tag: "[SERVER]" }),
   ).toStrictEqual([]);

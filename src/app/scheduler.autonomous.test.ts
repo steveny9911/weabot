@@ -11,7 +11,6 @@ import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts"
 
 function config(): AppConfig {
   return testConfig({
-    channelId: "channel",
     channelIds: ["channel"],
     aiRateLimitPerUser: 1,
     aiDailyTokenBudget: 100,
@@ -110,10 +109,9 @@ async function withAutonomousJob(
     );
     let run: () => Promise<void>;
     const restart = () => {
-      registerCronJobs(
-        cron,
-        settings,
-        {
+      registerCronJobs(cron, {
+        config: settings,
+        discord: {
           ...(options.getReactionContext ? { getReactionContext: options.getReactionContext } : {}),
           ...(options.getMessage ? { getMessage: options.getMessage } : {}),
           getBotUserId: () => Promise.resolve("bot"),
@@ -142,8 +140,7 @@ async function withAutonomousJob(
             ((channelId) => Promise.resolve(messages.get(channelId) ?? [])),
         },
         storage,
-        new Intl.DateTimeFormat("en-US"),
-        {
+        ai: {
           generateReply(context, generateOptions) {
             const generation = { messages: context, options: generateOptions };
             generations.push(generation);
@@ -151,7 +148,7 @@ async function withAutonomousJob(
           },
         },
         rateLimit,
-      );
+      });
       const job = jobs.get("Autonomous Chat");
       assert(job);
       run = async () => await job();

@@ -19,7 +19,6 @@ export interface AppConfig {
   discordToken: string;
   /** HTTP administration is disabled unless this bearer token is set. */
   adminHttpToken?: string;
-  channelId: string;
   channelIds: string[];
   databasePath: string;
   httpPort: number;
@@ -205,7 +204,6 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
   return {
     discordToken,
     adminHttpToken: secret("ADMIN_HTTP_TOKEN"),
-    channelId: channelIds[0],
     channelIds,
     databasePath: general?.db_path ?? DEFAULT_DATABASE_PATH,
     httpPort: general?.http_port ?? 8000,

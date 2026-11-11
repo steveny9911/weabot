@@ -52,7 +52,6 @@ test("loadConfig needs a Discord token and a channel", () => {
 test("an empty config.yaml gives the defaults", () => {
   const config = load();
   expect(config.channelIds).toStrictEqual(["chan-1"]);
-  expect(config.channelId).toStrictEqual("chan-1");
   expect(config.databasePath).toStrictEqual("./data/haru.sqlite3");
   expect(config.httpPort).toStrictEqual(8000);
   expect(config.timeZone).toStrictEqual("America/Los_Angeles");

@@ -17,7 +17,6 @@ import { fakeDiscord } from "../../tests/support/discord.ts";
 function createMockConfig(overrides: ConfigOverrides = {}): AppConfig {
   return testConfig(
     {
-      channelId: "chan-1",
       channelIds: ["chan-1"],
       timeZone: "America/Los_Angeles",
       aiApiKey: "sk-test-key",

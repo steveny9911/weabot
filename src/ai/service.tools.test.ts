@@ -7,7 +7,6 @@ import { testConfig } from "../../tests/support/config.ts";
 
 function mockConfig(): AppConfig {
   return testConfig({
-    channelId: "sandbox",
     channelIds: ["sandbox"],
     timeZone: "America/Vancouver",
     aiRateLimitPerUser: 2,

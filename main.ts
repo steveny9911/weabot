@@ -62,25 +62,10 @@ const botDeps: BotDependencies = {
   ),
 };
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-  timeZone: config.timeZone,
-});
-
 startGateway(config, botDeps);
-registerCronJobs(
-  bunCron,
-  config,
-  discord,
-  storage,
-  dateFormatter,
-  aiService,
-  rateLimit,
-  createMaintenanceJob(db, actionTurns),
-);
-createServer(config, discord, storage, dateFormatter, rateLimit, config.httpPort);
+const jobDeps = { config, discord, storage, rateLimit };
+registerCronJobs(bunCron, { ...jobDeps, ai: aiService }, createMaintenanceJob(db, actionTurns));
+createServer(jobDeps, config.httpPort);
 
 console.log("🐴 Haru is running!");
 console.log(`   Channels: ${config.channelIds.join(", ")}`);

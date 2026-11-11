@@ -1,5 +1,5 @@
 /** Shared scheduled/manual collection. Failures remain pending for the next run. */
-import type { Mood } from "../types/bot.ts";
+import { isMood, type Mood } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
 import type { DiscordClient, PollVoter } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
@@ -22,7 +22,7 @@ export async function collectExpiredPolls(
       const voters = new Set<string>();
       const votes = answers.flatMap<PollVoter & { mood: Mood }>((answer) => {
         const mood = answer.answerText.toLowerCase();
-        if (mood !== "umazing" && mood !== "ok" && mood !== "glue") {
+        if (!isMood(mood)) {
           throw new Error(`Unknown mood answer ${answer.answerId}: ${answer.answerText}`);
         }
         if (moods.has(mood)) throw new Error(`Duplicate mood answer: ${mood}`);

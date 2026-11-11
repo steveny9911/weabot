@@ -14,7 +14,6 @@ function config(overrides: ConfigOverrides = {}): AppConfig {
   return testConfig(
     {
       discordToken: "test",
-      channelId: "text",
       channelIds: ["text"],
       timeZone: "America/Vancouver",
       aiApiKey: "test",

@@ -24,12 +24,13 @@ function register(storage: Partial<StorageService> = {}, maintenance?: () => voi
   } as unknown as DiscordClient;
   registerCronJobs(
     cron,
-    { channelIds: ["channel"] } as AppConfig,
-    discord,
-    storage as StorageService,
-    new Intl.DateTimeFormat("en-US"),
-    {} as AiService,
-    {} as RateLimitService,
+    {
+      config: { channelIds: ["channel"] } as AppConfig,
+      discord,
+      storage: storage as StorageService,
+      ai: {} as AiService,
+      rateLimit: {} as RateLimitService,
+    },
     maintenance,
   );
   return jobs;

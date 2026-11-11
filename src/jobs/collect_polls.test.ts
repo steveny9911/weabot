@@ -15,11 +15,9 @@ import { createStorageService, type StorageService } from "../services/storage.t
 import { openDatabase } from "../db/database.ts";
 
 const config = {
-  channelId: "channel",
   channelIds: ["channel"],
   adminHttpToken: "test-admin-token",
 } as AppConfig & { adminHttpToken: string };
-const formatter = new Intl.DateTimeFormat("en-US");
 const moods = ["umazing", "ok", "glue"];
 const poll: PollRecord = {
   messageId: "poll",
@@ -33,7 +31,7 @@ const poll: PollRecord = {
 type Mode = "HTTP" | "scheduled";
 function collectionRunner(mode: Mode, discord: DiscordClient, storage: StorageService) {
   if (mode === "HTTP") {
-    const handler = createRequestHandler(config, discord, storage, formatter);
+    const handler = createRequestHandler({ config, discord, storage });
     return () =>
       handler(
         new Request("http://localhost/trigger_collect", {
@@ -45,15 +43,13 @@ function collectionRunner(mode: Mode, discord: DiscordClient, storage: StorageSe
 
   // Exercise the callback actually registered by the scheduler, without real cron jobs.
   const jobs = new Map<string, () => Promise<void> | void>();
-  registerCronJobs(
-    (name, _schedule, task) => jobs.set(name, task),
+  registerCronJobs((name, _schedule, task) => jobs.set(name, task), {
     config,
     discord,
     storage,
-    formatter,
-    {} as AiService,
-    {} as RateLimitService,
-  );
+    ai: {} as AiService,
+    rateLimit: {} as RateLimitService,
+  });
   const run = jobs.get("Poll Result Collection");
   if (!run) throw new Error("Poll collection cron was not registered");
   return async () => {

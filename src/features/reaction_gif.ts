@@ -8,28 +8,11 @@ export const haruGreetingGifPool: readonly string[] = [
   "https://tenor.com/view/haru-urara-haru-urara-punch-uma-gif-3671877342466542406",
 ];
 
-const GREETING_TRIGGER_RE = /\b(?:hello|hi|ciallo)\b/i;
-
-export function hasGreetingTrigger(text: string): boolean {
-  if (!text) return false;
-  return GREETING_TRIGGER_RE.test(text);
-}
-
-export function pickRandomGreetingGif(random: () => number = Math.random): string {
-  const poolSize = haruGreetingGifPool.length;
-  if (poolSize === 0) return "";
-
-  const sample = random();
-  const safeSample = Number.isFinite(sample) ? sample : 0;
-  const index = Math.max(0, Math.min(poolSize - 1, Math.floor(safeSample * poolSize)));
-
-  return haruGreetingGifPool[index];
-}
-
+/** A random greeting GIF when the reply says hello, hi or ciallo; otherwise null. */
 export function selectGreetingGifForReply(
   replyText: string,
   random: () => number = Math.random,
 ): string | null {
-  if (!hasGreetingTrigger(replyText)) return null;
-  return pickRandomGreetingGif(random);
+  if (!/\b(?:hello|hi|ciallo)\b/i.test(replyText)) return null;
+  return haruGreetingGifPool[Math.floor(random() * haruGreetingGifPool.length)];
 }

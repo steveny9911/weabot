@@ -583,8 +583,7 @@ weabot/
 │   └── *.integration.ts        # HTTP/TLS transport tests (bun run test:transport)
 ├── scripts/
 │   ├── sandbox/                # Manual runs against the sandbox Discord server
-│   ├── eval/                   # Reaction evaluation
-│   └── issue_agent/            # GitHub issue automation
+│   └── eval/                   # Reaction evaluation
 ├── config.example.yaml         # Documented settings; copy to config.yaml (ignored by git)
 ├── compose.yaml                # Docker Compose service
 ├── package.json                # Scripts and dependencies
@@ -654,68 +653,8 @@ Haru now runs on Bun and started with a new, empty database. These differences a
 5. A link path starting with `//` is requested with a single `/`.
 6. A gzip body followed by trailing zero bytes fails to decode.
 7. An admin HTTP request that sends nothing for 120 seconds is cut off.
-8. Issue triage counts "bun" as an environment detail in bug reports.
 
 Weekly stats no longer drop or duplicate a day across a daylight saving change.
-
-### Local Issue Automation (Codex + GitHub Issues)
-
-If Haru is running locally, you can still automate issue triage and PR creation from this Mac.
-
-Prerequisites:
-
-1. `gh` is installed and authenticated (`gh auth status`).
-2. Token has `repo` scope (for labels/comments/closing/PRs).
-3. Commands run from this repository root.
-
-Agent state labels used by automation:
-
-1. `agent:accepted`
-2. `agent:needs-info`
-3. `agent:rejected`
-4. `agent:in-progress`
-5. `agent:pr-open`
-6. `agent:closed-inactive`
-
-These labels are auto-created/updated by the scripts below.
-
-Run triage:
-
-```bash
-bun run agent:triage
-```
-
-Run stale close (close rejected/needs-info issues after 3 days inactive):
-
-```bash
-bun run agent:stale-close
-```
-
-Run the full triage + stale-close + claim-next cycle:
-
-```bash
-bun run agent:run-once
-```
-
-Claim next accepted issue for implementation (prints JSON):
-
-```bash
-bun run agent:next-issue --claim
-```
-
-Mark an issue as PR-open after a PR is created:
-
-```bash
-bun run agent:mark-pr-open 123 https://github.com/OWNER/REPO/pull/456
-```
-
-Suggested recurring loop:
-
-1. `bun run agent:triage`
-2. `bun run agent:stale-close`
-3. `bun run agent:next-issue --claim`
-4. If issue found: implement + test + open PR
-5. `bun run agent:mark-pr-open <issue_number> <pr_url>`
 
 ---
 
