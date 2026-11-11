@@ -76,8 +76,7 @@ ai:
 # and discord_actions only work where ai_chat does:
 #   enabled      true or false.
 #   channel_ids  List of channel IDs where it works, or all for every channel Haru can read.
-#                Empty or left out means discord.channel_ids. all keeps these working in any channel,
-#                as before channel_ids existed.
+#                Empty or left out means discord.channel_ids.
 ai_chat:
   enabled: true
   channel_ids: all
