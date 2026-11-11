@@ -39,10 +39,12 @@ interface TimestampedRecentMessage {
   timestampMs: number;
 }
 
-function parseTimestampMs(timestamp: string): number | null {
-  const parsed = Date.parse(timestamp);
-  return Number.isFinite(parsed) ? parsed : null;
-}
+/** A decision not to join, with the reason it is logged under. */
+const skip = (reason: string): AutonomousChatDecision => ({
+  shouldReply: false,
+  reason,
+  contextMessages: [],
+});
 
 function isHumanMessage(message: RecentDiscordMessage, botUserId: string): boolean {
   return (
@@ -59,16 +61,14 @@ export function decideAutonomousChatReply(
     inactivityGapMs: options.inactivityGapMs,
     resetAfterMs: options.resetAfterMs,
   });
-  const timestamped: TimestampedRecentMessage[] = activeConversation
-    .map((message) => {
-      const timestampMs = parseTimestampMs(message.timestamp);
-      if (timestampMs === null) return null;
-      return { message, timestampMs: timestampMs };
-    })
-    .filter((item): item is TimestampedRecentMessage => item !== null);
+  // The active conversation holds only messages with valid timestamps.
+  const timestamped: TimestampedRecentMessage[] = activeConversation.map((message) => ({
+    message,
+    timestampMs: Date.parse(message.timestamp),
+  }));
 
   if (timestamped.length === 0) {
-    return { shouldReply: false, reason: "no valid recent messages", contextMessages: [] };
+    return skip("no valid recent messages");
   }
 
   const minHumanMessages = Math.max(1, options.minHumanMessages);
@@ -80,11 +80,7 @@ export function decideAutonomousChatReply(
   });
 
   if (recentHumanMessages.length < minHumanMessages) {
-    return {
-      shouldReply: false,
-      reason: `only ${recentHumanMessages.length} recent human message(s)`,
-      contextMessages: [],
-    };
+    return skip(`only ${recentHumanMessages.length} recent human message(s)`);
   }
 
   const lastHaruMessage = [...timestamped]
@@ -93,20 +89,16 @@ export function decideAutonomousChatReply(
 
   const latestHuman = recentHumanMessages.at(-1)!;
   if (options.nowMs - latestHuman.timestampMs < (options.settleMs ?? 0)) {
-    return {
-      shouldReply: false,
-      reason: "human message burst still settling",
-      contextMessages: [],
-    };
+    return skip("human message burst still settling");
   }
   if (isIncompleteFragment(latestHuman.message)) {
-    return { shouldReply: false, reason: "latest human turn is incomplete", contextMessages: [] };
+    return skip("latest human turn is incomplete");
   }
   const previous = options.lastParticipation;
   if (previous) {
     const elapsedMs = options.nowMs - previous.attemptedAt;
     if (elapsedMs < options.cooldownMs) {
-      return { shouldReply: false, reason: "participation cooldown active", contextMessages: [] };
+      return skip("participation cooldown active");
     }
     if (
       !isNewerHumanMessage(
@@ -117,14 +109,14 @@ export function decideAutonomousChatReply(
         previous,
       )
     ) {
-      return { shouldReply: false, reason: "conversation already considered", contextMessages: [] };
+      return skip("conversation already considered");
     }
   }
 
   if (lastHaruMessage) {
     const elapsedMs = options.nowMs - lastHaruMessage.timestampMs;
     if (elapsedMs >= 0 && elapsedMs < options.cooldownMs) {
-      return { shouldReply: false, reason: "cooldown active", contextMessages: [] };
+      return skip("cooldown active");
     }
 
     const hasHumanAfterHaru = timestamped.some(
@@ -133,20 +125,16 @@ export function decideAutonomousChatReply(
     );
 
     if (!hasHumanAfterHaru) {
-      return {
-        shouldReply: false,
-        reason: "no human message after Haru",
-        contextMessages: [],
-      };
+      return skip("no human message after Haru");
     }
   }
 
   if (options.replyChance <= 0) {
-    return { shouldReply: false, reason: "reply chance disabled", contextMessages: [] };
+    return skip("reply chance disabled");
   }
 
   if (options.random() > options.replyChance) {
-    return { shouldReply: false, reason: "random gate skipped", contextMessages: [] };
+    return skip("random gate skipped");
   }
 
   const contextLimit = Math.max(1, options.maxContextMessages);

@@ -104,6 +104,36 @@ function channelRules(entityType: number): { channelType: number; bits: bigint; 
       };
 }
 
+/** Discord mentions and emoji embed non-event snowflakes, never event targets. */
+function stripMentions(text: string): string {
+  return text.replace(/<(?:(?:@!?|@&|#)\d+|a?:[A-Za-z0-9_]+:\d+|\/[^:>]+:\d+)>/g, " ");
+}
+
+/** The events a message points at, as "guildId/eventId": by event link, by id, or by name. */
+function eventReferences(
+  withoutMentions: string,
+  events: DiscordScheduledEvent[],
+  guildId: string,
+): Set<string> {
+  const links = withoutMentions.matchAll(
+    /https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)/gi,
+  );
+  const references = new Set([...links].map((link) => `${link[1]}/${link[2]}`));
+  const withoutLinks = withoutMentions.replace(/https?:\/\/\S+/gi, " ");
+  for (const id of withoutLinks.match(/\b\d{17,20}\b/g) ?? []) {
+    references.add(`${guildId}/${id}`);
+  }
+  for (const event of events) {
+    if (
+      containsReference(withoutMentions, event.name) ||
+      containsReference(withoutLinks, event.id)
+    ) {
+      references.add(`${guildId}/${event.id}`);
+    }
+  }
+  return references;
+}
+
 export function createDiscordActionService(
   client: DiscordEventsClient,
   db: Database,
@@ -408,27 +438,8 @@ export function createDiscordActionService(
           );
         };
         const events = (await client.listScheduledEvents(context.guildId)).filter(accessible);
-        // Discord mentions and emoji embed non-event snowflakes, never event targets.
-        const withoutMentions = source.replace(
-          /<(?:(?:@!?|@&|#)\d+|a?:[A-Za-z0-9_]+:\d+|\/[^:>]+:\d+)>/g,
-          " ",
-        );
-        const sourceLinks = [
-          ...withoutMentions.matchAll(/https:\/\/(?:www\.)?discord\.com\/events\/(\d+)\/(\d+)/gi),
-        ];
-        const references = new Set(sourceLinks.map((link) => `${link[1]}/${link[2]}`));
-        const withoutLinks = withoutMentions.replace(/https?:\/\/\S+/gi, " ");
-        for (const id of withoutLinks.match(/\b\d{17,20}\b/g) ?? []) {
-          references.add(`${context.guildId}/${id}`);
-        }
-        for (const event of events) {
-          if (
-            containsReference(withoutMentions, event.name) ||
-            containsReference(withoutLinks, event.id)
-          ) {
-            references.add(`${context.guildId}/${event.id}`);
-          }
-        }
+        const withoutMentions = stripMentions(source);
+        const references = eventReferences(withoutMentions, events, context.guildId);
         if (references.size > 1) {
           return await whichOne(
             events.filter((event) => references.has(`${context.guildId}/${event.id}`)),

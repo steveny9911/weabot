@@ -1,3 +1,5 @@
+import { isHttpUrl } from "../ai/context_images.ts";
+
 export interface DiscordMessageReference {
   id: string;
   authorId: string;
@@ -28,15 +30,6 @@ interface TimestampedMessage {
 
 const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp)$/i;
 const IMAGE_CONTENT_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-
-function isHttpUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
 
 function attachmentLooksLikeImage(attachment: Record<string, unknown>): boolean {
   const rawContentType = attachment["content_type"];

@@ -2,7 +2,7 @@
 
 import type { Fetcher } from "../types/fetch.ts";
 
-import { DISCORD_API_BASE as API_BASE } from "./api.ts";
+import { botJsonHeaders, DISCORD_API_BASE as API_BASE } from "./api.ts";
 
 export interface DiscordRole {
   id: string;
@@ -271,10 +271,7 @@ export function createDiscordEventsClient(
     mutationMethod: "POST" | "PATCH" = "POST",
   ): Promise<T> {
     const mutation = payload !== undefined;
-    const headers: Record<string, string> = {
-      Authorization: `Bot ${token}`,
-      "Content-Type": "application/json",
-    };
+    const headers = botJsonHeaders(token);
     if (reason) {
       headers["X-Audit-Log-Reason"] = encodeURIComponent(Array.from(reason).slice(0, 512).join(""));
     }

@@ -4,7 +4,7 @@ import { mapDiscordMessage, type RecentDiscordMessage } from "../features/chat_c
 import type { ReactionContext } from "../features/reactions.ts";
 import { readReactionContext } from "./reaction_context.ts";
 import { fetchWithRetry } from "../net/retry.ts";
-import { DISCORD_API_BASE as API_BASE } from "./api.ts";
+import { botJsonHeaders, DISCORD_API_BASE as API_BASE } from "./api.ts";
 
 const REACTION_TIMEOUT_MS = 15_000;
 
@@ -58,10 +58,7 @@ export interface DiscordClient {
 }
 
 export function createDiscordClient(token: string): DiscordClient {
-  const headers = {
-    Authorization: `Bot ${token}`,
-    "Content-Type": "application/json",
-  };
+  const headers = botJsonHeaders(token);
   let botUserId: string | undefined;
 
   const postMessage = (channelId: string, payload: MessagePayload) =>
