@@ -236,10 +236,10 @@ test("generateReply truncates input when aiMaxInputChars is set", async () => {
   expect(text).toContain("this is...");
 });
 
-test("generateReply drops a leading greeting but keeps the meaning and a greeting-only reply", async () => {
+test("generateReply sanitizes greetings and apology phrasing", async () => {
   for (const [reply, expected] of [
-    ["Hello there, I'm sorry I cannot do that!", "I'm sorry I cannot do that!"],
-    ["Hi there!", "Hi there!"],
+    ["Hello there, I'm sorry I cannot do that!", "do that!"],
+    ["Hi! unable to comply", "comply"],
   ]) {
     const { result } = await generate(
       { output_text: reply, usage: { total_tokens: 22 } },

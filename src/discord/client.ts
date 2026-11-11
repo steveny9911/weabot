@@ -88,6 +88,10 @@ export function createDiscordClient(token: string): DiscordClient {
   return {
     async getBotUserId() {
       if (botUserId) return botUserId;
+      if (!token) {
+        console.error("Cannot fetch bot user id: DISCORD_TOKEN missing");
+        return undefined;
+      }
       try {
         const response = await fetchWithRetry(`${API_BASE}/users/@me`, { headers });
         if (!response.ok) {
@@ -106,12 +110,14 @@ export function createDiscordClient(token: string): DiscordClient {
     postMessage,
 
     sendMessage: (channelId, content, suppressMentions = false) =>
-      write("post", () =>
-        postMessage(channelId, {
-          content,
-          ...(suppressMentions ? { allowed_mentions: { parse: [] } } : {}),
-        }),
-      ),
+      channelId
+        ? write("post", () =>
+            postMessage(channelId, {
+              content,
+              ...(suppressMentions ? { allowed_mentions: { parse: [] } } : {}),
+            }),
+          )
+        : Promise.resolve({ ok: false, error: "missing channelId" }),
 
     timeoutMember: (guildId, userId, seconds, reason) =>
       write("timeout", () =>

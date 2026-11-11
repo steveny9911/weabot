@@ -320,6 +320,37 @@ test("getBotUserId caches the ID, but not a failure", async () => {
   }
 });
 
+test("getBotUserId makes no request without a token", async () => {
+  let requests = 0;
+  const fetchMock = mockFetch(() => {
+    requests++;
+    return Response.json({ id: "bot-1" });
+  });
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(await createDiscordClient("").getBotUserId()).toStrictEqual(undefined);
+    expect(requests).toStrictEqual(0);
+  } finally {
+    logged.mockRestore();
+    fetchMock.restore();
+  }
+});
+
+test("sendMessage without a channel id fails without a request", async () => {
+  let requests = 0;
+  const fetchMock = mockFetch(() => {
+    requests++;
+    return Response.json({});
+  });
+  try {
+    const result = await createDiscordClient("token").sendMessage("", "hi");
+    expect(result).toStrictEqual({ ok: false, error: "missing channelId" });
+    expect(requests).toStrictEqual(0);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
 test("sendMessage posts text, can suppress mentions, and reports a refusal", async () => {
   const bodies: unknown[] = [];
   let status = 200;
