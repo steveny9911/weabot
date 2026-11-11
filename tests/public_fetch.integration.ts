@@ -1,10 +1,9 @@
 /** Real transport tests: only loopback networking, no public DNS. */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
-import { createServer } from "node:net";
 import { requestPinned } from "../src/net/public_fetch.ts";
 import { realFetch } from "./support/setup.ts";
 import { rejects } from "./support/assert.ts";
+import { compress } from "./support/compress.ts";
 import { ca } from "./fixtures/link_tls.ts";
 import { serveFixture } from "./fixtures/serve.ts";
 
@@ -18,21 +17,15 @@ afterAll(() => {
 });
 
 /** True when this machine can listen on the IPv6 loopback address. */
-async function hasIpv6Loopback(): Promise<boolean> {
-  const server = createServer();
+function hasIpv6Loopback(): boolean {
   try {
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "::1", resolve);
-    });
+    Bun.listen({ hostname: "::1", port: 0, socket: { data() {} } }).stop(true);
     return true;
   } catch {
     return false;
-  } finally {
-    server.close();
   }
 }
-const ipv6 = await hasIpv6Loopback();
+const ipv6 = hasIpv6Loopback();
 if (!ipv6) console.warn("IPv6 loopback is unavailable here; skipping the IPv6 pinning test.");
 
 test("pinned HTTP connects to numeric IP with original Host/path and no credentials", async () => {
@@ -130,12 +123,9 @@ test("pinned transport never automatically follows a redirect", async () => {
 
 describe("pinned transport decodes gzip, deflate, and brotli before size-limited reading", () => {
   const html = "<html><title>Compressed</title><body>hello</body></html>";
-  for (const [encoding, compressed] of [
-    ["gzip", gzipSync(html)],
-    ["deflate", deflateSync(html)],
-    ["br", brotliCompressSync(html)],
-  ] as const) {
+  for (const encoding of ["gzip", "deflate", "br"] as const) {
     test(encoding, async () => {
+      const compressed = await compress(encoding, html);
       const server = serveFixture(
         () =>
           new Response(new Uint8Array(compressed), {

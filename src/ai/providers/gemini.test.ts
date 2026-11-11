@@ -1,23 +1,21 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { assert, throws } from "../../../tests/support/assert.ts";
 import { testConfig } from "../../../tests/support/config.ts";
+import { tempDir } from "../../../tests/support/temp.ts";
 import type { Fetcher } from "../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
 import { createAiService } from "../service.ts";
 import { createGeminiProvider } from "./gemini.ts";
 
-let dir: string;
+let dir: ReturnType<typeof tempDir>;
 let promptFile: string;
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "gemini-"));
-  promptFile = join(dir, "prompt.md");
-  writeFileSync(promptFile, "You are Haru.\n");
+beforeEach(async () => {
+  dir = tempDir();
+  promptFile = `${dir.path}/prompt.md`;
+  await Bun.write(promptFile, "You are Haru.\n");
 });
-afterEach(() => rmSync(dir, { recursive: true }));
+afterEach(() => dir[Symbol.dispose]());
 
 const config = (overrides = {}) =>
   testConfig({
@@ -131,7 +129,7 @@ test("a response without text is reported as empty", async () => {
   expect(await run(fetcher)).toMatchObject({ ok: true, text: null });
 });
 
-test("startup stops without a model, a prompt file, or prompt text", () => {
+test("startup stops without a model, a prompt file, or prompt text", async () => {
   throws(() => createGeminiProvider(config({ aiModels: [] })), Error, "ai.models");
   throws(
     () => createGeminiProvider(config({ aiSystemPromptFile: undefined })),
@@ -139,11 +137,11 @@ test("startup stops without a model, a prompt file, or prompt text", () => {
     "ai.system_prompt_file",
   );
   throws(
-    () => createGeminiProvider(config({ aiSystemPromptFile: join(dir, "missing.md") })),
+    () => createGeminiProvider(config({ aiSystemPromptFile: `${dir.path}/missing.md` })),
     Error,
     "missing.md",
   );
-  writeFileSync(promptFile, "  \n");
+  await Bun.write(promptFile, "  \n");
   throws(() => createGeminiProvider(config()), Error, "is empty");
 });
 

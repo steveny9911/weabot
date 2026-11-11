@@ -1,19 +1,13 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { throws } from "../../tests/support/assert.ts";
+import { tempDir } from "../../tests/support/temp.ts";
 import { openDatabase } from "./database.ts";
 import { MIGRATIONS } from "./migrations.ts";
 
 function withDirectory(run: (dir: string) => void) {
-  const dir = mkdtempSync(join(tmpdir(), "haru-db-"));
-  try {
-    run(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  using dir = tempDir();
+  run(dir.path);
 }
 
 const pragma = (db: Database, name: string) =>
@@ -42,7 +36,7 @@ test("a new database is migrated to the latest version with all eight tables", (
 
 test("a database file is created with its directory and uses WAL, FULL sync and a busy timeout", () => {
   withDirectory((dir) => {
-    using db = openDatabase(join(dir, "data", "haru.sqlite3"));
+    using db = openDatabase(`${dir}/data/haru.sqlite3`);
     expect(pragma(db, "journal_mode")).toBe("wal");
     expect(pragma(db, "synchronous")).toBe(2);
     expect(pragma(db, "foreign_keys")).toBe(1);
@@ -52,7 +46,7 @@ test("a database file is created with its directory and uses WAL, FULL sync and 
 
 test("reopening a database keeps its data and applies no migration twice", () => {
   withDirectory((dir) => {
-    const path = join(dir, "haru.sqlite3");
+    const path = `${dir}/haru.sqlite3`;
     {
       using db = openDatabase(path);
       db.run("INSERT INTO context_resets VALUES ('channel', 'message', 1)");
@@ -64,7 +58,7 @@ test("reopening a database keeps its data and applies no migration twice", () =>
 });
 test("a database newer than the code is refused", () => {
   withDirectory((dir) => {
-    const path = join(dir, "haru.sqlite3");
+    const path = `${dir}/haru.sqlite3`;
     {
       using db = new Database(path);
       db.run(`PRAGMA user_version = ${MIGRATIONS.length + 1}`);
@@ -75,7 +69,7 @@ test("a database newer than the code is refused", () => {
 
 test("a failing migration is rolled back and later migrations do not run", () => {
   withDirectory((dir) => {
-    const path = join(dir, "haru.sqlite3");
+    const path = `${dir}/haru.sqlite3`;
     const migrations = [
       "CREATE TABLE first (x INTEGER) STRICT;",
       "CREATE TABLE second (x INTEGER) STRICT; INSERT INTO missing VALUES (1);",

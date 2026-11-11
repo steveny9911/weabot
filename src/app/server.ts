@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import { collectExpiredPolls } from "../jobs/collect_polls.ts";
 import type { ChannelPost, JobDeps } from "../jobs/channel_posts.ts";
@@ -275,7 +274,7 @@ export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
     if (!config.adminHttpToken) return new Response("Not found", { status: 404 });
     const expected = new TextEncoder().encode(`Bearer ${config.adminHttpToken}`);
     const supplied = new TextEncoder().encode(req.headers.get("authorization") ?? "");
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+    if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) {
       return new Response("Unauthorized", { status: 401 });
     }
     const method = WRITES.has(url.pathname) ? "POST" : "GET";

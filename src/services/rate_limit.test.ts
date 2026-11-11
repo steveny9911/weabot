@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { rejects } from "../../tests/support/assert.ts";
+import { tempDir } from "../../tests/support/temp.ts";
 import { usageDate } from "../db/ai_usage.ts";
 import { type Database, openDatabase } from "../db/database.ts";
 import { createRateLimitService } from "./rate_limit.ts";
@@ -121,25 +119,21 @@ test("concurrent token reports from several services are all counted", async () 
 });
 
 test("daily totals survive reopening the database file", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "haru-usage-"));
-  try {
-    const path = join(dir, "nested", "haru.sqlite3");
-    {
-      using db = openDatabase(path);
-      const service = createRateLimitService(db, config(), () => NOW);
-      await service.admitRequest("user");
-      await service.recordTokenUsage(42);
-    }
+  using dir = tempDir();
+  const path = `${dir.path}/nested/haru.sqlite3`;
+  {
     using db = openDatabase(path);
     const service = createRateLimitService(db, config(), () => NOW);
-    expect(await service.getUsageStats()).toStrictEqual({
-      dailyTokensUsed: 42,
-      dailyTokenBudget: 100_000,
-      requestsToday: 1,
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await service.admitRequest("user");
+    await service.recordTokenUsage(42);
   }
+  using db = openDatabase(path);
+  const service = createRateLimitService(db, config(), () => NOW);
+  expect(await service.getUsageStats()).toStrictEqual({
+    dailyTokensUsed: 42,
+    dailyTokenBudget: 100_000,
+    requestsToday: 1,
+  });
 });
 
 test("invalid token reports cannot reduce or corrupt the budget counter", async () => {
