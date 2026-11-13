@@ -1,8 +1,92 @@
-/** Reading and writing the OpenAI Responses API shapes, shared by the providers that speak it. */
-import type { ProviderRequest, ToolCall } from "./types.ts";
+/** The OpenAI Responses API, shared by the providers that speak it. */
+import type { Fetcher } from "../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
+import type { AiProvider, ProviderRequest, ProviderStep, ToolCall } from "./types.ts";
+
+/** What a provider adds to the shared Responses client. */
+interface ResponsesOptions {
+  label: string;
+  url: string;
+  apiKey: string | undefined;
+  fetch?: Fetcher;
+  /** The request fields only this provider sends. `pinned` is the model that asked for tools. */
+  body(ctx: { participation: boolean; pinned?: string }): Record<string, unknown>;
+  /** Returns an error for output the provider must refuse. */
+  check?(output: unknown[]): string | undefined;
+}
+
+export function createResponsesProvider(options: ResponsesOptions): AiProvider {
+  const { label, url, apiKey, body, check } = options;
+  const fetchImpl: Fetcher = options.fetch ?? ((input, init) => fetch(input, init));
+  return {
+    label,
+    start(request) {
+      const input = buildInput(request);
+      let lastOutput: unknown[] = [];
+      let calls = 0;
+      // Tool results only make sense to the model that asked for them, so a provider that rotates
+      // models pins the later steps to the one that answered first.
+      let pinned: string | undefined;
+      return {
+        get calls() {
+          return calls;
+        },
+        async step(signal): Promise<ProviderStep> {
+          const participation = request.format === "participation";
+          calls++;
+          const res = await fetchImpl(url, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...body({ participation, pinned }),
+              input,
+              text: { format: participation ? AUTONOMOUS_PARTICIPATION_FORMAT : { type: "text" } },
+              ...(request.tools
+                ? { tools: request.tools, parallel_tool_calls: false }
+                : { tool_choice: "none" }),
+            }),
+            signal,
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            return {
+              ok: false,
+              error: `${label} error ${res.status}: ${text}`,
+              tokens: participation ? errorTokenUsage(text) : 0,
+            };
+          }
+
+          const json: unknown = await res.json();
+          const data = isObject(json) ? json : {};
+          console.log("[AI] model:", data.model);
+          const tokens = readTokenUsage(data);
+          if (request.tools && (data.status === "incomplete" || data.status === "failed")) {
+            return { ok: false, error: `${label} response ${data.status}`, tokens };
+          }
+
+          lastOutput = Array.isArray(data.output) ? data.output : [];
+          const error = check?.(lastOutput);
+          if (error) return { ok: false, error, tokens };
+          const toolCalls = toolCallsFrom(lastOutput);
+          if (toolCalls.length > 0 && typeof data.model === "string") pinned = data.model;
+          const text = participation ? participationText(data) : extractResponseText(data);
+          return { ok: true, text, toolCalls, tokens };
+        },
+
+        addToolResults(toolCalls, results) {
+          // Reasoning and every other output item must survive manual continuation.
+          input.push(...lastOutput);
+          toolCalls.forEach((call, index) =>
+            input.push({ type: "function_call_output", call_id: call.id, output: results[index] }),
+          );
+        },
+      };
+    },
+  };
+}
 
 /** The Responses API input: instructions as a developer item, then the user turn. */
-export function buildInput(request: ProviderRequest): unknown[] {
+function buildInput(request: ProviderRequest): unknown[] {
   const content: Array<Record<string, unknown>> = [{ type: "input_text", text: request.userText }];
   for (const imageUrl of request.imageUrls) {
     content.push({ type: "input_image", image_url: imageUrl });
@@ -20,7 +104,7 @@ export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export function errorTokenUsage(body: string): number {
+function errorTokenUsage(body: string): number {
   try {
     const data: unknown = JSON.parse(body);
     return isObject(data) ? readTokenUsage(data) : 0;
@@ -30,7 +114,7 @@ export function errorTokenUsage(body: string): number {
   }
 }
 
-export function readTokenUsage(data: Record<string, unknown>): number {
+function readTokenUsage(data: Record<string, unknown>): number {
   const usage = data.usage;
   if (!isObject(usage)) return 0;
   const total = usage.total_tokens;
@@ -38,7 +122,7 @@ export function readTokenUsage(data: Record<string, unknown>): number {
 }
 
 /** Autonomous output must be one completed assistant message of plain output text. */
-export function participationText(data: Record<string, unknown>): string | null {
+function participationText(data: Record<string, unknown>): string | null {
   if (data.status !== undefined && data.status !== "completed") return null;
   if (data.output !== undefined) {
     if (!Array.isArray(data.output)) return null;
@@ -59,7 +143,7 @@ export function participationText(data: Record<string, unknown>): string | null 
 }
 
 /** Reply text from either `output_text` or the structured `output[].content[]` shape. */
-export function extractResponseText(data: Record<string, unknown>): string | null {
+function extractResponseText(data: Record<string, unknown>): string | null {
   const topLevelOutputText = data.output_text;
   if (typeof topLevelOutputText === "string" && topLevelOutputText.trim().length > 0) {
     return topLevelOutputText;
@@ -94,7 +178,7 @@ export function extractResponseText(data: Record<string, unknown>): string | nul
 }
 
 /** The function calls in a response's output items, in order. */
-export function toolCallsFrom(output: unknown[]): ToolCall[] {
+function toolCallsFrom(output: unknown[]): ToolCall[] {
   return output.filter(isObject).flatMap((item) =>
     item.type === "function_call"
       ? [

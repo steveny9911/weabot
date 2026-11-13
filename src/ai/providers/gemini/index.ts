@@ -11,7 +11,7 @@ interface GeminiFile {
 
 export const gemini = defineAiProvider<GeminiFile, GeminiSettings>({
   apiKeyEnv: "GEMINI_API_KEY",
-  configKeys: { models: true, system_prompt_file: true, thinking: true },
+  configKeys: ["models", "system_prompt_file", "thinking"],
   parseConfig(section) {
     const { models: list, thinking } = section ?? {};
     if (!Array.isArray(list) || list.length === 0 || list.some((m) => typeof m !== "string")) {

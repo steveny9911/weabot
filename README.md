@@ -620,16 +620,11 @@ Unit tests sit next to the file they test.
 ### AI providers
 
 Each provider has a folder under `src/ai/providers/` (`openai/`, `gemini/`, `openrouter/`) whose
-`index.ts` exports a module built with `defineAiProvider`: its key name in `.env` (`apiKeyEnv`), the
-keys and checks for its `ai.<name>` section (`configKeys`, `parseConfig`), and `create`, which
-builds the adapter. An adapter may offer `usageReport()` for `\usage`; without one, `\usage` shows
-Haru's own daily counts. The registry in `src/ai/providers/index.ts` is the only list, and no
-provider is the default: with AI on, `ai.provider` must name one.
-
-To add a provider, create its folder and register it there. To remove one, delete both (and, for
-Gemini, the `@google/genai` dependency); a leftover `ai.<name>` section then stops startup as an
-unknown setting. No production code outside the provider folders names a provider; the service tests
-use OpenAI as their fixture.
+`index.ts` exports a module built with `defineAiProvider`. The registry in
+`src/ai/providers/index.ts` is the only list, and no provider is the default. To add a provider,
+create its folder and register it there; to remove one, delete both (and, for Gemini, the
+`@google/genai` dependency). A provider may offer `usageReport()` for `\usage`; without one,
+`\usage` shows Haru's own daily counts.
 
 ---
 

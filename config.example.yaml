@@ -65,8 +65,7 @@ ai:
   openrouter:
     # REQUIRED with openrouter, no default. The preset (a slug such as haru-free, or
     # @preset/haru-free) that holds Haru's persona, models and settings. Manage it at
-    # openrouter.ai/settings/presets. It must not enable OpenRouter server tools (web search,
-    # datetime, fetch), which make OpenRouter ignore the autonomous chat output format.
+    # openrouter.ai/settings/presets. It must not enable OpenRouter server tools (see README).
     preset: null
 
   # true or false. UwU style in replies.

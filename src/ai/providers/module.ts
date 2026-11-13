@@ -9,13 +9,6 @@ export interface KeyTree {
   [key: string]: true | KeyTree;
 }
 
-/** The keys of `T`, as nested objects with `true` for each setting that is not a section. */
-export type Keys<T> = {
-  [K in keyof Required<T>]: Required<T>[K] extends string | number | boolean | unknown[]
-    ? true
-    : Keys<Required<T>[K]>;
-};
-
 /** A provider as the registry and config see it, with its own settings type hidden. */
 export interface AiProviderModule {
   /** The provider's key in `.env`. */
@@ -33,13 +26,13 @@ export interface AiProviderModule {
  */
 export function defineAiProvider<F, S>(provider: {
   apiKeyEnv: string;
-  configKeys: Keys<F>;
+  configKeys: Array<keyof F & string>;
   parseConfig(section: F | undefined, secret: SecretReader): S;
   create(settings: S, apiKey: string | undefined): AiProvider;
 }): AiProviderModule {
   return {
     apiKeyEnv: provider.apiKeyEnv,
-    configKeys: provider.configKeys as KeyTree,
+    configKeys: Object.fromEntries(provider.configKeys.map((key) => [key, true])),
     parseConfig: (section, secret) => provider.parseConfig(section as F | undefined, secret),
     create: (settings, apiKey) => provider.create(settings as S, apiKey),
   };

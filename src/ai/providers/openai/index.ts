@@ -10,7 +10,7 @@ interface OpenAiFile {
 
 export const openai = defineAiProvider<OpenAiFile, UsageSettings>({
   apiKeyEnv: "OPENAI_API_KEY",
-  configKeys: { usage_project_id: true },
+  configKeys: ["usage_project_id"],
   parseConfig: (section, secret) => ({
     adminKey: secret("OPENAI_ADMIN_KEY"),
     projectId: section?.usage_project_id || undefined,

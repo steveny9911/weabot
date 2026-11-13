@@ -1,7 +1,14 @@
 /** Checks config.yaml for typos: unknown keys, and an `enabled` that is not true or false. */
 import { AI_PROVIDERS } from "./ai/providers/index.ts";
-import type { Keys, KeyTree } from "./ai/providers/module.ts";
+import type { KeyTree } from "./ai/providers/module.ts";
 import type { ConfigFile } from "./config.ts";
+
+/** The keys of `T`, as nested objects with `true` for each setting that is not a section. */
+type Keys<T> = {
+  [K in keyof Required<T>]: Required<T>[K] extends string | number | boolean | unknown[]
+    ? true
+    : Keys<Required<T>[K]>;
+};
 
 /**
  * Every key config.yaml accepts. Typed from `ConfigFile`, so adding a setting there fails to

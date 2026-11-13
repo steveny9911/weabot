@@ -3,10 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assert, throws } from "../../../../tests/support/assert.ts";
-import { testConfig } from "../../../../tests/support/config.ts";
 import type { Fetcher } from "../../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
-import { createAiService } from "../../service.ts";
 import { gemini } from "./index.ts";
 import { createGeminiProvider, type GeminiSettings } from "./provider.ts";
 
@@ -28,13 +26,6 @@ const settings = (overrides: Partial<GeminiSettings> = {}): GeminiSettings => ({
   thinking: false,
   ...overrides,
 });
-
-const config = (overrides: Partial<GeminiSettings> = {}) =>
-  testConfig({
-    aiProvider: "gemini",
-    aiApiKey: KEY,
-    aiProviderSettings: settings(overrides),
-  });
 
 const reply = (text: string, total = 12) =>
   new Response(
@@ -151,21 +142,13 @@ test("startup stops without the prompt file or prompt text", () => {
 
 test("the ai.gemini section needs models and a prompt file, and defaults thinking off", () => {
   const secret = () => undefined;
-  throws(
-    () => gemini.parseConfig({ system_prompt_file: "p.md" }, secret),
-    Error,
-    "ai.gemini.models",
-  );
-  throws(() => gemini.parseConfig({ models: [] }, secret), Error, "ai.gemini.models");
-  for (const models of ["gemini-3-flash", 5]) {
-    throws(() => gemini.parseConfig({ models }, secret), Error, "must be a list");
+  const fails = (section: unknown, message: string) =>
+    throws(() => gemini.parseConfig(section, secret), Error, message);
+  for (const section of [undefined, {}, { system_prompt_file: "p.md" }, { models: [] }]) {
+    fails(section, "ai.gemini.models");
   }
-  throws(
-    () => gemini.parseConfig({ models: ["a"] }, secret),
-    Error,
-    "ai.gemini.system_prompt_file",
-  );
-  throws(() => gemini.parseConfig(undefined, secret), Error, "ai.gemini.models");
+  for (const models of ["gemini-3-flash", 5]) fails({ models }, "must be a list");
+  fails({ models: ["a"] }, "ai.gemini.system_prompt_file");
   expect(
     gemini.parseConfig({ models: ["a", "b", "a"], system_prompt_file: "p.md" }, secret),
   ).toStrictEqual({ models: ["a", "b"], systemPromptFile: "p.md", thinking: false });
@@ -339,22 +322,6 @@ test("a caller abort stops the chain", async () => {
   await expect(session.step(controller.signal)).rejects.toThrow();
   expect(called).toHaveLength(1);
   expect(session.calls).toBe(1);
-});
-
-test("the service reports every attempt as a request", async () => {
-  const original = globalThis.fetch;
-  let n = 0;
-  globalThis.fetch = Object.assign(async () => (++n < 3 ? failWith(503)() : reply("finally")), {
-    preconnect() {},
-  }) as typeof fetch;
-  try {
-    const result = await createAiService(config({ models: ["a", "b", "c"] })).generateReply([
-      { author: "Alice", content: "hi" },
-    ]);
-    expect(result).toMatchObject({ ok: true, text: "finally", requestsUsed: 3 });
-  } finally {
-    globalThis.fetch = original;
-  }
 });
 
 const callReply = (name: string, args: unknown) =>

@@ -9,7 +9,7 @@ interface OpenRouterFile {
 
 export const openrouter = defineAiProvider<OpenRouterFile, OpenRouterSettings>({
   apiKeyEnv: "OPENROUTER_API_KEY",
-  configKeys: { preset: true },
+  configKeys: ["preset"],
   parseConfig(section) {
     // The preset may be written as a slug or as @preset/slug; the settings hold the slug.
     const slug =
