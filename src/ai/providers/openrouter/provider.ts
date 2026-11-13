@@ -1,12 +1,15 @@
 /** OpenRouter Responses API through a preset, which holds Haru's persona, models and settings. */
 import type { AppConfig } from "../../../config.ts";
 import type { Fetcher } from "../../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import {
   buildInput,
   errorTokenUsage,
   extractResponseText,
   isObject,
+  participationText,
   readTokenUsage,
+  toolCallsFrom,
 } from "../responses.ts";
 import type { AiProvider, ProviderStep } from "../types.ts";
 
@@ -34,15 +37,17 @@ export function createOpenRouterProvider(
     missingKeyError: "AI_API_KEY not set",
     start(request) {
       const input = buildInput(request);
+      let lastOutput: unknown[] = [];
       let calls = 0;
+      // The preset may rotate between models, but tool results only make sense to the model that
+      // asked for them, so later steps are pinned to the one that answered first.
+      let pinned: string | undefined;
       return {
         get calls() {
           return calls;
         },
         async step(signal): Promise<ProviderStep> {
-          if (request.tools || request.format === "participation") {
-            return { ok: false, error: "OpenRouter supports text replies only so far", tokens: 0 };
-          }
+          const participation = request.format === "participation";
           calls++;
           // Persona, models and reasoning come from the preset, so the request sends none of them.
           const res = await fetchImpl(OPENROUTER_URL, {
@@ -52,10 +57,14 @@ export function createOpenRouterProvider(
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model,
+              model: pinned ? `${pinned}@${model.slice(1)}` : model,
               input,
-              text: { format: { type: "text" } },
-              tool_choice: "none",
+              text: { format: participation ? AUTONOMOUS_PARTICIPATION_FORMAT : { type: "text" } },
+              // Only endpoints that honor the output format may answer a decision.
+              ...(participation ? { provider: { require_parameters: true } } : {}),
+              ...(request.tools
+                ? { tools: request.tools, parallel_tool_calls: false }
+                : { tool_choice: "none" }),
             }),
             signal,
           });
@@ -64,23 +73,31 @@ export function createOpenRouterProvider(
             return {
               ok: false,
               error: `OpenRouter error ${res.status}: ${body}`,
-              tokens: errorTokenUsage(body),
+              tokens: participation ? errorTokenUsage(body) : 0,
             };
           }
 
           const json: unknown = await res.json();
           const data = isObject(json) ? json : {};
           console.log("[AI] model:", data.model);
-          return {
-            ok: true,
-            text: extractResponseText(data),
-            toolCalls: [],
-            tokens: readTokenUsage(data),
-          };
+          const tokens = readTokenUsage(data);
+          if (request.tools && (data.status === "incomplete" || data.status === "failed")) {
+            return { ok: false, error: `OpenRouter response ${data.status}`, tokens };
+          }
+
+          lastOutput = Array.isArray(data.output) ? data.output : [];
+          const toolCalls = toolCallsFrom(lastOutput);
+          if (toolCalls.length > 0 && typeof data.model === "string") pinned = data.model;
+          const text = participation ? participationText(data) : extractResponseText(data);
+          return { ok: true, text, toolCalls, tokens };
         },
 
-        addToolResults() {
-          throw new Error("OpenRouter does not run tools yet");
+        addToolResults(toolCalls, results) {
+          // Reasoning and every other output item must survive manual continuation.
+          input.push(...lastOutput);
+          toolCalls.forEach((call, index) =>
+            input.push({ type: "function_call_output", call_id: call.id, output: results[index] }),
+          );
         },
       };
     },

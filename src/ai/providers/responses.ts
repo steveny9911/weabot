@@ -1,5 +1,5 @@
 /** Reading and writing the OpenAI Responses API shapes, shared by the providers that speak it. */
-import type { ProviderRequest } from "./types.ts";
+import type { ProviderRequest, ToolCall } from "./types.ts";
 
 /** The Responses API input: instructions as a developer item, then the user turn. */
 export function buildInput(request: ProviderRequest): unknown[] {
@@ -91,4 +91,19 @@ export function extractResponseText(data: Record<string, unknown>): string | nul
 
   if (chunks.length === 0) return null;
   return chunks.join("\n").trim();
+}
+
+/** The function calls in a response's output items, in order. */
+export function toolCallsFrom(output: unknown[]): ToolCall[] {
+  return output.filter(isObject).flatMap((item) =>
+    item.type === "function_call"
+      ? [
+          {
+            id: typeof item.call_id === "string" ? item.call_id : "",
+            name: typeof item.name === "string" ? item.name : "",
+            arguments: typeof item.arguments === "string" ? item.arguments : undefined,
+          },
+        ]
+      : [],
+  );
 }

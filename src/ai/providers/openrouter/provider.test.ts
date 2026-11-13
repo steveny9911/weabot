@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { testConfig } from "../../../../tests/support/config.ts";
 import { throws } from "../../../../tests/support/assert.ts";
 import type { Fetcher } from "../../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import { createAiService } from "../../service.ts";
 import { withResponses } from "../../../../tests/support/openai.ts";
 import type { ProviderRequest } from "../types.ts";
@@ -135,20 +136,178 @@ test("reasoning text is not part of the reply", async () => {
   ).toMatchObject({ ok: true, text: "Hello!" });
 });
 
-test("tool and autonomous requests are refused until they are supported", async () => {
-  const { calls, fetcher } = fakeFetch(() => reply("never"));
-  const provider = createOpenRouterProvider(config(), { fetch: fetcher });
-  for (const unsupported of [
-    { tools: [{ type: "function", name: "t" }] },
-    { format: "participation" as const },
-  ]) {
-    const step = await provider.start(request(unsupported)).step(AbortSignal.timeout(1000));
-    expect(step).toMatchObject({
-      ok: false,
-      error: "OpenRouter supports text replies only so far",
-    });
+const tool = {
+  type: "function",
+  name: "create_event",
+  description: "Create the requested event.",
+  strict: true,
+  parameters: {
+    type: "object",
+    properties: { name: { type: "string" } },
+    required: ["name"],
+    additionalProperties: false,
+  },
+};
+
+const functionCall = (id: string) => ({
+  type: "function_call",
+  call_id: id,
+  name: "create_event",
+  arguments: '{"name":"Movie night"}',
+});
+
+const callResponse = (model = "vendor/model:free") =>
+  Response.json({
+    model,
+    status: "completed",
+    output: [
+      { type: "reasoning", id: "rs_1", content: [{ type: "reasoning_text", text: "hmm" }] },
+      functionCall("call_1"),
+    ],
+    usage: { total_tokens: 30 },
+  });
+
+test("tool requests send the tools one call at a time, and the calls come back", async () => {
+  const { calls, fetcher } = fakeFetch(() => callResponse());
+  const session = createOpenRouterProvider(config(), { fetch: fetcher }).start(
+    request({ tools: [tool] }),
+  );
+  expect(await session.step(AbortSignal.timeout(1000))).toStrictEqual({
+    ok: true,
+    text: null,
+    toolCalls: [{ id: "call_1", name: "create_event", arguments: '{"name":"Movie night"}' }],
+    tokens: 30,
+  });
+  expect(calls[0]!.body).toMatchObject({
+    model: "@preset/haru-free",
+    tools: [tool],
+    parallel_tool_calls: false,
+    text: { format: { type: "text" } },
+  });
+  expect(calls[0]!.body).not.toHaveProperty("tool_choice");
+  expect(calls[0]!.body).not.toHaveProperty("provider");
+});
+
+test("tool results continue on the model that asked, with every output item kept", async () => {
+  const responses = [callResponse("vendor/model:free"), reply("Done!", 9)];
+  const { calls, fetcher } = fakeFetch(() => responses.shift()!);
+  const session = createOpenRouterProvider(config(), { fetch: fetcher }).start(
+    request({ tools: [tool] }),
+  );
+  const first = await session.step(AbortSignal.timeout(1000));
+  expect(first.ok && first.toolCalls).toHaveLength(1);
+  session.addToolResults(first.ok ? first.toolCalls : [], ['{"ok":true}']);
+  expect(await session.step(AbortSignal.timeout(1000))).toMatchObject({ ok: true, text: "Done!" });
+  expect(session.calls).toStrictEqual(2);
+  expect(calls[0]!.body.model).toStrictEqual("@preset/haru-free");
+  expect(calls[1]!.body.model).toStrictEqual("vendor/model:free@preset/haru-free");
+  expect((calls[1]!.body.input as unknown[]).slice(-3)).toStrictEqual([
+    { type: "reasoning", id: "rs_1", content: [{ type: "reasoning_text", text: "hmm" }] },
+    functionCall("call_1"),
+    { type: "function_call_output", call_id: "call_1", output: '{"ok":true}' },
+  ]);
+});
+
+test("an incomplete or failed tool response is an error that keeps its tokens", async () => {
+  for (const status of ["incomplete", "failed"]) {
+    const { fetcher } = fakeFetch(() =>
+      Response.json({ status, output: [], usage: { total_tokens: 5 } }),
+    );
+    expect(
+      await createOpenRouterProvider(config(), { fetch: fetcher })
+        .start(request({ tools: [tool] }))
+        .step(AbortSignal.timeout(1000)),
+    ).toStrictEqual({ ok: false, error: `OpenRouter response ${status}`, tokens: 5 });
   }
-  expect(calls).toHaveLength(0);
+});
+
+const decision = (overrides = {}) =>
+  JSON.stringify({
+    action: "reply",
+    text: "Hello!",
+    messageId: "",
+    emoji: "",
+    intent: "",
+    reason: "natural_contribution",
+    ...overrides,
+  });
+
+test("an autonomous decision asks for the strict format from endpoints that honor it", async () => {
+  const { calls, fetcher } = fakeFetch(() => reply(decision(), 21));
+  expect(
+    await createOpenRouterProvider(config(), { fetch: fetcher })
+      .start(request({ format: "participation" }))
+      .step(AbortSignal.timeout(1000)),
+  ).toStrictEqual({ ok: true, text: decision(), toolCalls: [], tokens: 21 });
+  expect(calls[0]!.body).toMatchObject({
+    model: "@preset/haru-free",
+    text: { format: AUTONOMOUS_PARTICIPATION_FORMAT },
+    provider: { require_parameters: true },
+    tool_choice: "none",
+  });
+});
+
+test("a decision is only accepted from one completed assistant message", async () => {
+  const output = (item: Record<string, unknown>) =>
+    Response.json({ status: "completed", output: [item], usage: { total_tokens: 1 } });
+  const message = { type: "message", role: "assistant", status: "completed" };
+  const text = [{ type: "output_text", text: decision() }];
+  for (const [body, expected] of [
+    [() => output({ ...message, content: text }), decision()],
+    [() => output({ ...message, status: "incomplete", content: text }), null],
+    [() => output({ ...message, content: [{ type: "refusal", refusal: "no" }] }), null],
+    [() => output({ type: "function_call", call_id: "c", name: "x", arguments: "{}" }), null],
+    [() => Response.json({ status: "incomplete", output: [] }), null],
+  ] as const) {
+    const { fetcher } = fakeFetch(body);
+    const step = await createOpenRouterProvider(config(), { fetch: fetcher })
+      .start(request({ format: "participation" }))
+      .step(AbortSignal.timeout(1000));
+    expect(step).toMatchObject({ ok: true, text: expected });
+  }
+});
+
+test("a rejected decision request reports the tokens the error names", async () => {
+  const { fetcher } = fakeFetch(
+    () =>
+      new Response(
+        JSON.stringify({ error: { message: "No endpoints found" }, usage: { total_tokens: 8 } }),
+        {
+          status: 404,
+        },
+      ),
+  );
+  const step = await createOpenRouterProvider(config(), { fetch: fetcher })
+    .start(request({ format: "participation" }))
+    .step(AbortSignal.timeout(1000));
+  expect(step).toMatchObject({ ok: false, tokens: 8 });
+  expect(step.ok === false && step.error).toContain("OpenRouter error 404");
+});
+
+test("the AI service runs a tool loop through the preset", async () => {
+  const executions: unknown[] = [];
+  const responses = [callResponse(), reply("Created it!", 11)];
+  await withResponses(responses, async (requests) => {
+    const result = await createAiService(config()).generateReply(
+      [{ author: "Alice", content: "Create Movie night." }],
+      {
+        instructions: "Only do what is asked.",
+        tools: [tool],
+        executeTool: (name, args) => {
+          executions.push({ name, args });
+          return Promise.resolve({ ok: true });
+        },
+      },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      text: "Created it!",
+      tokensUsed: 41,
+      requestsUsed: 2,
+    });
+    expect(requests[1]!.model).toStrictEqual("vendor/model:free@preset/haru-free");
+  });
+  expect(executions).toStrictEqual([{ name: "create_event", args: { name: "Movie night" } }]);
 });
 
 test("the AI service answers a mention through the OpenRouter preset", async () => {

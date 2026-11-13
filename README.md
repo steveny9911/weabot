@@ -427,8 +427,10 @@ Prompt caching comes from the preset (`cache_enabled`).
 
 Do not turn on OpenRouter server tools (web search, datetime, fetch) in the preset: they bypass
 Haru's per-channel limits, and while they are on OpenRouter ignores the structured output that
-autonomous chat needs. Only text replies work so far; event actions and autonomous chat follow, and
-`\usage` shows Haru's own daily counts.
+autonomous chat needs. Replies run Discord event actions, and autonomous chat asks for the same
+structured decision as OpenAI, only from endpoints that honor the output format. A reply that calls
+tools stays on the model that made the first call, because the preset may rotate between models; if
+that model fails midway, the reply fails. `\usage` shows Haru's own daily counts.
 
 ### Gemini
 

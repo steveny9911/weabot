@@ -8,8 +8,9 @@ import {
   isObject,
   participationText,
   readTokenUsage,
+  toolCallsFrom,
 } from "../responses.ts";
-import type { AiProvider, ProviderStep, ToolCall } from "../types.ts";
+import type { AiProvider, ProviderStep } from "../types.ts";
 
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 const OPENAI_CHAT_BUILDER_PROMPT = {
@@ -68,17 +69,7 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
           }
 
           lastOutput = Array.isArray(data.output) ? data.output : [];
-          const toolCalls: ToolCall[] = lastOutput.filter(isObject).flatMap((item) =>
-            item.type === "function_call"
-              ? [
-                  {
-                    id: typeof item.call_id === "string" ? item.call_id : "",
-                    name: typeof item.name === "string" ? item.name : "",
-                    arguments: typeof item.arguments === "string" ? item.arguments : undefined,
-                  },
-                ]
-              : [],
-          );
+          const toolCalls = toolCallsFrom(lastOutput);
           const text = participation ? participationText(data) : extractResponseText(data);
           return { ok: true, text, toolCalls, tokens };
         },
