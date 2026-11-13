@@ -427,20 +427,16 @@ scheduled jobs and can respond in any server the bot can access.
 ### OpenRouter
 
 Set `ai.provider: openrouter` and `ai.openrouter.preset` in `config.yaml`, and `OPENROUTER_API_KEY`
-in `.env`. The preset, made at
-[openrouter.ai/settings/presets](https://openrouter.ai/settings/presets), holds the persona, the
-models, and the settings; each reply is sent to `@preset/<slug>` with only the conversation. Startup
-stops if `ai.openrouter.preset` is missing. Images are sent as links, including Discord's signed
-attachment links, so they leave Discord for OpenRouter and its providers. Prompt caching comes from
-the preset (`cache_enabled`).
+in `.env`. The [preset](https://openrouter.ai/settings/presets) holds the persona, models and
+settings; each reply goes to `@preset/<slug>` with only the conversation. Startup stops without
+`ai.openrouter.preset`. Images are sent as links, including Discord's signed attachment links, so
+they leave Discord for OpenRouter and its providers.
 
-Do not turn on OpenRouter server tools (web search, datetime, fetch) in the preset: they bypass
-Haru's per-channel limits (a reply that uses one is refused), and while they are on OpenRouter
-ignores the structured output that autonomous chat needs. Replies run Discord event actions, and
-autonomous chat asks for the same structured decision as OpenAI, only from endpoints that honor the
-output format. A reply that calls tools stays on the model that made the first call, because the
-preset may rotate between models; if that model fails midway, the reply fails. `\usage` shows Haru's
-own daily counts.
+Do not turn on server tools (web search, datetime, fetch) in the preset: they bypass Haru's
+per-channel limits, so a reply that uses one is refused, and OpenRouter ignores the structured
+output that autonomous chat needs while they are on. Event actions and autonomous chat work as with
+OpenAI, except that a reply that calls tools stays on the model that made the first call, because
+the preset may rotate models. `\usage` shows Haru's own daily counts.
 
 ### Gemini
 
@@ -623,23 +619,17 @@ Unit tests sit next to the file they test.
 
 ### AI providers
 
-Each provider lives in its own folder under `src/ai/providers/` (`openai/`, `gemini/`,
-`openrouter/`) and exports one module from its `index.ts`, built with `defineAiProvider`:
+Each provider has a folder under `src/ai/providers/` (`openai/`, `gemini/`, `openrouter/`) whose
+`index.ts` exports a module built with `defineAiProvider`: its key name in `.env` (`apiKeyEnv`), the
+keys and checks for its `ai.<name>` section (`configKeys`, `parseConfig`), and `create`, which
+builds the adapter. An adapter may offer `usageReport()` for `\usage`; without one, `\usage` shows
+Haru's own daily counts. The registry in `src/ai/providers/index.ts` is the only list, and no
+provider is the default: with AI on, `ai.provider` must name one.
 
-- `apiKeyEnv`: its key in `.env`, such as `OPENAI_API_KEY`.
-- `configKeys` and `parseConfig`: the keys of its `ai.<name>` section in `config.yaml`, and the
-  check that turns the section into typed settings (throwing for a missing required one).
-- `create(settings, apiKey)`: the adapter. It may also offer `usageReport()` for `\usage`; a
-  provider without one shows Haru's own daily counts instead.
-
-The registry in `src/ai/providers/index.ts` is the only list of providers. No provider is the
-default: with AI on, `ai.provider` must name one. Only the chosen provider's section is required,
-but every section is checked for typos.
-
-To add a provider, create its folder and register it there. To remove one, delete its folder and its
-registry line (and, for Gemini, the `@google/genai` dependency); a leftover `ai.<name>` section in
-`config.yaml` then stops startup as an unknown setting. No production code outside the provider
-folders names a provider; the service tests use OpenAI as their fixture.
+To add a provider, create its folder and register it there. To remove one, delete both (and, for
+Gemini, the `@google/genai` dependency); a leftover `ai.<name>` section then stops startup as an
+unknown setting. No production code outside the provider folders names a provider; the service tests
+use OpenAI as their fixture.
 
 ---
 

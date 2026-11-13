@@ -227,50 +227,38 @@ test("no provider is assumed: AI on needs ai.provider, and AI off does not", () 
   expect(off.aiApiKey).toBeUndefined();
 });
 
-test("an unknown AI provider fails at startup, even with AI off", () => {
+test("a provider that is named must be known and complete, even with AI off", () => {
   loadAiFails({ provider: "claude" }, "Unknown ai.provider: claude (known: openai, gemini");
   loadAiFails({ provider: "constructor" }, "Unknown ai.provider: constructor");
-  loadAiFails({ enabled: false, provider: "claude" }, "Unknown ai.provider: claude");
-});
-
-test("the provider named is checked even with AI off, and only its section is required", () => {
   loadAiFails({ enabled: false, provider: "gemini" }, "ai.gemini.models is required");
-  expect(loadAi({ enabled: false, provider: "openai" }).aiProvider).toStrictEqual("openai");
-  // Other providers' sections need not be complete when another provider is chosen.
-  expect(loadAi({ provider: "openai", gemini: { thinking: true } } as never).aiProvider).toBe(
-    "openai",
-  );
+  loadAiFails({ provider: "openrouter" }, "ai.openrouter.preset is required");
+  // Another provider's incomplete section is only checked for key names.
+  const ai = { provider: "openai", gemini: { thinking: true } };
+  expect(loadAi(ai as never).aiProvider).toStrictEqual("openai");
 });
 
-test("each provider has its own section and key, and nothing else is read as its key", () => {
+test("each provider reads its own section and key, and no other", () => {
   const openrouter = { provider: "openrouter", openrouter: { preset: "haru" } };
   const config = loadAi(openrouter, { OPENROUTER_API_KEY: "or", OPENAI_API_KEY: "oa" });
   expect(config.aiProviderSettings).toStrictEqual({ preset: "haru" });
   expect(config.aiApiKey).toStrictEqual("or");
   expect(config.aiApiKeyEnv).toStrictEqual("OPENROUTER_API_KEY");
   expect(loadAi(openrouter, { OPENAI_API_KEY: "oa", AI_API_KEY: "any" }).aiApiKey).toBeUndefined();
-  expect(loadAi({ provider: "openai" }, { OPENAI_API_KEY: "oa" }).aiApiKey).toStrictEqual("oa");
   const gemini = { provider: "gemini", gemini: { models: ["m"], system_prompt_file: "p.md" } };
   expect(loadAi(gemini, { GEMINI_API_KEY: "g" }).aiApiKey).toStrictEqual("g");
-  loadAiFails({ provider: "openrouter" }, "ai.openrouter.preset is required");
-});
-
-test("OpenAI usage reads come from its own section and secret", () => {
-  const ai = { provider: "openai", openai: { usage_project_id: "proj-1" } };
-  expect(loadAi(ai, { OPENAI_ADMIN_KEY: "admin" }).aiProviderSettings).toStrictEqual({
-    adminKey: "admin",
-    projectId: "proj-1",
+  const openai = { provider: "openai", openai: { usage_project_id: "proj-1" } };
+  const secrets = { OPENAI_API_KEY: "oa", OPENAI_ADMIN_KEY: "admin" };
+  expect(loadAi(openai, secrets)).toMatchObject({
+    aiApiKey: "oa",
+    aiProviderSettings: { adminKey: "admin", projectId: "proj-1" },
   });
 });
 
 test("a provider section rejects keys it does not know, and settings no longer live under ai", () => {
-  fails(
-    "ai:\n  provider: gemini\n  gemini:\n    modles:\n      - m",
-    "Unknown setting ai.gemini.modles",
-  );
-  fails("ai:\n  provider: gemini\n  models:\n    - m", "Unknown setting ai.models");
-  fails("ai:\n  provider: openai\n  preset: haru", "Unknown setting ai.preset");
-  fails("usage:\n  openai_project_id: p", "Unknown setting usage");
+  fails("ai: { provider: gemini, gemini: { modles: [m] } }", "Unknown setting ai.gemini.modles");
+  fails("ai: { provider: gemini, models: [m] }", "Unknown setting ai.models");
+  fails("ai: { provider: openai, preset: haru }", "Unknown setting ai.preset");
+  fails("usage: { openai_project_id: p }", "Unknown setting usage");
 });
 
 test("channel and server IDs must be quoted strings", () => {

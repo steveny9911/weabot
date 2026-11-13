@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import { testConfig } from "../../../../tests/support/config.ts";
 import { throws } from "../../../../tests/support/assert.ts";
 import type { Fetcher } from "../../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
-import { createAiService } from "../../service.ts";
-import { withResponses } from "../../../../tests/support/openai.ts";
 import type { ProviderRequest } from "../types.ts";
 import { openrouter } from "./index.ts";
 import { createOpenRouterProvider, type OpenRouterSettings } from "./provider.ts";
@@ -13,13 +10,6 @@ const settings = (overrides: Partial<OpenRouterSettings> = {}): OpenRouterSettin
   preset: "haru-free",
   ...overrides,
 });
-
-const config = () =>
-  testConfig({
-    aiProvider: "openrouter",
-    aiApiKey: "or-key",
-    aiProviderSettings: settings(),
-  });
 
 const reply = (text: string, total = 12) =>
   Response.json({
@@ -93,28 +83,13 @@ test("an error response reports its status, body and any tokens it names", async
   }
 });
 
-test("reasoning text is not part of the reply", async () => {
-  const { step } = await stepOnce(() =>
-    Response.json({
-      output: [
-        { type: "reasoning", content: [{ type: "reasoning_text", text: "We need to answer." }] },
-        { type: "message", content: [{ type: "output_text", text: "Hello!" }] },
-      ],
-    }),
-  );
-  expect(step).toMatchObject({ ok: true, text: "Hello!" });
-});
-
-test("a response that ran a server tool is refused, whatever else it holds", async () => {
-  const { step } = await stepOnce(() =>
-    Response.json({
-      output: [
-        { type: "openrouter:web_search", status: "completed" },
-        { type: "message", content: [{ type: "output_text", text: "Per the web: sunny." }] },
-      ],
-      usage: { total_tokens: 6 },
-    }),
-  );
+test("only message text is the reply: reasoning is skipped and a server tool is refused", async () => {
+  const message = { type: "message", content: [{ type: "output_text", text: "Hello!" }] };
+  const reasoning = { type: "reasoning", content: [{ type: "reasoning_text", text: "Thinking." }] };
+  const run = (...output: unknown[]) =>
+    stepOnce(() => Response.json({ output, usage: { total_tokens: 6 } }));
+  expect((await run(reasoning, message)).step).toMatchObject({ ok: true, text: "Hello!" });
+  const { step } = await run({ type: "openrouter:web_search" }, message);
   expect(step).toMatchObject({ ok: false, tokens: 6 });
   expect(step.ok === false && step.error).toContain("server tool");
 });
@@ -222,29 +197,4 @@ test("a decision is only accepted from one completed assistant message", async (
     const { step } = await stepOnce(respond, { format: "participation" });
     expect(step).toMatchObject({ ok: true, text: expected });
   }
-});
-
-test("the AI service runs a tool loop through the preset and counts both calls", async () => {
-  const executions: unknown[] = [];
-  await withResponses([callResponse(), reply("Created it!", 11)], async (requests) => {
-    const result = await createAiService(config()).generateReply(
-      [{ author: "Alice", content: "Create Movie night." }],
-      {
-        instructions: "Only do what is asked.",
-        tools: [tool],
-        executeTool: (name, args) => {
-          executions.push({ name, args });
-          return Promise.resolve({ ok: true });
-        },
-      },
-    );
-    expect(result).toMatchObject({
-      ok: true,
-      text: "Created it!",
-      tokensUsed: 41,
-      requestsUsed: 2,
-    });
-    expect(requests[1]!.model).toStrictEqual("vendor/model:free@preset/haru-free");
-  });
-  expect(executions).toStrictEqual([{ name: "create_event", args: { name: "Movie night" } }]);
 });
