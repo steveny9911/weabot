@@ -157,6 +157,9 @@ test("the ai.gemini section needs models and a prompt file, and defaults thinkin
     "ai.gemini.models",
   );
   throws(() => gemini.parseConfig({ models: [] }, secret), Error, "ai.gemini.models");
+  for (const models of ["gemini-3-flash", 5]) {
+    throws(() => gemini.parseConfig({ models }, secret), Error, "must be a list");
+  }
   throws(
     () => gemini.parseConfig({ models: ["a"] }, secret),
     Error,

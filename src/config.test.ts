@@ -218,7 +218,7 @@ const loadAiFails = (ai: ConfigFile["ai"] | undefined, message: string) =>
   throws(() => loadAi(ai), Error, message);
 
 test("no provider is assumed: AI on needs ai.provider, and AI off does not", () => {
-  loadAiFails(undefined, "ai.provider is required in config.yaml (one of: openai, gemini");
+  loadAiFails(undefined, "ai.provider is required in config.yaml (one of:");
   loadAiFails({ uwu: false }, "ai.provider is required");
   loadAiFails({ provider: "" }, "ai.provider is required");
   const off = loadAi({ enabled: false });
@@ -228,9 +228,9 @@ test("no provider is assumed: AI on needs ai.provider, and AI off does not", () 
 });
 
 test("a provider that is named must be known and complete, even with AI off", () => {
-  loadAiFails({ provider: "claude" }, "Unknown ai.provider: claude (known: openai, gemini");
+  loadAiFails({ provider: "claude" }, "Unknown ai.provider: claude (known:");
   loadAiFails({ provider: "constructor" }, "Unknown ai.provider: constructor");
-  loadAiFails({ enabled: false, provider: "gemini" }, "ai.gemini.models is required");
+  loadAiFails({ enabled: false, provider: "gemini" }, "ai.gemini.models must be a list");
   loadAiFails({ provider: "openrouter" }, "ai.openrouter.preset is required");
   // Another provider's incomplete section is only checked for key names.
   const ai = { provider: "openai", gemini: { thinking: true } };

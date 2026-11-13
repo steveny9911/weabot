@@ -42,8 +42,8 @@ export function createAiService(
   const requestTimeoutMs = runtime.requestTimeoutMs ?? RESPONSE_TIMEOUT_MS;
   const toolLoopTimeoutMs = runtime.toolLoopTimeoutMs ?? TOOL_LOOP_TIMEOUT_MS;
   const now = runtime.now ?? (() => performance.now());
-  // Without a provider AI is off (config.ts allows that only then), so none is built.
-  const provider = config.aiProvider ? createAiProvider(config) : undefined;
+  // With AI off no provider is built, so a provider that is named but not ready cannot stop startup.
+  const provider = config.aiEnabled && config.aiProvider ? createAiProvider(config) : undefined;
   return {
     usageReport: provider?.usageReport?.bind(provider),
     async generateReply(
