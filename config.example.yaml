@@ -35,8 +35,14 @@ ai:
   # true or false. The master switch: false turns off mention replies, autonomous chat and the
   # event tools, even with a key.
   enabled: true
-  # openai or gemini. Anything else stops startup.
+  # openai, gemini or openrouter. Anything else stops startup.
   provider: openai
+
+  # OpenRouter only, no default. The preset (a slug such as haru-free, or @preset/haru-free) that
+  # holds Haru's persona, models and settings. Manage it at openrouter.ai/settings/presets: it must
+  # not enable OpenRouter server tools (web search, datetime, fetch), which make OpenRouter ignore
+  # the autonomous chat output format. Startup stops if this is empty with openrouter.
+  preset: null
 
   # Gemini only, no default. List of model names, tried in order; the next one is used when a model
   # fails. Put the most reliable one first. Startup stops if this is empty with gemini.

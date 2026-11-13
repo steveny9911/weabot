@@ -1,10 +1,10 @@
 /** Google Gemini through @google/genai for every AI feature. Haru's persona comes from a prompt file. */
 import { readFileSync } from "node:fs";
 import { ApiError, type Content, FinishReason, GoogleGenAI, ThinkingLevel } from "@google/genai";
-import type { AppConfig } from "../../config.ts";
-import type { Fetcher } from "../../types/fetch.ts";
-import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
-import type { AiProvider, ProviderStep } from "./types.ts";
+import type { AppConfig } from "../../../config.ts";
+import type { Fetcher } from "../../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
+import type { AiProvider, ProviderStep } from "../types.ts";
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const MAX_IMAGE_BYTES = 5_000_000;

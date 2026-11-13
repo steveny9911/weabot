@@ -1,5 +1,6 @@
 import fileConfig from "../config.yaml";
 import { validateConfigFile } from "./config_schema.ts";
+import { AI_PROVIDERS, DEFAULT_AI_PROVIDER } from "./ai/providers/index.ts";
 import { DEFAULT_DATABASE_PATH } from "./db/database.ts";
 import {
   parseChannelList,
@@ -7,9 +8,6 @@ import {
   parseIds,
   type FeatureConfig,
 } from "./feature_config.ts";
-
-export const AI_PROVIDER_NAMES = ["openai", "gemini"] as const;
-export type AiProviderName = (typeof AI_PROVIDER_NAMES)[number];
 
 /**
  * Settings from config.yaml, plus the secrets in the environment (.env). A missing required
@@ -28,10 +26,13 @@ export interface AppConfig {
   aiEnabled: boolean;
   /** Replies to mentions. It cannot turn on what `aiEnabled` turns off. */
   aiChat: FeatureConfig;
-  aiProvider: AiProviderName;
+  /** A key of the provider registry (src/ai/providers/index.ts). */
+  aiProvider: string;
   aiApiKey: string | undefined;
   /** Models for providers that have no saved prompt, tried in order. */
   aiModels: string[];
+  /** OpenRouter preset (a slug, or `@preset/slug`) that holds the persona, models and settings. */
+  aiPreset?: string;
   /** File holding the persona for providers that have no saved prompt. */
   aiSystemPromptFile?: string;
   /** Lets Gemini models think before answering; off asks for their lowest thinking level. */
@@ -130,6 +131,7 @@ export interface ConfigFile {
     enabled?: boolean;
     provider?: string;
     models?: string[];
+    preset?: string;
     system_prompt_file?: string;
     thinking?: boolean;
     uwu?: boolean;
@@ -184,10 +186,13 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
   const discordToken = secret("DISCORD_TOKEN");
   if (!discordToken) throw new Error("FATAL: Missing required environment variable: DISCORD_TOKEN");
 
-  const aiProvider = ai?.provider ?? "openai";
-  if (!AI_PROVIDER_NAMES.includes(aiProvider as AiProviderName)) {
-    throw new Error(`FATAL: Unknown ai.provider: ${aiProvider}`);
+  const aiProvider = ai?.provider ?? DEFAULT_AI_PROVIDER;
+  const providerModule = AI_PROVIDERS[aiProvider];
+  if (!providerModule) {
+    const known = Object.keys(AI_PROVIDERS).join(", ");
+    throw new Error(`FATAL: Unknown ai.provider: ${aiProvider} (known: ${known})`);
   }
+  const keyEnv = providerModule.apiKeyEnv;
 
   // A feature that posts to named channels, and one that reacts to messages and may use "all".
   const feature = (name: string, section: FeatureFile | undefined, on = true) => ({
@@ -211,11 +216,10 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
 
     aiEnabled: ai?.enabled ?? true,
     aiChat: reactiveFeature("ai_chat", aiChat),
-    aiProvider: aiProvider as AiProviderName,
-    // OPENAI_API_KEY is the original name, still accepted for OpenAI.
-    aiApiKey:
-      secret("AI_API_KEY") ?? (aiProvider === "openai" ? secret("OPENAI_API_KEY") : undefined),
+    aiProvider,
+    aiApiKey: secret("AI_API_KEY") ?? (keyEnv ? secret(keyEnv) : undefined),
     aiModels: [...new Set(ai?.models ?? [])],
+    aiPreset: ai?.preset || undefined,
     aiSystemPromptFile: ai?.system_prompt_file || undefined,
     aiThinking: ai?.thinking ?? false,
     aiRateLimitPerUser: ai?.rate_limit_per_user ?? 2,

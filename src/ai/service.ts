@@ -44,6 +44,7 @@ export function createAiService(
   const now = runtime.now ?? (() => performance.now());
   const provider = createAiProvider(config);
   return {
+    usageReport: provider.usageReport?.bind(provider),
     async generateReply(
       messages: Array<Record<string, unknown>>,
       options?: AiReplyOptions | AiParticipationOptions,

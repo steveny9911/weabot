@@ -57,4 +57,6 @@ export interface AiService {
     messages: Array<Record<string, unknown>>,
     options?: AiReplyOptions | AiParticipationOptions,
   ): Promise<AiResult>;
+  /** The provider's own usage report for `\usage`; absent when it has none. */
+  usageReport?(): Promise<string>;
 }

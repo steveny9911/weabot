@@ -88,13 +88,13 @@ cp config.example.yaml config.yaml   # everything else
 
 `.env` holds only secrets. `.env.sample` lists them and marks the required one:
 
-| Variable               | Required | Description                                                                  |
-| ---------------------- | -------- | ---------------------------------------------------------------------------- |
-| `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                                       |
-| `AI_API_KEY`           | No       | Provider key (`OPENAI_API_KEY` also works for OpenAI); AI is off without one |
-| `BRAVE_SEARCH_API_KEY` | No       | Brave Search key; web search is off without one                              |
-| `ADMIN_HTTP_TOKEN`     | No       | Bearer token for the admin HTTP endpoints                                    |
-| `OPENAI_ADMIN_KEY`     | No       | OpenAI admin key for `\usage` cost and token reports                         |
+| Variable               | Required | Description                                                                                                  |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                                                                       |
+| `AI_API_KEY`           | No       | Provider key (`OPENAI_API_KEY` and `OPENROUTER_API_KEY` also work for their provider); AI is off without one |
+| `BRAVE_SEARCH_API_KEY` | No       | Brave Search key; web search is off without one                                                              |
+| `ADMIN_HTTP_TOKEN`     | No       | Bearer token for the admin HTTP endpoints                                                                    |
+| `OPENAI_ADMIN_KEY`     | No       | OpenAI admin key for `\usage` cost and token reports                                                         |
 
 `config.yaml` holds every other setting. `config.example.yaml` documents each key and shows its
 default. The essentials:
@@ -105,7 +105,7 @@ discord:
 general:
   time_zone: America/Los_Angeles
 ai:
-  provider: openai # or gemini, which also needs models and system_prompt_file
+  provider: openai # or gemini (needs models and system_prompt_file) or openrouter (needs preset)
 ```
 
 Every feature has its own section with the same two settings, plus its own:
@@ -416,6 +416,20 @@ that the bot cannot delete expires after 60 seconds. Use the sandbox runner abov
 testing, or use a separate test bot identity with `dev`. The normal `dev` command also starts
 scheduled jobs and can respond in any server the bot can access.
 
+### OpenRouter
+
+Set `ai.provider: openrouter` and `ai.preset` in `config.yaml`, and `AI_API_KEY` (or
+`OPENROUTER_API_KEY`) in `.env`. The preset, made at
+[openrouter.ai/settings/presets](https://openrouter.ai/settings/presets), holds the persona, the
+models, and the settings; each reply is sent to `@preset/<slug>` with only the conversation. Startup
+stops if `ai.preset` is missing. Images are sent as links, so they must be public HTTPS images.
+Prompt caching comes from the preset (`cache_enabled`).
+
+Do not turn on OpenRouter server tools (web search, datetime, fetch) in the preset: they bypass
+Haru's per-channel limits, and while they are on OpenRouter ignores the structured output that
+autonomous chat needs. Only text replies work so far; event actions and autonomous chat follow, and
+`\usage` shows Haru's own daily counts.
+
 ### Gemini
 
 Set `ai.provider: gemini`, `ai.models` and `ai.system_prompt_file` in `config.yaml`, and
@@ -570,9 +584,9 @@ weabot/
 │   ├── app/                    # Gateway, HTTP server and cron schedule (started by main.ts)
 │   ├── jobs/                   # Work shared by cron jobs and admin HTTP triggers
 │   ├── bot/                    # Message handling: mentions, \usage, \reset, \open, AI replies
-│   ├── ai/                     # AI service, providers/ (one adapter each), participation, reply text
+│   ├── ai/                     # AI service, providers/ (one folder each), participation, reply text
 │   ├── features/               # Bot logic (polls, stats, chat context, reactions, landmines, Discord actions)
-│   ├── services/               # Storage, rate limits and usage reporting
+│   ├── services/               # Storage and rate limits
 │   ├── discord/                # The only code that calls the Discord REST API
 │   ├── net/                    # Public-web fetches: link opening, tweets, web search, retry
 │   ├── db/                     # SQLite: opening, migrations, queries per table group
@@ -594,6 +608,20 @@ weabot/
 ```
 
 Unit tests sit next to the file they test.
+
+### AI providers
+
+Each provider lives in its own folder under `src/ai/providers/` (`openai/`, `gemini/`,
+`openrouter/`) and exports one `AiProviderModule` from its `index.ts`: a `create(config)` that
+returns the adapter, an optional `apiKeyEnv` (the provider's own name for the key, such as
+`OPENAI_API_KEY`, accepted when `AI_API_KEY` is not set), and, on the adapter, an optional
+`usageReport()` for `\usage`. A provider with no `usageReport` shows Haru's own daily counts
+instead. The registry in `src/ai/providers/index.ts` is the only list of providers, and the first
+one in it is the default.
+
+To add a provider, create its folder and register it there. To remove one, delete its folder and its
+registry line (and its tests, its settings in `config.yaml` and, for Gemini, the `@google/genai`
+dependency). Apart from a provider's own settings, nothing else in the bot names a provider.
 
 ---
 

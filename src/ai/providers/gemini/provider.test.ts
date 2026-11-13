@@ -2,12 +2,12 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assert, throws } from "../../../tests/support/assert.ts";
-import { testConfig } from "../../../tests/support/config.ts";
-import type { Fetcher } from "../../types/fetch.ts";
-import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
-import { createAiService } from "../service.ts";
-import { createGeminiProvider } from "./gemini.ts";
+import { assert, throws } from "../../../../tests/support/assert.ts";
+import { testConfig } from "../../../../tests/support/config.ts";
+import type { Fetcher } from "../../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
+import { createAiService } from "../../service.ts";
+import { createGeminiProvider } from "./provider.ts";
 
 let dir: string;
 let promptFile: string;

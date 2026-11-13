@@ -19,6 +19,7 @@ const KEYS: Keys<ConfigFile> = {
     enabled: true,
     provider: true,
     models: true,
+    preset: true,
     system_prompt_file: true,
     thinking: true,
     uwu: true,

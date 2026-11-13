@@ -1,4 +1,3 @@
-import { createUsageService } from "./src/services/usage.ts";
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/discord/client.ts";
 import { createDiscordEventsClient } from "./src/discord/events.ts";
@@ -45,7 +44,6 @@ const tweets = createTweetService();
 const botDeps: BotDependencies = {
   config,
   discord,
-  usageService: createUsageService(config),
   aiService,
   rateLimitService: rateLimit,
   linkOpenService: linkOpen,

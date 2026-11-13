@@ -7,6 +7,7 @@ const SECRETS = [
   "ADMIN_HTTP_TOKEN",
   "AI_API_KEY",
   "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
   "OPENAI_ADMIN_KEY",
   "BRAVE_SEARCH_API_KEY",
 ];
@@ -241,6 +242,22 @@ test("web search turns on when a Brave key is set, unless config.yaml says other
   const secrets = { BRAVE_SEARCH_API_KEY: "key" };
   expect(load({}, secrets).webSearch.enabled).toStrictEqual(true);
   expect(load({ web_search: { enabled: false } }, secrets).webSearch.enabled).toBe(false);
+});
+
+test("ai.preset names the OpenRouter preset", () => {
+  expect(load({}).aiPreset).toBeUndefined();
+  expect(load({ ai: { provider: "openrouter", preset: "haru" } }).aiPreset).toStrictEqual("haru");
+  expect(load({ ai: { preset: "" } }).aiPreset).toBeUndefined();
+});
+
+test("each provider accepts its own key name when AI_API_KEY is not set", () => {
+  const openrouter = { ai: { provider: "openrouter" } };
+  expect(load(openrouter, { OPENROUTER_API_KEY: "or" }).aiApiKey).toStrictEqual("or");
+  expect(load(openrouter, { AI_API_KEY: "new", OPENROUTER_API_KEY: "or" }).aiApiKey).toStrictEqual(
+    "new",
+  );
+  expect(load(openrouter, { OPENAI_API_KEY: "old" }).aiApiKey).toBeUndefined();
+  expect(load({}, { OPENROUTER_API_KEY: "or" }).aiApiKey).toBeUndefined();
 });
 
 test("AI_API_KEY wins, and OPENAI_API_KEY only works for the openai provider", () => {
