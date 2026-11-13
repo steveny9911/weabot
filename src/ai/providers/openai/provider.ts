@@ -19,7 +19,6 @@ const OPENAI_CHAT_BUILDER_PROMPT = {
 export function createOpenAiProvider(apiKey: string | undefined): AiProvider {
   return {
     label: "OpenAI",
-    missingKeyError: "OPENAI_API_KEY not set",
     start(request) {
       const input = buildInput(request);
       let lastOutput: unknown[] = [];
@@ -59,9 +58,6 @@ export function createOpenAiProvider(apiKey: string | undefined): AiProvider {
 
           const json: unknown = await res.json();
           const data = isObject(json) ? json : {};
-          if (participation && !isObject(json)) {
-            return { ok: true, text: null, toolCalls: [], tokens: 0 };
-          }
           const tokens = readTokenUsage(data);
           if (request.tools && (data.status === "incomplete" || data.status === "failed")) {
             return { ok: false, error: `OpenAI response ${data.status}`, tokens };

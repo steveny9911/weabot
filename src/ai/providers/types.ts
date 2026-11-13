@@ -46,8 +46,6 @@ export interface ProviderSession {
 export interface AiProvider {
   /** Name used in error messages, e.g. "OpenAI". */
   label: string;
-  /** Error returned when no API key is configured. */
-  missingKeyError: string;
   start(request: ProviderRequest): ProviderSession;
   /** Discord text for `\usage` from the provider's own billing; absent when it has none. */
   usageReport?(): Promise<string>;

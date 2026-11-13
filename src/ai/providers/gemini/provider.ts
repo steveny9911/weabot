@@ -39,7 +39,6 @@ export function createGeminiProvider(
 
   return {
     label: "Gemini",
-    missingKeyError: "GEMINI_API_KEY not set",
     start(request) {
       let calls = 0;
       let contents: Content[] | undefined;

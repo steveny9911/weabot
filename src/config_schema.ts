@@ -71,6 +71,9 @@ function check(path: string, value: unknown, keys: KeyTree): void {
 /** Throws for a key Haru does not know, so a typo cannot silently leave a setting at its default. */
 export function validateConfigFile(file: unknown): void {
   // Each provider's section is checked against the keys its own module accepts.
+  for (const name of Object.keys(AI_PROVIDERS)) {
+    if (name in KEYS.ai) throw new Error(`FATAL: provider name ${name} clashes with ai.${name}`);
+  }
   const providerSections = Object.fromEntries(
     Object.entries(AI_PROVIDERS).map(([name, provider]) => [name, provider.configKeys]),
   );

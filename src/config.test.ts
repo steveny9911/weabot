@@ -116,72 +116,33 @@ test("settings come from config.yaml", () => {
   const config = load(
     Bun.YAML.parse(`
 discord:
-  channel_ids:
-    - chan-5
-    - chan-5
-    - chan-6
-general:
-  db_path: /tmp/x.sqlite3
-  http_port: 9000
-  time_zone: America/Vancouver
+  channel_ids: ["chan-5", "chan-5", "chan-6"]
+general: { db_path: /tmp/x.sqlite3, http_port: 9000, time_zone: America/Vancouver }
 ai:
   provider: gemini
+  gemini: { models: [model-a, model-b, model-a], system_prompt_file: persona.md, thinking: true }
   uwu: false
-  context:
-    max_messages: 10
-  budget:
-    daily_request_quota: 500
-    mention_percent: 80
-  gemini:
-    models:
-      - model-a
-      - model-b
-      - model-a
-    system_prompt_file: persona.md
-    thinking: true
-ai_chat:
-  enabled: false
-  channel_ids:
-    - chan-4
-web_search:
-  enabled: true
-  max_results: 5
-  channel_ids: all
-tweet_read:
-  enabled: false
-link_open:
-  channel_ids:
-    - chan-9
-discord_actions:
-  enabled: false
-  guild_ids:
-    - guild-1
-mood_poll:
-  enabled: false
-  channel_ids:
-    - chan-2
-wellness:
-  channel_ids:
-    - chan-3
-  glue_alert_threshold: 3
-weekly_stats:
-  enabled: false
+  context: { max_messages: 10 }
+  budget: { daily_request_quota: 500, mention_percent: 80 }
+ai_chat: { enabled: false, channel_ids: ["chan-4"] }
+web_search: { enabled: true, max_results: 5, channel_ids: all }
+tweet_read: { enabled: false }
+link_open: { channel_ids: ["chan-9"] }
+discord_actions: { enabled: false, guild_ids: ["guild-1"] }
+mood_poll: { enabled: false, channel_ids: ["chan-2"] }
+wellness: { channel_ids: ["chan-3"], glue_alert_threshold: 3 }
+weekly_stats: { enabled: false }
 autonomous_chat:
   enabled: true
-  channel_ids:
-    - chan-7
+  channel_ids: ["chan-7"]
   reply_chance: 0.6
   cooldown_minutes: 5
 landmine:
   enabled: true
-  channel_ids:
-    - chan-8
+  channel_ids: ["chan-8"]
   chance: 0.25
-  gifs:
-    - https://a.example/1.gif
-  step_penalty:
-    enabled: false
-    timeout_seconds: 30
+  gifs: [https://a.example/1.gif]
+  step_penalty: { enabled: false, timeout_seconds: 30 }
 `) as ConfigFile,
   );
   expect(config.channelIds).toStrictEqual(["chan-5", "chan-6"]);
@@ -268,6 +229,7 @@ test("no provider is assumed: AI on needs ai.provider, and AI off does not", () 
 
 test("an unknown AI provider fails at startup, even with AI off", () => {
   loadAiFails({ provider: "claude" }, "Unknown ai.provider: claude (known: openai, gemini");
+  loadAiFails({ provider: "constructor" }, "Unknown ai.provider: constructor");
   loadAiFails({ enabled: false, provider: "claude" }, "Unknown ai.provider: claude");
 });
 
@@ -337,7 +299,7 @@ test("web search turns on when a Brave key is set, unless config.yaml says other
 
 /** Loads a YAML snippet next to a channel and expects a startup error containing `message`. */
 function fails(yaml: string, message: string) {
-  const parsed = Bun.YAML.parse(`discord:\n  channel_ids:\n    - c\n${yaml}`) as ConfigFile;
+  const parsed = Bun.YAML.parse(`discord: { channel_ids: ["c"] }\n${yaml}`) as ConfigFile;
   const file = { ...parsed, ai: parsed.ai ?? { provider: "openai" } };
   withSecrets({ DISCORD_TOKEN: "t" }, () => throws(() => loadConfig(file), Error, message));
 }

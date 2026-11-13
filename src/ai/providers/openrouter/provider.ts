@@ -13,17 +13,12 @@ import {
 import type { AiProvider, ProviderStep } from "../types.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/responses";
-const PRESET_PREFIX = "@preset/";
-
-/** `haru` and `@preset/haru` both name the preset; requests use the `@preset/` form. */
-export function presetModel(preset: string): string {
-  const slug = preset.trim().replace(/^@preset\//, "");
-  return `${PRESET_PREFIX}${slug}`;
-}
+/** Output items a reply may hold. Anything else, such as a server tool, ran outside Haru's limits. */
+const REPLY_ITEMS = ["message", "reasoning", "function_call"];
 
 /** The checked `ai.openrouter` settings. */
 export interface OpenRouterSettings {
-  /** The preset (slug or `@preset/slug`) that holds the persona, models and settings. */
+  /** The slug of the preset that holds the persona, models and settings. */
   preset: string;
 }
 
@@ -32,12 +27,11 @@ export function createOpenRouterProvider(
   apiKey: string | undefined,
   deps: { fetch?: Fetcher } = {},
 ): AiProvider {
-  const model = presetModel(settings.preset);
+  const model = `@preset/${settings.preset}`;
   const fetchImpl: Fetcher = deps.fetch ?? ((input, init) => fetch(input, init));
 
   return {
     label: "OpenRouter",
-    missingKeyError: "OPENROUTER_API_KEY not set",
     start(request) {
       const input = buildInput(request);
       let lastOutput: unknown[] = [];
@@ -89,6 +83,15 @@ export function createOpenRouterProvider(
           }
 
           lastOutput = Array.isArray(data.output) ? data.output : [];
+          if (
+            lastOutput.some((item) => !isObject(item) || !REPLY_ITEMS.includes(String(item.type)))
+          ) {
+            return {
+              ok: false,
+              error: "OpenRouter response used a server tool: turn them off in the preset",
+              tokens,
+            };
+          }
           const toolCalls = toolCallsFrom(lastOutput);
           if (toolCalls.length > 0 && typeof data.model === "string") pinned = data.model;
           const text = participation ? participationText(data) : extractResponseText(data);

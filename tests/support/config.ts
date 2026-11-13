@@ -33,6 +33,7 @@ function defaults(): AppConfig {
     aiEnabled: true,
     aiChat: feature(),
     aiProvider: "openai",
+    aiApiKeyEnv: "OPENAI_API_KEY",
     aiProviderSettings: {},
     aiApiKey: "test-key",
     aiRateLimitPerUser: 5,

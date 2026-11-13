@@ -11,9 +11,11 @@ export const openrouter = defineAiProvider<OpenRouterFile, OpenRouterSettings>({
   apiKeyEnv: "OPENROUTER_API_KEY",
   configKeys: { preset: true },
   parseConfig(section) {
-    const preset = section?.preset?.trim();
-    if (!preset) throw new Error("FATAL: ai.openrouter.preset is required in config.yaml");
-    return { preset };
+    // The preset may be written as a slug or as @preset/slug; the settings hold the slug.
+    const slug =
+      typeof section?.preset === "string" ? section.preset.replace(/^\s*@preset\//, "") : "";
+    if (!slug.trim()) throw new Error("FATAL: ai.openrouter.preset is required in config.yaml");
+    return { preset: slug.trim() };
   },
   create: createOpenRouterProvider,
 });

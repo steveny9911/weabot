@@ -182,7 +182,8 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
   if (!aiProvider && aiEnabled) {
     throw new Error(`FATAL: ai.provider is required in config.yaml (one of: ${known})`);
   }
-  const providerModule = aiProvider ? AI_PROVIDERS[aiProvider] : undefined;
+  const providerModule =
+    aiProvider && Object.hasOwn(AI_PROVIDERS, aiProvider) ? AI_PROVIDERS[aiProvider] : undefined;
   if (aiProvider && !providerModule) {
     throw new Error(`FATAL: Unknown ai.provider: ${aiProvider} (known: ${known})`);
   }

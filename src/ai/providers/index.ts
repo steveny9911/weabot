@@ -15,7 +15,9 @@ export function createAiProvider(
   config: { aiProvider?: string; aiProviderSettings?: unknown; aiApiKey?: string },
   providers: Record<string, AiProviderModule> = AI_PROVIDERS,
 ): AiProvider {
-  const provider = config.aiProvider ? providers[config.aiProvider] : undefined;
+  const { aiProvider } = config;
+  const provider =
+    aiProvider && Object.hasOwn(providers, aiProvider) ? providers[aiProvider] : undefined;
   if (!provider) throw new Error(`FATAL: Unknown ai.provider: ${config.aiProvider}`);
   return provider.create(config.aiProviderSettings, config.aiApiKey);
 }

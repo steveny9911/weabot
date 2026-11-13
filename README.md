@@ -105,15 +105,13 @@ default. The essentials:
 
 ```yaml
 discord:
-  channel_ids: # required; one quoted ID per line, for several servers or channels
-    - "your_channel_id_here"
+  channel_ids: ["your_channel_id_here"] # required; add more for several servers or channels
 general:
   time_zone: America/Los_Angeles
 ai:
   provider: gemini # required while AI is on, no default: openai, gemini or openrouter
-  gemini: # each provider has its own section, shown below
-    models:
-      - gemini-3.5-flash
+  gemini: # each provider has its own section
+    models: [gemini-3.5-flash]
     system_prompt_file: data/system_prompt.md
 ```
 
@@ -122,8 +120,7 @@ Every feature has its own section with the same two settings, plus its own:
 ```yaml
 landmine:
   enabled: true # turns the feature on or off
-  channel_ids: # where it works; empty or left out means discord.channel_ids
-    - "123456789012345678"
+  channel_ids: ["123456789012345678"] # where it works; empty or left out means discord.channel_ids
   chance: 0.1 # a setting of this feature
 ```
 
@@ -433,15 +430,17 @@ Set `ai.provider: openrouter` and `ai.openrouter.preset` in `config.yaml`, and `
 in `.env`. The preset, made at
 [openrouter.ai/settings/presets](https://openrouter.ai/settings/presets), holds the persona, the
 models, and the settings; each reply is sent to `@preset/<slug>` with only the conversation. Startup
-stops if `ai.openrouter.preset` is missing. Images are sent as links, so they must be public HTTPS
-images. Prompt caching comes from the preset (`cache_enabled`).
+stops if `ai.openrouter.preset` is missing. Images are sent as links, including Discord's signed
+attachment links, so they leave Discord for OpenRouter and its providers. Prompt caching comes from
+the preset (`cache_enabled`).
 
 Do not turn on OpenRouter server tools (web search, datetime, fetch) in the preset: they bypass
-Haru's per-channel limits, and while they are on OpenRouter ignores the structured output that
-autonomous chat needs. Replies run Discord event actions, and autonomous chat asks for the same
-structured decision as OpenAI, only from endpoints that honor the output format. A reply that calls
-tools stays on the model that made the first call, because the preset may rotate between models; if
-that model fails midway, the reply fails. `\usage` shows Haru's own daily counts.
+Haru's per-channel limits (a reply that uses one is refused), and while they are on OpenRouter
+ignores the structured output that autonomous chat needs. Replies run Discord event actions, and
+autonomous chat asks for the same structured decision as OpenAI, only from endpoints that honor the
+output format. A reply that calls tools stays on the model that made the first call, because the
+preset may rotate between models; if that model fails midway, the reply fails. `\usage` shows Haru's
+own daily counts.
 
 ### Gemini
 
@@ -639,7 +638,8 @@ but every section is checked for typos.
 
 To add a provider, create its folder and register it there. To remove one, delete its folder and its
 registry line (and, for Gemini, the `@google/genai` dependency); a leftover `ai.<name>` section in
-`config.yaml` then stops startup as an unknown setting. Nothing else in the bot names a provider.
+`config.yaml` then stops startup as an unknown setting. No production code outside the provider
+folders names a provider; the service tests use OpenAI as their fixture.
 
 ---
 

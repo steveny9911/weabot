@@ -18,10 +18,7 @@
 discord:
   # REQUIRED. List of channel IDs where Haru chats; polls, alerts and stats are posted to each of
   # them. A feature with its own channel_ids uses those instead; with none, it uses this list.
-  # Write one quoted ID per line, indented under the key:
-  #   channel_ids:
-  #     - "123456789012345678"
-  channel_ids:
+  channel_ids: []
 
 general:
   # An IANA time zone name, such as America/Vancouver. Used for dates and as the default for
@@ -53,11 +50,9 @@ ai:
 
   # Gemini. Key: GEMINI_API_KEY.
   gemini:
-    # REQUIRED with gemini, no default. List of model names, one per line, tried in order; the next
+    # REQUIRED with gemini, no default. List of model names, tried in order; the next
     # one is used when a model fails. Put the most reliable one first.
-    models:
-      - gemini-3.5-flash
-      - gemini-3.5-flash-lite
+    models: [gemini-3.5-flash, gemini-3.5-flash-lite]
     # REQUIRED with gemini, no default. Path to the file with Haru's persona; startup stops if it
     # is missing or empty.
     system_prompt_file: data/system_prompt.md
@@ -129,7 +124,7 @@ discord_actions:
   enabled: true
   channel_ids: all
   # List of server IDs where the tools are allowed. Empty means every server the bot is in.
-  guild_ids:
+  guild_ids: []
 
 # The daily mood poll, the weekly stats and the wellness alerts. Each posts to every channel in its
 # own channel_ids (empty means discord.channel_ids). The stats and the alerts read the votes the
@@ -139,19 +134,19 @@ mood_poll:
   # true or false. Posts a poll every day at 05:00 UTC.
   enabled: true
   # List of channel IDs. Empty means discord.channel_ids.
-  channel_ids:
+  channel_ids: []
 
 weekly_stats:
   # true or false. Posts a summary every Sunday at 06:00 UTC.
   enabled: true
   # List of channel IDs. Empty means discord.channel_ids.
-  channel_ids:
+  channel_ids: []
 
 wellness:
   # true or false. Checks every day at 06:00 UTC.
   enabled: true
   # List of channel IDs. Empty means discord.channel_ids.
-  channel_ids:
+  channel_ids: []
   # Whole number of consecutive "glue" days before a wellness alert.
   glue_alert_threshold: 7
 
@@ -161,7 +156,7 @@ autonomous_chat:
   enabled: false
 
   # List of channel IDs where Haru may join in. Empty means discord.channel_ids.
-  channel_ids:
+  channel_ids: []
 
   # Number from 0 to 1. Chance that an eligible conversation is considered.
   reply_chance: 0.35
@@ -186,7 +181,7 @@ landmine:
 
   # List of channel IDs with landmines, or all for every channel Haru can read. Empty means
   # discord.channel_ids.
-  channel_ids:
+  channel_ids: []
 
   # Number from 0 to 1. Chance that a message is a landmine.
   chance: 0.1

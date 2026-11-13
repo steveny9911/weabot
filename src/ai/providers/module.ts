@@ -2,7 +2,7 @@
 import type { AiProvider } from "./types.ts";
 
 /** Reads a secret from `.env`; blank means unset. */
-export type SecretReader = (name: string) => string | undefined;
+type SecretReader = (name: string) => string | undefined;
 
 /** The keys a config section accepts: `true` for a setting, an object for a section under it. */
 export interface KeyTree {

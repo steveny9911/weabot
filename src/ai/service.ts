@@ -66,7 +66,7 @@ export function createAiService(
 
       if (!provider) return { ok: false, error: "ai.provider is not set" };
       if (!config.aiApiKey) {
-        return { ok: false, error: provider.missingKeyError };
+        return { ok: false, error: `${config.aiApiKeyEnv} not set` };
       }
 
       const choices = participationOptions?.reactionChoices ?? [];
