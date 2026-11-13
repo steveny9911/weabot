@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
 import { createUsageService, formatUsageMessage } from "./usage.ts";
-import type { AppConfig } from "../../../config.ts";
 
 const date = new Date("2026-10-06T13:45:00Z");
-const config = { openaiAdminKey: "admin-test", usageOpenaiProjectId: "proj-test" } as AppConfig;
+const config = { adminKey: "admin-test", projectId: "proj-test" };
 function page(results: unknown[], more = false, next?: string): Response {
   return Response.json({ data: [{ results }], has_more: more, next_page: next });
 }
@@ -70,12 +69,15 @@ test("usage shares in-flight reads, caches for five minutes, and refreshes at UT
 });
 
 test("missing admin key performs no OpenAI reads", async () => {
-  const report = await createUsageService({} as AppConfig, {
-    now: () => date,
-    fetch: () => {
-      throw new Error("Should not fetch");
+  const report = await createUsageService(
+    {},
+    {
+      now: () => date,
+      fetch: () => {
+        throw new Error("Should not fetch");
+      },
     },
-  }).getMonthToDate();
+  ).getMonthToDate();
   expect(report.openaiCost).toStrictEqual({ ok: false, reason: "OPENAI_ADMIN_KEY not configured" });
   expect(report.tokens).toStrictEqual({ ok: false, reason: "OPENAI_ADMIN_KEY not configured" });
 });

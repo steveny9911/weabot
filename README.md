@@ -88,24 +88,33 @@ cp config.example.yaml config.yaml   # everything else
 
 `.env` holds only secrets. `.env.sample` lists them and marks the required one:
 
-| Variable               | Required | Description                                                                                                  |
-| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                                                                       |
-| `AI_API_KEY`           | No       | Provider key (`OPENAI_API_KEY` and `OPENROUTER_API_KEY` also work for their provider); AI is off without one |
-| `BRAVE_SEARCH_API_KEY` | No       | Brave Search key; web search is off without one                                                              |
-| `ADMIN_HTTP_TOKEN`     | No       | Bearer token for the admin HTTP endpoints                                                                    |
-| `OPENAI_ADMIN_KEY`     | No       | OpenAI admin key for `\usage` cost and token reports                                                         |
+| Variable               | Required | Description                                               |
+| ---------------------- | -------- | --------------------------------------------------------- |
+| `DISCORD_TOKEN`        | Yes      | Your Discord bot token                                    |
+| `OPENAI_API_KEY`       | No       | OpenAI key; needed when `ai.provider` is `openai`         |
+| `GEMINI_API_KEY`       | No       | Gemini key; needed when `ai.provider` is `gemini`         |
+| `OPENROUTER_API_KEY`   | No       | OpenRouter key; needed when `ai.provider` is `openrouter` |
+| `BRAVE_SEARCH_API_KEY` | No       | Brave Search key; web search is off without one           |
+| `ADMIN_HTTP_TOKEN`     | No       | Bearer token for the admin HTTP endpoints                 |
+| `OPENAI_ADMIN_KEY`     | No       | OpenAI admin key for `\usage` cost and token reports      |
+
+Only the key of the provider you choose is read. AI chat is off without it.
 
 `config.yaml` holds every other setting. `config.example.yaml` documents each key and shows its
 default. The essentials:
 
 ```yaml
 discord:
-  channel_ids: ["your_channel_id_here"] # required; add more for several servers or channels
+  channel_ids: # required; one quoted ID per line, for several servers or channels
+    - "your_channel_id_here"
 general:
   time_zone: America/Los_Angeles
 ai:
-  provider: openai # or gemini (needs models and system_prompt_file) or openrouter (needs preset)
+  provider: gemini # required while AI is on, no default: openai, gemini or openrouter
+  gemini: # each provider has its own section, shown below
+    models:
+      - gemini-3.5-flash
+    system_prompt_file: data/system_prompt.md
 ```
 
 Every feature has its own section with the same two settings, plus its own:
@@ -113,15 +122,17 @@ Every feature has its own section with the same two settings, plus its own:
 ```yaml
 landmine:
   enabled: true # turns the feature on or off
-  channel_ids: ["123456789012345678"] # where it works; empty or left out means discord.channel_ids
+  channel_ids: # where it works; empty or left out means discord.channel_ids
+    - "123456789012345678"
   chance: 0.1 # a setting of this feature
 ```
 
 `channel_ids: all` makes a feature work in every channel Haru can read. It is allowed for `ai_chat`,
 `web_search`, `link_open`, `tweet_read`, `discord_actions` and `landmine`. The jobs and autonomous
 chat post to channels you name, so they need a list. `ai.enabled` is the master switch for AI:
-`ai_chat`, `autonomous_chat` and `discord_actions` cannot work with it off. Haru refuses to start on
-a key it does not know, so a typo cannot silently leave a setting at its default.
+`ai_chat`, `autonomous_chat` and `discord_actions` cannot work with it off. With AI on,
+`ai.provider` must name a provider; Haru stops at startup without one. Haru refuses to start on a
+key it does not know, so a typo cannot silently leave a setting at its default.
 
 `config.yaml` is ignored by git, like `.env`, so create it from the example before anything else
 runs: `bun run start`, `bun run dev`, the scripts and `bun test` all import it, and fail with
@@ -418,12 +429,12 @@ scheduled jobs and can respond in any server the bot can access.
 
 ### OpenRouter
 
-Set `ai.provider: openrouter` and `ai.preset` in `config.yaml`, and `AI_API_KEY` (or
-`OPENROUTER_API_KEY`) in `.env`. The preset, made at
+Set `ai.provider: openrouter` and `ai.openrouter.preset` in `config.yaml`, and `OPENROUTER_API_KEY`
+in `.env`. The preset, made at
 [openrouter.ai/settings/presets](https://openrouter.ai/settings/presets), holds the persona, the
 models, and the settings; each reply is sent to `@preset/<slug>` with only the conversation. Startup
-stops if `ai.preset` is missing. Images are sent as links, so they must be public HTTPS images.
-Prompt caching comes from the preset (`cache_enabled`).
+stops if `ai.openrouter.preset` is missing. Images are sent as links, so they must be public HTTPS
+images. Prompt caching comes from the preset (`cache_enabled`).
 
 Do not turn on OpenRouter server tools (web search, datetime, fetch) in the preset: they bypass
 Haru's per-channel limits, and while they are on OpenRouter ignores the structured output that
@@ -434,23 +445,23 @@ that model fails midway, the reply fails. `\usage` shows Haru's own daily counts
 
 ### Gemini
 
-Set `ai.provider: gemini`, `ai.models` and `ai.system_prompt_file` in `config.yaml`, and
-`AI_API_KEY` in `.env`. The persona is read from the file at startup, and startup stops if it or
-`ai.models` is missing, even when AI chat is off. PNG, JPEG, WebP and GIF images are sent; other
-attachments are skipped. Gemini replies and runs Discord event actions, and autonomous chat asks it
-for the same structured decision as OpenAI. A reply that calls tools stays on the model that made
-the first call; if that model fails midway, the reply fails.
+Set `ai.provider: gemini`, `ai.gemini.models` and `ai.gemini.system_prompt_file` in `config.yaml`,
+and `GEMINI_API_KEY` in `.env`. The persona is read from the file at startup, and startup stops if
+it or `ai.gemini.models` is missing, even when AI chat is off. PNG, JPEG, WebP and GIF images are
+sent; other attachments are skipped. Gemini replies and runs Discord event actions, and autonomous
+chat asks it for the same structured decision as OpenAI. A reply that calls tools stays on the model
+that made the first call; if that model fails midway, the reply fails.
 
-`ai.models` is a list. Each reply tries the models in order, giving each 8 seconds. Any failure
-other than a bad key or request (400, 401, 403) moves on to the next model, and every attempt counts
-toward the daily request quota. If all fail, Haru says her brain is fuzzy. Put the most reliable
-model first, since there is no cooldown for a model that is down.
+`ai.gemini.models` is a list. Each reply tries the models in order, giving each 8 seconds. Any
+failure other than a bad key or request (400, 401, 403) moves on to the next model, and every
+attempt counts toward the daily request quota. If all fail, Haru says her brain is fuzzy. Put the
+most reliable model first, since there is no cooldown for a model that is down.
 
 Thinking is off by default: each request asks for the lowest thinking level (`minimal`), which on
 Gemini 3 models keeps thinking to little or none rather than turning it off. Some models, such as
 gemini-3.7-flash and gemini-3.8-flash, reject `minimal`; while thinking is off they are skipped and
-the next model is tried. Set `ai.thinking: true` to send no thinking setting and use each model's
-default, which is slower and spends more tokens.
+the next model is tried. Set `ai.gemini.thinking: true` to send no thinking setting and use each
+model's default, which is slower and spends more tokens.
 
 With Gemini, `\usage` shows the requests and tokens Haru counted today instead of a billing report.
 The request limit shown is the share of the quota that mentions may use.
@@ -476,9 +487,9 @@ valid empty results show zero. Reports are cached for five minutes, share concur
 refresh on month rollover, and use a fifteen-second deadline. The command works with AI disabled or
 its budget exhausted, without spending model tokens.
 
-Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `AI_API_KEY`. Optionally set
-`usage.openai_project_id` to filter both OpenAI costs and tokens to Haru's project. The report is
-visible to channel members.
+Set `OPENAI_ADMIN_KEY` in secret environment storage, separately from `OPENAI_API_KEY`. Optionally
+set `ai.openai.usage_project_id` to filter both OpenAI costs and tokens to Haru's project. The
+report is visible to channel members.
 
 Source:
 [OpenAI usage and costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage).
@@ -614,16 +625,21 @@ Unit tests sit next to the file they test.
 ### AI providers
 
 Each provider lives in its own folder under `src/ai/providers/` (`openai/`, `gemini/`,
-`openrouter/`) and exports one `AiProviderModule` from its `index.ts`: a `create(config)` that
-returns the adapter, an optional `apiKeyEnv` (the provider's own name for the key, such as
-`OPENAI_API_KEY`, accepted when `AI_API_KEY` is not set), and, on the adapter, an optional
-`usageReport()` for `\usage`. A provider with no `usageReport` shows Haru's own daily counts
-instead. The registry in `src/ai/providers/index.ts` is the only list of providers, and the first
-one in it is the default.
+`openrouter/`) and exports one module from its `index.ts`, built with `defineAiProvider`:
+
+- `apiKeyEnv`: its key in `.env`, such as `OPENAI_API_KEY`.
+- `configKeys` and `parseConfig`: the keys of its `ai.<name>` section in `config.yaml`, and the
+  check that turns the section into typed settings (throwing for a missing required one).
+- `create(settings, apiKey)`: the adapter. It may also offer `usageReport()` for `\usage`; a
+  provider without one shows Haru's own daily counts instead.
+
+The registry in `src/ai/providers/index.ts` is the only list of providers. No provider is the
+default: with AI on, `ai.provider` must name one. Only the chosen provider's section is required,
+but every section is checked for typos.
 
 To add a provider, create its folder and register it there. To remove one, delete its folder and its
-registry line (and its tests, its settings in `config.yaml` and, for Gemini, the `@google/genai`
-dependency). Apart from a provider's own settings, nothing else in the bot names a provider.
+registry line (and, for Gemini, the `@google/genai` dependency); a leftover `ai.<name>` section in
+`config.yaml` then stops startup as an unknown setting. Nothing else in the bot names a provider.
 
 ---
 

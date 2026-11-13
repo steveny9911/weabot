@@ -89,7 +89,10 @@ async function main(): Promise<void> {
     throw new Error("Supported options: --dry-run, --help.");
   }
   const config = { ...loadConfig(), aiEnabled: true, aiMaxInputChars: 0 };
-  if (!config.aiApiKey) throw new Error("AI_API_KEY is required for this semantic test.");
+  if (!config.aiApiKey)
+    throw new Error(
+      `${config.aiApiKeyEnv ?? "The AI provider key"} is required for this semantic test.`,
+    );
   const ai = createAiService(config);
   const cases = [];
   for (const [index, fixture] of FIXTURES.entries()) {

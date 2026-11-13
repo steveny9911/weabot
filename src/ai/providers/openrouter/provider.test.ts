@@ -6,13 +6,19 @@ import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import { createAiService } from "../../service.ts";
 import { withResponses } from "../../../../tests/support/openai.ts";
 import type { ProviderRequest } from "../types.ts";
-import { createOpenRouterProvider, presetModel } from "./provider.ts";
+import { openrouter } from "./index.ts";
+import { createOpenRouterProvider, presetModel, type OpenRouterSettings } from "./provider.ts";
+
+const settings = (overrides: Partial<OpenRouterSettings> = {}): OpenRouterSettings => ({
+  preset: "haru-free",
+  ...overrides,
+});
 
 const config = (overrides = {}) =>
   testConfig({
     aiProvider: "openrouter",
     aiApiKey: "or-key",
-    aiPreset: "haru-free",
+    aiProviderSettings: settings(),
     ...overrides,
   });
 
@@ -47,7 +53,7 @@ function fakeFetch(respond: () => Response) {
 
 test("a reply goes to the preset with the key, with no model, persona or storage settings", async () => {
   const { calls, fetcher } = fakeFetch(() => reply("Hi!", 42));
-  const session = createOpenRouterProvider(config(), { fetch: fetcher }).start(
+  const session = createOpenRouterProvider(settings(), "or-key", { fetch: fetcher }).start(
     request({
       instructions: "Be brief.",
       imageUrls: ["https://cdn.example/a.png"],
@@ -87,13 +93,11 @@ test("the preset may be a slug or @preset/slug", () => {
   expect(presetModel(" @preset/haru-free ")).toStrictEqual("@preset/haru-free");
 });
 
-test("startup stops without a preset", () => {
-  throws(
-    () => createOpenRouterProvider(config({ aiPreset: undefined })),
-    Error,
-    "ai.preset is required",
-  );
-  throws(() => createOpenRouterProvider(config({ aiPreset: "  " })), Error, "ai.preset");
+test("the ai.openrouter section needs a preset", () => {
+  const secret = () => undefined;
+  throws(() => openrouter.parseConfig(undefined, secret), Error, "ai.openrouter.preset");
+  throws(() => openrouter.parseConfig({ preset: "  " }, secret), Error, "ai.openrouter.preset");
+  expect(openrouter.parseConfig({ preset: " haru " }, secret)).toStrictEqual({ preset: "haru" });
 });
 
 test("an error response reports its status and body, and any tokens it names", async () => {
@@ -103,7 +107,7 @@ test("an error response reports its status and body, and any tokens it names", a
         status: 404,
       }),
   );
-  const step = await createOpenRouterProvider(config(), { fetch: fetcher })
+  const step = await createOpenRouterProvider(settings(), "or-key", { fetch: fetcher })
     .start(request())
     .step(AbortSignal.timeout(1000));
   expect(step).toMatchObject({ ok: false, tokens: 0 });
@@ -114,7 +118,7 @@ test("an error response reports its status and body, and any tokens it names", a
 test("a response without text is reported as empty", async () => {
   const { fetcher } = fakeFetch(() => Response.json({ output: [], usage: { total_tokens: 3 } }));
   expect(
-    await createOpenRouterProvider(config(), { fetch: fetcher })
+    await createOpenRouterProvider(settings(), "or-key", { fetch: fetcher })
       .start(request())
       .step(AbortSignal.timeout(1000)),
   ).toStrictEqual({ ok: true, text: null, toolCalls: [], tokens: 3 });
@@ -130,7 +134,7 @@ test("reasoning text is not part of the reply", async () => {
     }),
   );
   expect(
-    await createOpenRouterProvider(config(), { fetch: fetcher })
+    await createOpenRouterProvider(settings(), "or-key", { fetch: fetcher })
       .start(request())
       .step(AbortSignal.timeout(1000)),
   ).toMatchObject({ ok: true, text: "Hello!" });
@@ -169,7 +173,7 @@ const callResponse = (model = "vendor/model:free") =>
 
 test("tool requests send the tools one call at a time, and the calls come back", async () => {
   const { calls, fetcher } = fakeFetch(() => callResponse());
-  const session = createOpenRouterProvider(config(), { fetch: fetcher }).start(
+  const session = createOpenRouterProvider(settings(), "or-key", { fetch: fetcher }).start(
     request({ tools: [tool] }),
   );
   expect(await session.step(AbortSignal.timeout(1000))).toStrictEqual({
@@ -191,7 +195,7 @@ test("tool requests send the tools one call at a time, and the calls come back",
 test("tool results continue on the model that asked, with every output item kept", async () => {
   const responses = [callResponse("vendor/model:free"), reply("Done!", 9)];
   const { calls, fetcher } = fakeFetch(() => responses.shift()!);
-  const session = createOpenRouterProvider(config(), { fetch: fetcher }).start(
+  const session = createOpenRouterProvider(settings(), "or-key", { fetch: fetcher }).start(
     request({ tools: [tool] }),
   );
   const first = await session.step(AbortSignal.timeout(1000));
@@ -214,7 +218,7 @@ test("an incomplete or failed tool response is an error that keeps its tokens", 
       Response.json({ status, output: [], usage: { total_tokens: 5 } }),
     );
     expect(
-      await createOpenRouterProvider(config(), { fetch: fetcher })
+      await createOpenRouterProvider(settings(), "or-key", { fetch: fetcher })
         .start(request({ tools: [tool] }))
         .step(AbortSignal.timeout(1000)),
     ).toStrictEqual({ ok: false, error: `OpenRouter response ${status}`, tokens: 5 });
@@ -235,7 +239,7 @@ const decision = (overrides = {}) =>
 test("an autonomous decision asks for the strict format from endpoints that honor it", async () => {
   const { calls, fetcher } = fakeFetch(() => reply(decision(), 21));
   expect(
-    await createOpenRouterProvider(config(), { fetch: fetcher })
+    await createOpenRouterProvider(settings(), "or-key", { fetch: fetcher })
       .start(request({ format: "participation" }))
       .step(AbortSignal.timeout(1000)),
   ).toStrictEqual({ ok: true, text: decision(), toolCalls: [], tokens: 21 });
@@ -260,7 +264,7 @@ test("a decision is only accepted from one completed assistant message", async (
     [() => Response.json({ status: "incomplete", output: [] }), null],
   ] as const) {
     const { fetcher } = fakeFetch(body);
-    const step = await createOpenRouterProvider(config(), { fetch: fetcher })
+    const step = await createOpenRouterProvider(settings(), "or-key", { fetch: fetcher })
       .start(request({ format: "participation" }))
       .step(AbortSignal.timeout(1000));
     expect(step).toMatchObject({ ok: true, text: expected });
@@ -277,7 +281,7 @@ test("a rejected decision request reports the tokens the error names", async () 
         },
       ),
   );
-  const step = await createOpenRouterProvider(config(), { fetch: fetcher })
+  const step = await createOpenRouterProvider(settings(), "or-key", { fetch: fetcher })
     .start(request({ format: "participation" }))
     .step(AbortSignal.timeout(1000));
   expect(step).toMatchObject({ ok: false, tokens: 8 });
@@ -325,7 +329,7 @@ test("the AI service names OpenRouter when the key is missing or the call fails"
     await createAiService(config({ aiApiKey: undefined })).generateReply([
       { author: "Alice", content: "hi" },
     ]),
-  ).toMatchObject({ ok: false, error: "AI_API_KEY not set" });
+  ).toMatchObject({ ok: false, error: "OPENROUTER_API_KEY not set" });
   await withResponses([new Response("busy", { status: 429 })], async () => {
     const result = await createAiService(config()).generateReply([
       { author: "Alice", content: "hi" },

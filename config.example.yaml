@@ -2,8 +2,8 @@
 #
 #   cp config.example.yaml config.yaml
 #
-# `config.yaml` holds every setting that is not secret. Secrets (DISCORD_TOKEN, AI_API_KEY,
-# BRAVE_SEARCH_API_KEY, OPENAI_ADMIN_KEY, ADMIN_HTTP_TOKEN) stay in `.env` (see `.env.sample`).
+# `config.yaml` holds every setting that is not secret. Secrets (DISCORD_TOKEN, the AI provider's
+# key, BRAVE_SEARCH_API_KEY, OPENAI_ADMIN_KEY, ADMIN_HTTP_TOKEN) stay in `.env` (see `.env.sample`).
 #
 # The file must exist, but every key in it is optional except discord.channel_ids. A key you leave
 # out (or set to null) uses its default. The values shown are the defaults, except where a comment
@@ -18,7 +18,10 @@
 discord:
   # REQUIRED. List of channel IDs where Haru chats; polls, alerts and stats are posted to each of
   # them. A feature with its own channel_ids uses those instead; with none, it uses this list.
-  channel_ids: []
+  # Write one quoted ID per line, indented under the key:
+  #   channel_ids:
+  #     - "123456789012345678"
+  channel_ids:
 
 general:
   # An IANA time zone name, such as America/Vancouver. Used for dates and as the default for
@@ -30,30 +33,46 @@ general:
   # by default.
   http_port: 8000
 
-# AI chat is off without AI_API_KEY in `.env`.
+# AI chat is off without the chosen provider's key in `.env`.
 ai:
   # true or false. The master switch: false turns off mention replies, autonomous chat and the
   # event tools, even with a key.
   enabled: true
-  # openai, gemini or openrouter. Anything else stops startup.
-  provider: openai
+  # REQUIRED while enabled is true, and there is no default: openai, gemini or openrouter. Startup
+  # stops without one, and on any other name. Each provider has its own section below and its own
+  # key in `.env`. Only the chosen provider's section is required; the others may stay as they are.
+  provider: gemini
 
-  # OpenRouter only, no default. The preset (a slug such as haru-free, or @preset/haru-free) that
-  # holds Haru's persona, models and settings. Manage it at openrouter.ai/settings/presets: it must
-  # not enable OpenRouter server tools (web search, datetime, fetch), which make OpenRouter ignore
-  # the autonomous chat output format. Startup stops if this is empty with openrouter.
-  preset: null
+  # OpenAI. Key: OPENAI_API_KEY. Haru's persona is the saved prompt in the OpenAI dashboard.
+  openai:
+    # An OpenAI project ID, or null for the whole organization. Filters the OpenAI costs and tokens
+    # that \usage shows, together with OPENAI_ADMIN_KEY (in `.env`). Without that key \usage shows
+    # "Unavailable". Providers with no billing report show today's requests and tokens counted by
+    # Haru instead.
+    usage_project_id: null
 
-  # Gemini only, no default. List of model names, tried in order; the next one is used when a model
-  # fails. Put the most reliable one first. Startup stops if this is empty with gemini.
-  models: [gemini-3.5-flash, gemini-3.5-flash-lite]
-  # Gemini only, no default. Path to the file with Haru's persona; startup stops if it is missing
-  # or empty. With OpenAI the persona is the saved prompt instead.
-  system_prompt_file: data/system_prompt.md
-  # true or false. true lets models think before answering (each model's default). false asks for
-  # the lowest level, and models that cannot go that low (such as gemini-3.7-flash,
-  # gemini-3.8-flash) are skipped.
-  thinking: false
+  # Gemini. Key: GEMINI_API_KEY.
+  gemini:
+    # REQUIRED with gemini, no default. List of model names, one per line, tried in order; the next
+    # one is used when a model fails. Put the most reliable one first.
+    models:
+      - gemini-3.5-flash
+      - gemini-3.5-flash-lite
+    # REQUIRED with gemini, no default. Path to the file with Haru's persona; startup stops if it
+    # is missing or empty.
+    system_prompt_file: data/system_prompt.md
+    # true or false. true lets models think before answering (each model's default). false asks
+    # for the lowest level, and models that cannot go that low (such as gemini-3.7-flash,
+    # gemini-3.8-flash) are skipped.
+    thinking: false
+
+  # OpenRouter. Key: OPENROUTER_API_KEY.
+  openrouter:
+    # REQUIRED with openrouter, no default. The preset (a slug such as haru-free, or
+    # @preset/haru-free) that holds Haru's persona, models and settings. Manage it at
+    # openrouter.ai/settings/presets. It must not enable OpenRouter server tools (web search,
+    # datetime, fetch), which make OpenRouter ignore the autonomous chat output format.
+    preset: null
 
   # true or false. UwU style in replies.
   uwu: true
@@ -110,7 +129,7 @@ discord_actions:
   enabled: true
   channel_ids: all
   # List of server IDs where the tools are allowed. Empty means every server the bot is in.
-  guild_ids: []
+  guild_ids:
 
 # The daily mood poll, the weekly stats and the wellness alerts. Each posts to every channel in its
 # own channel_ids (empty means discord.channel_ids). The stats and the alerts read the votes the
@@ -120,19 +139,19 @@ mood_poll:
   # true or false. Posts a poll every day at 05:00 UTC.
   enabled: true
   # List of channel IDs. Empty means discord.channel_ids.
-  channel_ids: []
+  channel_ids:
 
 weekly_stats:
   # true or false. Posts a summary every Sunday at 06:00 UTC.
   enabled: true
   # List of channel IDs. Empty means discord.channel_ids.
-  channel_ids: []
+  channel_ids:
 
 wellness:
   # true or false. Checks every day at 06:00 UTC.
   enabled: true
   # List of channel IDs. Empty means discord.channel_ids.
-  channel_ids: []
+  channel_ids:
   # Whole number of consecutive "glue" days before a wellness alert.
   glue_alert_threshold: 7
 
@@ -142,7 +161,7 @@ autonomous_chat:
   enabled: false
 
   # List of channel IDs where Haru may join in. Empty means discord.channel_ids.
-  channel_ids: []
+  channel_ids:
 
   # Number from 0 to 1. Chance that an eligible conversation is considered.
   reply_chance: 0.35
@@ -167,7 +186,7 @@ landmine:
 
   # List of channel IDs with landmines, or all for every channel Haru can read. Empty means
   # discord.channel_ids.
-  channel_ids: []
+  channel_ids:
 
   # Number from 0 to 1. Chance that a message is a landmine.
   chance: 0.1
@@ -186,10 +205,3 @@ landmine:
     enabled: true
     # Whole number of seconds. Maximum 28 days (2419200); larger values are cut to 28 days.
     timeout_seconds: 60
-
-# The \usage command shows "Unavailable" for missing values. With Gemini it shows today's requests
-# and tokens counted by Haru and needs none of this. OPENAI_ADMIN_KEY (in `.env`) enables OpenAI
-# cost and token reports.
-usage:
-  # An OpenAI project ID, or null for the whole organization. Filters OpenAI costs and tokens.
-  openai_project_id: null

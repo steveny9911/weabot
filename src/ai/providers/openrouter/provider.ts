@@ -1,5 +1,4 @@
 /** OpenRouter Responses API through a preset, which holds Haru's persona, models and settings. */
-import type { AppConfig } from "../../../config.ts";
 import type { Fetcher } from "../../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import {
@@ -22,19 +21,23 @@ export function presetModel(preset: string): string {
   return `${PRESET_PREFIX}${slug}`;
 }
 
+/** The checked `ai.openrouter` settings. */
+export interface OpenRouterSettings {
+  /** The preset (slug or `@preset/slug`) that holds the persona, models and settings. */
+  preset: string;
+}
+
 export function createOpenRouterProvider(
-  config: AppConfig,
+  settings: OpenRouterSettings,
+  apiKey: string | undefined,
   deps: { fetch?: Fetcher } = {},
 ): AiProvider {
-  if (!config.aiPreset?.trim()) {
-    throw new Error("FATAL: ai.preset is required for the openrouter provider");
-  }
-  const model = presetModel(config.aiPreset);
+  const model = presetModel(settings.preset);
   const fetchImpl: Fetcher = deps.fetch ?? ((input, init) => fetch(input, init));
 
   return {
     label: "OpenRouter",
-    missingKeyError: "AI_API_KEY not set",
+    missingKeyError: "OPENROUTER_API_KEY not set",
     start(request) {
       const input = buildInput(request);
       let lastOutput: unknown[] = [];
@@ -53,7 +56,7 @@ export function createOpenRouterProvider(
           const res = await fetchImpl(OPENROUTER_URL, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${config.aiApiKey}`,
+              Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({

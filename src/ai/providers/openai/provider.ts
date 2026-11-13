@@ -1,5 +1,4 @@
 /** OpenAI Responses API with the saved dashboard prompt, which holds Haru's persona and model. */
-import type { AppConfig } from "../../../config.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import {
   buildInput,
@@ -17,7 +16,7 @@ const OPENAI_CHAT_BUILDER_PROMPT = {
   id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
 } as const;
 
-export function createOpenAiProvider(config: AppConfig): AiProvider {
+export function createOpenAiProvider(apiKey: string | undefined): AiProvider {
   return {
     label: "OpenAI",
     missingKeyError: "OPENAI_API_KEY not set",
@@ -35,7 +34,7 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
           const res = await fetch(OPENAI_URL, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${config.aiApiKey}`,
+              Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({

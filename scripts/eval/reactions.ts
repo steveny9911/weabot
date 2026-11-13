@@ -59,7 +59,8 @@ async function main() {
   if (process.argv.slice(2).some((arg) => arg !== "--dry-run"))
     throw new Error("Only --dry-run is supported.");
   const config = { ...loadConfig(), aiEnabled: true, aiMaxInputChars: 0 };
-  if (!config.aiApiKey) throw new Error("AI_API_KEY is required.");
+  if (!config.aiApiKey)
+    throw new Error(`${config.aiApiKeyEnv ?? "The AI provider key"} is required.`);
   const ai = createAiService(config);
   const outcomes = [];
   for (const fixture of fixtures) {

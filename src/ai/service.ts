@@ -42,9 +42,10 @@ export function createAiService(
   const requestTimeoutMs = runtime.requestTimeoutMs ?? RESPONSE_TIMEOUT_MS;
   const toolLoopTimeoutMs = runtime.toolLoopTimeoutMs ?? TOOL_LOOP_TIMEOUT_MS;
   const now = runtime.now ?? (() => performance.now());
-  const provider = createAiProvider(config);
+  // Without a provider AI is off (config.ts allows that only then), so none is built.
+  const provider = config.aiProvider ? createAiProvider(config) : undefined;
   return {
-    usageReport: provider.usageReport?.bind(provider),
+    usageReport: provider?.usageReport?.bind(provider),
     async generateReply(
       messages: Array<Record<string, unknown>>,
       options?: AiReplyOptions | AiParticipationOptions,
@@ -63,6 +64,7 @@ export function createAiService(
         return { ok: false, error: "AI is disabled" };
       }
 
+      if (!provider) return { ok: false, error: "ai.provider is not set" };
       if (!config.aiApiKey) {
         return { ok: false, error: provider.missingKeyError };
       }

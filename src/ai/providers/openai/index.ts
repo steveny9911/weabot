@@ -1,17 +1,27 @@
 /** The OpenAI provider: chat through the Responses API, and `\usage` from OpenAI billing. */
-import type { AiProviderModule } from "../types.ts";
+import { defineAiProvider } from "../module.ts";
 import { createOpenAiProvider } from "./provider.ts";
-import { createUsageService, formatUsageMessage } from "./usage.ts";
+import { createUsageService, formatUsageMessage, type UsageSettings } from "./usage.ts";
 
-export const openai: AiProviderModule = {
+/** The `ai.openai` section of config.yaml. */
+interface OpenAiFile {
+  usage_project_id?: string;
+}
+
+export const openai = defineAiProvider<OpenAiFile, UsageSettings>({
   apiKeyEnv: "OPENAI_API_KEY",
-  create(config) {
-    const usage = createUsageService(config);
+  configKeys: { usage_project_id: true },
+  parseConfig: (section, secret) => ({
+    adminKey: secret("OPENAI_ADMIN_KEY"),
+    projectId: section?.usage_project_id || undefined,
+  }),
+  create(settings, apiKey) {
+    const usage = createUsageService(settings);
     return {
-      ...createOpenAiProvider(config),
+      ...createOpenAiProvider(apiKey),
       async usageReport() {
         return formatUsageMessage(await usage.getMonthToDate());
       },
     };
   },
-};
+});

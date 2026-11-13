@@ -1,5 +1,4 @@
 /** The contract between the AI service and one model provider. Only adapters see native shapes. */
-import type { AppConfig } from "../../config.ts";
 
 export interface ProviderRequest {
   /** Per-request instructions; providers place them above the conversation. */
@@ -52,11 +51,4 @@ export interface AiProvider {
   start(request: ProviderRequest): ProviderSession;
   /** Discord text for `\usage` from the provider's own billing; absent when it has none. */
   usageReport?(): Promise<string>;
-}
-
-/** What a provider's folder exports. Everything provider-specific stays behind `create`. */
-export interface AiProviderModule {
-  /** The provider's own name for the key in `.env`, used when AI_API_KEY is not set. */
-  apiKeyEnv?: string;
-  create(config: AppConfig): AiProvider;
 }

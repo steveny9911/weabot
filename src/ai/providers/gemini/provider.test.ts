@@ -7,7 +7,8 @@ import { testConfig } from "../../../../tests/support/config.ts";
 import type { Fetcher } from "../../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import { createAiService } from "../../service.ts";
-import { createGeminiProvider } from "./provider.ts";
+import { gemini } from "./index.ts";
+import { createGeminiProvider, type GeminiSettings } from "./provider.ts";
 
 let dir: string;
 let promptFile: string;
@@ -19,13 +20,20 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true }));
 
-const config = (overrides = {}) =>
+const KEY = "gemini-key";
+
+const settings = (overrides: Partial<GeminiSettings> = {}): GeminiSettings => ({
+  models: ["models/gemini-test"],
+  systemPromptFile: promptFile,
+  thinking: false,
+  ...overrides,
+});
+
+const config = (overrides: Partial<GeminiSettings> = {}) =>
   testConfig({
     aiProvider: "gemini",
-    aiApiKey: "gemini-key",
-    aiModels: ["models/gemini-test"],
-    aiSystemPromptFile: promptFile,
-    ...overrides,
+    aiApiKey: KEY,
+    aiProviderSettings: settings(overrides),
   });
 
 const reply = (text: string, total = 12) =>
@@ -60,7 +68,7 @@ function fakeFetch(respond: () => Response, images: Record<string, Response> = {
 }
 
 const run = (fetcher: Fetcher, imageUrls: string[] = []) =>
-  createGeminiProvider(config(), { fetch: fetcher })
+  createGeminiProvider(settings(), KEY, { fetch: fetcher })
     .start({ userText: "Alice: hi", imageUrls, format: "text" })
     .step(new AbortController().signal);
 
@@ -131,20 +139,33 @@ test("a response without text is reported as empty", async () => {
   expect(await run(fetcher)).toMatchObject({ ok: true, text: null });
 });
 
-test("startup stops without a model, a prompt file, or prompt text", () => {
-  throws(() => createGeminiProvider(config({ aiModels: [] })), Error, "ai.models");
+test("startup stops without the prompt file or prompt text", () => {
   throws(
-    () => createGeminiProvider(config({ aiSystemPromptFile: undefined })),
-    Error,
-    "ai.system_prompt_file",
-  );
-  throws(
-    () => createGeminiProvider(config({ aiSystemPromptFile: join(dir, "missing.md") })),
+    () => createGeminiProvider(settings({ systemPromptFile: join(dir, "missing.md") }), KEY),
     Error,
     "missing.md",
   );
   writeFileSync(promptFile, "  \n");
-  throws(() => createGeminiProvider(config()), Error, "is empty");
+  throws(() => createGeminiProvider(settings(), KEY), Error, "is empty");
+});
+
+test("the ai.gemini section needs models and a prompt file, and defaults thinking off", () => {
+  const secret = () => undefined;
+  throws(
+    () => gemini.parseConfig({ system_prompt_file: "p.md" }, secret),
+    Error,
+    "ai.gemini.models",
+  );
+  throws(() => gemini.parseConfig({ models: [] }, secret), Error, "ai.gemini.models");
+  throws(
+    () => gemini.parseConfig({ models: ["a"] }, secret),
+    Error,
+    "ai.gemini.system_prompt_file",
+  );
+  throws(() => gemini.parseConfig(undefined, secret), Error, "ai.gemini.models");
+  expect(
+    gemini.parseConfig({ models: ["a", "b", "a"], system_prompt_file: "p.md" }, secret),
+  ).toStrictEqual({ models: ["a", "b"], systemPromptFile: "p.md", thinking: false });
 });
 
 test("thinking is turned down to the lowest level unless AI_THINKING is on", async () => {
@@ -153,7 +174,7 @@ test("thinking is turned down to the lowest level unless AI_THINKING is on", asy
     [true, undefined],
   ] as const) {
     const { calls, fetcher } = fakeFetch(() => reply("Hi"));
-    await createGeminiProvider(config({ aiThinking }), { fetch: fetcher })
+    await createGeminiProvider(settings({ thinking: aiThinking }), KEY, { fetch: fetcher })
       .start({ userText: "Alice: hi", imageUrls: [], format: "text" })
       .step(new AbortController().signal);
     expect(calls[0]!.body.generationConfig?.thinkingConfig).toEqual(thinkingConfig);
@@ -161,7 +182,7 @@ test("thinking is turned down to the lowest level unless AI_THINKING is on", asy
 });
 
 const runParticipation = (fetcher: Fetcher) =>
-  createGeminiProvider(config(), { fetch: fetcher })
+  createGeminiProvider(settings(), KEY, { fetch: fetcher })
     .start({
       instructions: "Choose reply, react, or silent.",
       userText: "Alice: hi",
@@ -215,7 +236,7 @@ const failWith = (status: number) => () =>
   new Response(JSON.stringify({ error: { message: "nope" } }), { status });
 
 const runModels = (fetcher: Fetcher, attemptTimeoutMs = 8_000) => {
-  const session = createGeminiProvider(config({ aiModels: ["a", "b", "c"] }), {
+  const session = createGeminiProvider(settings({ models: ["a", "b", "c"] }), KEY, {
     fetch: fetcher,
     attemptTimeoutMs,
   }).start({ userText: "hi", imageUrls: [], format: "text" });
@@ -304,7 +325,9 @@ test("a caller abort stops the chain", async () => {
     controller.abort();
     throw new DOMException("x", "AbortError");
   };
-  const session = createGeminiProvider(config({ aiModels: ["a", "b"] }), { fetch: fetcher }).start({
+  const session = createGeminiProvider(settings({ models: ["a", "b"] }), KEY, {
+    fetch: fetcher,
+  }).start({
     userText: "hi",
     imageUrls: [],
     format: "text",
@@ -322,7 +345,7 @@ test("the service reports every attempt as a request", async () => {
     preconnect() {},
   }) as typeof fetch;
   try {
-    const result = await createAiService(config({ aiModels: ["a", "b", "c"] })).generateReply([
+    const result = await createAiService(config({ models: ["a", "b", "c"] })).generateReply([
       { author: "Alice", content: "hi" },
     ]);
     expect(result).toMatchObject({ ok: true, text: "finally", requestsUsed: 3 });
@@ -364,7 +387,9 @@ test("a tool call is returned, answered, and the same model finishes the reply",
     strict: true,
     parameters: { type: "object", properties: {}, additionalProperties: false },
   };
-  const session = createGeminiProvider(config({ aiModels: ["a", "b"] }), { fetch: fetcher }).start({
+  const session = createGeminiProvider(settings({ models: ["a", "b"] }), KEY, {
+    fetch: fetcher,
+  }).start({
     userText: "What time is it?",
     currentUserMessage: "What time is it?",
     imageUrls: [],
