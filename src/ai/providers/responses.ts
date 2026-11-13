@@ -61,7 +61,15 @@ export function createResponsesProvider(options: ResponsesOptions): AiProvider {
           console.log("[AI] model:", data.model);
           const tokens = readTokenUsage(data);
           if (request.tools && (data.status === "incomplete" || data.status === "failed")) {
-            return { ok: false, error: `${label} response ${data.status}`, tokens };
+            const why = isObject(data.incomplete_details)
+              ? data.incomplete_details.reason
+              : undefined;
+            const detail = why ?? (isObject(data.error) ? data.error.message : undefined);
+            return {
+              ok: false,
+              error: `${label} response ${data.status}${detail ? `: ${detail}` : ""}`,
+              tokens,
+            };
           }
 
           lastOutput = Array.isArray(data.output) ? data.output : [];

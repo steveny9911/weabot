@@ -138,13 +138,18 @@ test("tool results continue on the model that asked, with every output item kept
   ]);
 });
 
-test("an incomplete or failed tool response is an error that keeps its tokens", async () => {
-  for (const status of ["incomplete", "failed"]) {
+test("an incomplete or failed tool response is an error with its reason and tokens", async () => {
+  for (const [status, extra, reason] of [
+    ["incomplete", { incomplete_details: { reason: "max_output_tokens" } }, ": max_output_tokens"],
+    ["failed", { error: { message: "boom" } }, ": boom"],
+    ["incomplete", {}, ""],
+  ] as const) {
     const { step } = await stepOnce(
-      () => Response.json({ status, output: [], usage: { total_tokens: 5 } }),
+      () => Response.json({ status, ...extra, output: [], usage: { total_tokens: 5 } }),
       { tools: [tool] },
     );
-    expect(step).toStrictEqual({ ok: false, error: `OpenRouter response ${status}`, tokens: 5 });
+    const error = `OpenRouter response ${status}${reason}`;
+    expect(step).toStrictEqual({ ok: false, error, tokens: 5 });
   }
 });
 
