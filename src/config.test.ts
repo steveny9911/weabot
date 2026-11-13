@@ -206,14 +206,9 @@ test("context messages and landmine step penalty timeouts are capped at their li
   expect(config.landmine.stepPenalty.timeoutSeconds).toStrictEqual(28 * 86_400);
 });
 
-/** Loads `ai` next to a channel, without the provider the `load` helper would add. */
-function loadAi(ai: ConfigFile["ai"] | undefined, secrets: Record<string, string> = {}) {
-  let config!: ReturnType<typeof loadConfig>;
-  withSecrets({ DISCORD_TOKEN: "t", ...secrets }, () => {
-    config = loadConfig({ discord: { channel_ids: ["c"] }, ai });
-  });
-  return config;
-}
+/** Loads `ai` without the provider `load` would add. */
+const loadAi = (ai: ConfigFile["ai"] | undefined, secrets: Record<string, string> = {}) =>
+  load({ ai: { provider: undefined, ...ai } }, secrets);
 const loadAiFails = (ai: ConfigFile["ai"] | undefined, message: string) =>
   throws(() => loadAi(ai), Error, message);
 

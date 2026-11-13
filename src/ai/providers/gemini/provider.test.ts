@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assert, throws } from "../../../../tests/support/assert.ts";
+import { fakeFetch } from "../../../../tests/support/fake_fetch.ts";
 import type { Fetcher } from "../../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import { gemini } from "./index.ts";
@@ -42,29 +43,13 @@ interface GeminiBody {
   generationConfig?: Record<string, unknown>;
 }
 
-/** Records Gemini calls and serves images by URL; anything else is the model reply. */
-function fakeFetch(respond: () => Response, images: Record<string, Response> = {}) {
-  const calls: Array<{ url: string; headers: Headers; body: GeminiBody }> = [];
-  const fetcher: Fetcher = async (input, init) => {
-    const url = String(input);
-    if (url in images) return images[url]!;
-    calls.push({
-      url,
-      headers: new Headers(init?.headers),
-      body: JSON.parse(String(init?.body)),
-    });
-    return respond();
-  };
-  return { calls, fetcher };
-}
-
 const run = (fetcher: Fetcher, imageUrls: string[] = []) =>
   createGeminiProvider(settings(), KEY, { fetch: fetcher })
     .start({ userText: "Alice: hi", imageUrls, format: "text" })
     .step(new AbortController().signal);
 
 test("a plain reply sends the persona and the conversation to the model", async () => {
-  const { calls, fetcher } = fakeFetch(() => reply("Hello!~"));
+  const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply("Hello!~"));
   const step = await run(fetcher);
 
   expect(step).toEqual({ ok: true, text: "Hello!~", toolCalls: [], tokens: 12 });
@@ -79,7 +64,7 @@ test("a plain reply sends the persona and the conversation to the model", async 
 test("only PNG, JPEG, WebP and GIF images are sent, inline", async () => {
   const image = (type: string, size = 3) =>
     new Response(new Uint8Array(size), { headers: { "content-type": type } });
-  const { calls, fetcher } = fakeFetch(() => reply("ok"), {
+  const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply("ok"), {
     "https://cdn/a.png": image("image/png"),
     "https://cdn/b.gif": image("image/gif"),
     "https://cdn/d.bmp": image("image/bmp"),
@@ -106,7 +91,7 @@ test("only PNG, JPEG, WebP and GIF images are sent, inline", async () => {
 });
 
 test("thought parts are not part of the reply", async () => {
-  const { fetcher } = fakeFetch(
+  const { fetcher } = fakeFetch<GeminiBody>(
     () =>
       new Response(
         JSON.stringify({
@@ -124,7 +109,7 @@ test("thought parts are not part of the reply", async () => {
 });
 
 test("a response without text is reported as empty", async () => {
-  const { fetcher } = fakeFetch(
+  const { fetcher } = fakeFetch<GeminiBody>(
     () => new Response(JSON.stringify({ candidates: [{ finishReason: "SAFETY" }] })),
   );
   expect(await run(fetcher)).toMatchObject({ ok: true, text: null });
@@ -159,7 +144,7 @@ test("thinking is turned down to the lowest level unless AI_THINKING is on", asy
     [false, { thinkingLevel: "MINIMAL" }],
     [true, undefined],
   ] as const) {
-    const { calls, fetcher } = fakeFetch(() => reply("Hi"));
+    const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply("Hi"));
     await createGeminiProvider(settings({ thinking: aiThinking }), KEY, { fetch: fetcher })
       .start({ userText: "Alice: hi", imageUrls: [], format: "text" })
       .step(new AbortController().signal);
@@ -179,7 +164,7 @@ const runParticipation = (fetcher: Fetcher) =>
 
 test("participation asks for the shared JSON schema and returns the decision", async () => {
   const decision = '{"action":"silent"}';
-  const { calls, fetcher } = fakeFetch(() => reply(decision));
+  const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply(decision));
 
   expect(await runParticipation(fetcher)).toMatchObject({ ok: true, text: decision });
   expect(calls[0]!.body.generationConfig).toMatchObject({
@@ -195,7 +180,7 @@ test("a participation response that did not finish normally is no decision", asy
     [{ content: { parts: [{ text }] }, finishReason: "SAFETY" }],
     [{ content: { parts: [{ text }] } }],
   ]) {
-    const { fetcher } = fakeFetch(
+    const { fetcher } = fakeFetch<GeminiBody>(
       () => new Response(JSON.stringify({ candidates, usageMetadata: { totalTokenCount: 7 } })),
     );
     expect(await runParticipation(fetcher)).toEqual({

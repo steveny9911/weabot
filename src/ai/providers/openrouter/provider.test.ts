@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { throws } from "../../../../tests/support/assert.ts";
-import type { Fetcher } from "../../../types/fetch.ts";
+import { fakeFetch } from "../../../../tests/support/fake_fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import type { ProviderRequest } from "../types.ts";
 import { openrouter } from "./index.ts";
@@ -25,20 +25,6 @@ const request = (overrides: Partial<ProviderRequest> = {}): ProviderRequest => (
   format: "text",
   ...overrides,
 });
-
-/** Records the calls the provider makes and answers each with `respond`. */
-function fakeFetch(respond: () => Response) {
-  const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
-  const fetcher: Fetcher = async (input, init) => {
-    calls.push({
-      url: String(input),
-      headers: new Headers(init?.headers),
-      body: JSON.parse(String(init?.body)),
-    });
-    return respond();
-  };
-  return { calls, fetcher };
-}
 
 /** Runs one step of a fresh session against `respond`, and returns the step and the calls made. */
 async function stepOnce(respond: () => Response, overrides: Partial<ProviderRequest> = {}) {
