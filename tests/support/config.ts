@@ -2,9 +2,11 @@ import type { AppConfig } from "../../src/config.ts";
 
 /** `T` with every setting optional, however deep, so a test names only what it depends on. */
 export type ConfigOverrides<T = AppConfig> = {
-  [K in keyof T]?: T[K] extends string | number | boolean | unknown[]
+  [K in keyof T]?: unknown extends T[K]
     ? T[K]
-    : ConfigOverrides<T[K]>;
+    : T[K] extends string | number | boolean | unknown[]
+      ? T[K]
+      : ConfigOverrides<T[K]>;
 };
 
 const isSection = (value: unknown): value is Record<string, unknown> =>
@@ -27,12 +29,12 @@ function defaults(): AppConfig {
     channelIds: channels(),
     databasePath: ":memory:",
     httpPort: 8000,
-    aiModels: [],
     timeZone: "UTC",
     aiEnabled: true,
     aiChat: feature(),
     aiProvider: "openai",
-    aiThinking: false,
+    aiApiKeyEnv: "OPENAI_API_KEY",
+    aiProviderSettings: {},
     aiApiKey: "test-key",
     aiRateLimitPerUser: 5,
     aiDailyTokenBudget: 100_000,

@@ -90,7 +90,10 @@ async function main(): Promise<void> {
     aiMaxInputChars: 0,
     timeZone: TIME_ZONE,
   };
-  ensure(config.aiApiKey, "AI_API_KEY is required for this semantic test.");
+  ensure(
+    config.aiApiKey,
+    `${config.aiApiKeyEnv ?? "The AI provider key"} is required for this semantic test.`,
+  );
   const real = createDiscordEventsClient(config.discordToken);
   async function api(path: string, method: "GET" | "DELETE" = "GET"): Promise<unknown> {
     let response: Response;

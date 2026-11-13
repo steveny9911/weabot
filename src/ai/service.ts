@@ -7,7 +7,7 @@ import {
 } from "./context_images.ts";
 import { withResponseDeadline } from "./deadline.ts";
 import { parseParticipation, participationInstructions } from "./participation.ts";
-import { createAiProvider } from "./providers/index.ts";
+import { AI_PROVIDERS } from "./providers/index.ts";
 import { sanitizeReply, uwuify, truncateText } from "./text.ts";
 import type {
   AiErrorResult,
@@ -42,8 +42,13 @@ export function createAiService(
   const requestTimeoutMs = runtime.requestTimeoutMs ?? RESPONSE_TIMEOUT_MS;
   const toolLoopTimeoutMs = runtime.toolLoopTimeoutMs ?? TOOL_LOOP_TIMEOUT_MS;
   const now = runtime.now ?? (() => performance.now());
-  const provider = createAiProvider(config);
+  // With AI off no provider is built, so a provider that is named but not ready cannot stop startup.
+  const provider =
+    config.aiEnabled && config.aiProvider
+      ? AI_PROVIDERS[config.aiProvider]?.create(config.aiProviderSettings, config.aiApiKey)
+      : undefined;
   return {
+    usageReport: provider?.usageReport?.bind(provider),
     async generateReply(
       messages: Array<Record<string, unknown>>,
       options?: AiReplyOptions | AiParticipationOptions,
@@ -62,8 +67,9 @@ export function createAiService(
         return { ok: false, error: "AI is disabled" };
       }
 
+      if (!provider) return { ok: false, error: "ai.provider is not set" };
       if (!config.aiApiKey) {
-        return { ok: false, error: provider.missingKeyError };
+        return { ok: false, error: `${config.aiApiKeyEnv} not set` };
       }
 
       const choices = participationOptions?.reactionChoices ?? [];

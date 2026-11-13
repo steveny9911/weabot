@@ -1,21 +1,32 @@
-/** OpenAI Responses API with the saved dashboard prompt, which holds Haru's persona and model. */
-import type { AppConfig } from "../../config.ts";
+/** The OpenAI Responses API, shared by the providers that speak it. */
+import type { Fetcher } from "../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
 import type { AiProvider, ProviderRequest, ProviderStep, ToolCall } from "./types.ts";
 
-const OPENAI_URL = "https://api.openai.com/v1/responses";
-const OPENAI_CHAT_BUILDER_PROMPT = {
-  id: "pmpt_6971ba873da4819097808c4de837bbfd0c33418debd7844b",
-} as const;
+/** What a provider adds to the shared Responses client. */
+interface ResponsesOptions {
+  label: string;
+  url: string;
+  apiKey: string | undefined;
+  fetch?: Fetcher;
+  /** The request fields only this provider sends. `pinned` is the model that asked for tools. */
+  body(ctx: { participation: boolean; pinned?: string }): Record<string, unknown>;
+  /** Returns an error for output the provider must refuse. */
+  check?(output: unknown[]): string | undefined;
+}
 
-export function createOpenAiProvider(config: AppConfig): AiProvider {
+export function createResponsesProvider(options: ResponsesOptions): AiProvider {
+  const { label, url, apiKey, body, check } = options;
+  const fetchImpl: Fetcher = options.fetch ?? ((input, init) => fetch(input, init));
   return {
-    label: "OpenAI",
-    missingKeyError: "OPENAI_API_KEY not set",
+    label,
     start(request) {
       const input = buildInput(request);
       let lastOutput: unknown[] = [];
       let calls = 0;
+      // Tool results only make sense to the model that asked for them, so a provider that rotates
+      // models pins the later steps to the one that answered first.
+      let pinned: string | undefined;
       return {
         get calls() {
           return calls;
@@ -23,17 +34,13 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
         async step(signal): Promise<ProviderStep> {
           const participation = request.format === "participation";
           calls++;
-          const res = await fetch(OPENAI_URL, {
+          const res = await fetchImpl(url, {
             method: "POST",
-            headers: {
-              Authorization: `Bearer ${config.aiApiKey}`,
-              "Content-Type": "application/json",
-            },
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              prompt: OPENAI_CHAT_BUILDER_PROMPT,
-              text: { format: participation ? AUTONOMOUS_PARTICIPATION_FORMAT : { type: "text" } },
-              store: true,
+              ...body({ participation, pinned }),
               input,
+              text: { format: participation ? AUTONOMOUS_PARTICIPATION_FORMAT : { type: "text" } },
               ...(request.tools
                 ? { tools: request.tools, parallel_tool_calls: false }
                 : { tool_choice: "none" }),
@@ -41,44 +48,35 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
             signal,
           });
           if (!res.ok) {
-            const body = await res.text();
+            const text = await res.text();
             return {
               ok: false,
-              error: `OpenAI error ${res.status}: ${body}`,
-              tokens: participation ? errorTokenUsage(body) : 0,
+              error: `${label} error ${res.status}: ${text}`,
+              tokens: participation ? errorTokenUsage(text) : 0,
             };
           }
 
           const json: unknown = await res.json();
           const data = isObject(json) ? json : {};
-          if (participation && !isObject(json)) {
-            return { ok: true, text: null, toolCalls: [], tokens: 0 };
-          }
+          console.log("[AI] model:", data.model);
           const tokens = readTokenUsage(data);
           if (request.tools && (data.status === "incomplete" || data.status === "failed")) {
-            return { ok: false, error: `OpenAI response ${data.status}`, tokens };
+            return { ok: false, error: `${label} response ${data.status}`, tokens };
           }
 
           lastOutput = Array.isArray(data.output) ? data.output : [];
-          const toolCalls: ToolCall[] = lastOutput.filter(isObject).flatMap((item) =>
-            item.type === "function_call"
-              ? [
-                  {
-                    id: typeof item.call_id === "string" ? item.call_id : "",
-                    name: typeof item.name === "string" ? item.name : "",
-                    arguments: typeof item.arguments === "string" ? item.arguments : undefined,
-                  },
-                ]
-              : [],
-          );
+          const error = check?.(lastOutput);
+          if (error) return { ok: false, error, tokens };
+          const toolCalls = toolCallsFrom(lastOutput);
+          if (toolCalls.length > 0 && typeof data.model === "string") pinned = data.model;
           const text = participation ? participationText(data) : extractResponseText(data);
           return { ok: true, text, toolCalls, tokens };
         },
 
-        addToolResults(calls, results) {
+        addToolResults(toolCalls, results) {
           // Reasoning and every other output item must survive manual continuation.
           input.push(...lastOutput);
-          calls.forEach((call, index) =>
+          toolCalls.forEach((call, index) =>
             input.push({ type: "function_call_output", call_id: call.id, output: results[index] }),
           );
         },
@@ -87,6 +85,7 @@ export function createOpenAiProvider(config: AppConfig): AiProvider {
   };
 }
 
+/** The Responses API input: instructions as a developer item, then the user turn. */
 function buildInput(request: ProviderRequest): unknown[] {
   const content: Array<Record<string, unknown>> = [{ type: "input_text", text: request.userText }];
   for (const imageUrl of request.imageUrls) {
@@ -101,7 +100,7 @@ function buildInput(request: ProviderRequest): unknown[] {
   ];
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
+export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
@@ -155,7 +154,8 @@ function extractResponseText(data: Record<string, unknown>): string | null {
 
   const chunks: string[] = [];
   for (const item of output) {
-    if (!isObject(item) || !Array.isArray(item.content)) continue;
+    // A reasoning item may carry its text in `content`; it is never part of the reply.
+    if (!isObject(item) || item.type === "reasoning" || !Array.isArray(item.content)) continue;
 
     for (const part of item.content) {
       if (!isObject(part)) continue;
@@ -175,4 +175,19 @@ function extractResponseText(data: Record<string, unknown>): string | null {
 
   if (chunks.length === 0) return null;
   return chunks.join("\n").trim();
+}
+
+/** The function calls in a response's output items, in order. */
+function toolCallsFrom(output: unknown[]): ToolCall[] {
+  return output.filter(isObject).flatMap((item) =>
+    item.type === "function_call"
+      ? [
+          {
+            id: typeof item.call_id === "string" ? item.call_id : "",
+            name: typeof item.name === "string" ? item.name : "",
+            arguments: typeof item.arguments === "string" ? item.arguments : undefined,
+          },
+        ]
+      : [],
+  );
 }

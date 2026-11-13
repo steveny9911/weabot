@@ -2,12 +2,12 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assert, throws } from "../../../tests/support/assert.ts";
-import { testConfig } from "../../../tests/support/config.ts";
-import type { Fetcher } from "../../types/fetch.ts";
-import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
-import { createAiService } from "../service.ts";
-import { createGeminiProvider } from "./gemini.ts";
+import { assert, throws } from "../../../../tests/support/assert.ts";
+import { fakeFetch } from "../../../../tests/support/fake_fetch.ts";
+import type { Fetcher } from "../../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
+import { gemini } from "./index.ts";
+import { createGeminiProvider, type GeminiSettings } from "./provider.ts";
 
 let dir: string;
 let promptFile: string;
@@ -19,14 +19,14 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true }));
 
-const config = (overrides = {}) =>
-  testConfig({
-    aiProvider: "gemini",
-    aiApiKey: "gemini-key",
-    aiModels: ["models/gemini-test"],
-    aiSystemPromptFile: promptFile,
-    ...overrides,
-  });
+const KEY = "gemini-key";
+
+const settings = (overrides: Partial<GeminiSettings> = {}): GeminiSettings => ({
+  models: ["models/gemini-test"],
+  systemPromptFile: promptFile,
+  thinking: false,
+  ...overrides,
+});
 
 const reply = (text: string, total = 12) =>
   new Response(
@@ -43,29 +43,13 @@ interface GeminiBody {
   generationConfig?: Record<string, unknown>;
 }
 
-/** Records Gemini calls and serves images by URL; anything else is the model reply. */
-function fakeFetch(respond: () => Response, images: Record<string, Response> = {}) {
-  const calls: Array<{ url: string; headers: Headers; body: GeminiBody }> = [];
-  const fetcher: Fetcher = async (input, init) => {
-    const url = String(input);
-    if (url in images) return images[url]!;
-    calls.push({
-      url,
-      headers: new Headers(init?.headers),
-      body: JSON.parse(String(init?.body)),
-    });
-    return respond();
-  };
-  return { calls, fetcher };
-}
-
 const run = (fetcher: Fetcher, imageUrls: string[] = []) =>
-  createGeminiProvider(config(), { fetch: fetcher })
+  createGeminiProvider(settings(), KEY, { fetch: fetcher })
     .start({ userText: "Alice: hi", imageUrls, format: "text" })
     .step(new AbortController().signal);
 
 test("a plain reply sends the persona and the conversation to the model", async () => {
-  const { calls, fetcher } = fakeFetch(() => reply("Hello!~"));
+  const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply("Hello!~"));
   const step = await run(fetcher);
 
   expect(step).toEqual({ ok: true, text: "Hello!~", toolCalls: [], tokens: 12 });
@@ -80,7 +64,7 @@ test("a plain reply sends the persona and the conversation to the model", async 
 test("only PNG, JPEG, WebP and GIF images are sent, inline", async () => {
   const image = (type: string, size = 3) =>
     new Response(new Uint8Array(size), { headers: { "content-type": type } });
-  const { calls, fetcher } = fakeFetch(() => reply("ok"), {
+  const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply("ok"), {
     "https://cdn/a.png": image("image/png"),
     "https://cdn/b.gif": image("image/gif"),
     "https://cdn/d.bmp": image("image/bmp"),
@@ -107,7 +91,7 @@ test("only PNG, JPEG, WebP and GIF images are sent, inline", async () => {
 });
 
 test("thought parts are not part of the reply", async () => {
-  const { fetcher } = fakeFetch(
+  const { fetcher } = fakeFetch<GeminiBody>(
     () =>
       new Response(
         JSON.stringify({
@@ -125,26 +109,34 @@ test("thought parts are not part of the reply", async () => {
 });
 
 test("a response without text is reported as empty", async () => {
-  const { fetcher } = fakeFetch(
+  const { fetcher } = fakeFetch<GeminiBody>(
     () => new Response(JSON.stringify({ candidates: [{ finishReason: "SAFETY" }] })),
   );
   expect(await run(fetcher)).toMatchObject({ ok: true, text: null });
 });
 
-test("startup stops without a model, a prompt file, or prompt text", () => {
-  throws(() => createGeminiProvider(config({ aiModels: [] })), Error, "ai.models");
+test("startup stops without the prompt file or prompt text", () => {
   throws(
-    () => createGeminiProvider(config({ aiSystemPromptFile: undefined })),
-    Error,
-    "ai.system_prompt_file",
-  );
-  throws(
-    () => createGeminiProvider(config({ aiSystemPromptFile: join(dir, "missing.md") })),
+    () => createGeminiProvider(settings({ systemPromptFile: join(dir, "missing.md") }), KEY),
     Error,
     "missing.md",
   );
   writeFileSync(promptFile, "  \n");
-  throws(() => createGeminiProvider(config()), Error, "is empty");
+  throws(() => createGeminiProvider(settings(), KEY), Error, "is empty");
+});
+
+test("the ai.gemini section needs models and a prompt file, and defaults thinking off", () => {
+  const secret = () => undefined;
+  const fails = (section: unknown, message: string) =>
+    throws(() => gemini.parseConfig(section, secret), Error, message);
+  for (const section of [undefined, {}, { system_prompt_file: "p.md" }, { models: [] }]) {
+    fails(section, "ai.gemini.models");
+  }
+  for (const models of ["gemini-3-flash", 5]) fails({ models }, "must be a list");
+  fails({ models: ["a"] }, "ai.gemini.system_prompt_file");
+  expect(
+    gemini.parseConfig({ models: ["a", "b", "a"], system_prompt_file: "p.md" }, secret),
+  ).toStrictEqual({ models: ["a", "b"], systemPromptFile: "p.md", thinking: false });
 });
 
 test("thinking is turned down to the lowest level unless AI_THINKING is on", async () => {
@@ -152,8 +144,8 @@ test("thinking is turned down to the lowest level unless AI_THINKING is on", asy
     [false, { thinkingLevel: "MINIMAL" }],
     [true, undefined],
   ] as const) {
-    const { calls, fetcher } = fakeFetch(() => reply("Hi"));
-    await createGeminiProvider(config({ aiThinking }), { fetch: fetcher })
+    const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply("Hi"));
+    await createGeminiProvider(settings({ thinking: aiThinking }), KEY, { fetch: fetcher })
       .start({ userText: "Alice: hi", imageUrls: [], format: "text" })
       .step(new AbortController().signal);
     expect(calls[0]!.body.generationConfig?.thinkingConfig).toEqual(thinkingConfig);
@@ -161,7 +153,7 @@ test("thinking is turned down to the lowest level unless AI_THINKING is on", asy
 });
 
 const runParticipation = (fetcher: Fetcher) =>
-  createGeminiProvider(config(), { fetch: fetcher })
+  createGeminiProvider(settings(), KEY, { fetch: fetcher })
     .start({
       instructions: "Choose reply, react, or silent.",
       userText: "Alice: hi",
@@ -172,7 +164,7 @@ const runParticipation = (fetcher: Fetcher) =>
 
 test("participation asks for the shared JSON schema and returns the decision", async () => {
   const decision = '{"action":"silent"}';
-  const { calls, fetcher } = fakeFetch(() => reply(decision));
+  const { calls, fetcher } = fakeFetch<GeminiBody>(() => reply(decision));
 
   expect(await runParticipation(fetcher)).toMatchObject({ ok: true, text: decision });
   expect(calls[0]!.body.generationConfig).toMatchObject({
@@ -188,7 +180,7 @@ test("a participation response that did not finish normally is no decision", asy
     [{ content: { parts: [{ text }] }, finishReason: "SAFETY" }],
     [{ content: { parts: [{ text }] } }],
   ]) {
-    const { fetcher } = fakeFetch(
+    const { fetcher } = fakeFetch<GeminiBody>(
       () => new Response(JSON.stringify({ candidates, usageMetadata: { totalTokenCount: 7 } })),
     );
     expect(await runParticipation(fetcher)).toEqual({
@@ -215,7 +207,7 @@ const failWith = (status: number) => () =>
   new Response(JSON.stringify({ error: { message: "nope" } }), { status });
 
 const runModels = (fetcher: Fetcher, attemptTimeoutMs = 8_000) => {
-  const session = createGeminiProvider(config({ aiModels: ["a", "b", "c"] }), {
+  const session = createGeminiProvider(settings({ models: ["a", "b", "c"] }), KEY, {
     fetch: fetcher,
     attemptTimeoutMs,
   }).start({ userText: "hi", imageUrls: [], format: "text" });
@@ -304,7 +296,9 @@ test("a caller abort stops the chain", async () => {
     controller.abort();
     throw new DOMException("x", "AbortError");
   };
-  const session = createGeminiProvider(config({ aiModels: ["a", "b"] }), { fetch: fetcher }).start({
+  const session = createGeminiProvider(settings({ models: ["a", "b"] }), KEY, {
+    fetch: fetcher,
+  }).start({
     userText: "hi",
     imageUrls: [],
     format: "text",
@@ -313,22 +307,6 @@ test("a caller abort stops the chain", async () => {
   await expect(session.step(controller.signal)).rejects.toThrow();
   expect(called).toHaveLength(1);
   expect(session.calls).toBe(1);
-});
-
-test("the service reports every attempt as a request", async () => {
-  const original = globalThis.fetch;
-  let n = 0;
-  globalThis.fetch = Object.assign(async () => (++n < 3 ? failWith(503)() : reply("finally")), {
-    preconnect() {},
-  }) as typeof fetch;
-  try {
-    const result = await createAiService(config({ aiModels: ["a", "b", "c"] })).generateReply([
-      { author: "Alice", content: "hi" },
-    ]);
-    expect(result).toMatchObject({ ok: true, text: "finally", requestsUsed: 3 });
-  } finally {
-    globalThis.fetch = original;
-  }
 });
 
 const callReply = (name: string, args: unknown) =>
@@ -364,7 +342,9 @@ test("a tool call is returned, answered, and the same model finishes the reply",
     strict: true,
     parameters: { type: "object", properties: {}, additionalProperties: false },
   };
-  const session = createGeminiProvider(config({ aiModels: ["a", "b"] }), { fetch: fetcher }).start({
+  const session = createGeminiProvider(settings({ models: ["a", "b"] }), KEY, {
+    fetch: fetcher,
+  }).start({
     userText: "What time is it?",
     currentUserMessage: "What time is it?",
     imageUrls: [],

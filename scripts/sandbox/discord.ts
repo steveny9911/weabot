@@ -61,7 +61,8 @@ async function main(): Promise<void> {
     autonomousChat: { ...base.autonomousChat, enabled: false, channelIds: [] },
     discordActions: { ...base.discordActions, enabled: true, guildIds: [SANDBOX_ID] },
   };
-  if (!config.aiApiKey) throw new Error("AI_API_KEY is required.");
+  if (!config.aiApiKey)
+    throw new Error(`${config.aiApiKeyEnv ?? "The AI provider key"} is required.`);
   const events = createDiscordEventsClient(config.discordToken);
   const guild = await events.getGuild(SANDBOX_ID);
   if (guild.id !== SANDBOX_ID || (guild as unknown as { name: string }).name !== "Bot Sandbox") {

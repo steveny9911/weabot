@@ -1,4 +1,3 @@
-import { createUsageService } from "./src/services/usage.ts";
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/discord/client.ts";
 import { createDiscordEventsClient } from "./src/discord/events.ts";
@@ -45,7 +44,6 @@ const tweets = createTweetService();
 const botDeps: BotDependencies = {
   config,
   discord,
-  usageService: createUsageService(config),
   aiService,
   rateLimitService: rateLimit,
   linkOpenService: linkOpen,
@@ -74,7 +72,7 @@ console.log(`   Timezone: ${config.timeZone}`);
 console.log("");
 console.log("🤖 AI Configuration:");
 console.log(`   Enabled: ${config.aiEnabled}`);
-console.log(`   Provider: ${config.aiProvider}`);
+console.log(`   Provider: ${config.aiProvider ?? "none"}`);
 console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
 console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
 const maxInputLabel = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
@@ -82,8 +80,8 @@ console.log(`   Max Input Chars: ${maxInputLabel}`);
 console.log(`   UwU Mode: ${config.aiEnableUwu}`);
 console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
 console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);
-if (!config.aiApiKey) {
-  console.log("   ⚠️  AI_API_KEY not set - AI chat disabled");
+if (config.aiProvider && !config.aiApiKey) {
+  console.log(`   ⚠️  ${config.aiApiKeyEnv} not set - AI chat disabled`);
 }
 
 console.log("");

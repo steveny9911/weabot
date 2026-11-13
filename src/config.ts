@@ -1,5 +1,6 @@
 import fileConfig from "../config.yaml";
 import { validateConfigFile } from "./config_schema.ts";
+import { AI_PROVIDERS } from "./ai/providers/index.ts";
 import { DEFAULT_DATABASE_PATH } from "./db/database.ts";
 import {
   parseChannelList,
@@ -7,9 +8,6 @@ import {
   parseIds,
   type FeatureConfig,
 } from "./feature_config.ts";
-
-export const AI_PROVIDER_NAMES = ["openai", "gemini"] as const;
-export type AiProviderName = (typeof AI_PROVIDER_NAMES)[number];
 
 /**
  * Settings from config.yaml, plus the secrets in the environment (.env). A missing required
@@ -28,14 +26,13 @@ export interface AppConfig {
   aiEnabled: boolean;
   /** Replies to mentions. It cannot turn on what `aiEnabled` turns off. */
   aiChat: FeatureConfig;
-  aiProvider: AiProviderName;
+  /** A key of the provider registry (src/ai/providers/index.ts); unset only when AI is off. */
+  aiProvider?: string;
+  /** The provider's checked `ai.<provider>` settings; its own module knows the shape. */
+  aiProviderSettings?: unknown;
+  /** The provider's key from `.env`, and the name it was read from. */
   aiApiKey: string | undefined;
-  /** Models for providers that have no saved prompt, tried in order. */
-  aiModels: string[];
-  /** File holding the persona for providers that have no saved prompt. */
-  aiSystemPromptFile?: string;
-  /** Lets Gemini models think before answering; off asks for their lowest thinking level. */
-  aiThinking: boolean;
+  aiApiKeyEnv?: string;
   /** AI requests per user per minute. */
   aiRateLimitPerUser: number;
   /** Soft daily token threshold; requests already in flight may exceed it. */
@@ -50,10 +47,6 @@ export interface AppConfig {
   aiContextMaxMessages: number;
   /** Minutes of silence that start a new conversation context. */
   aiContextInactivityMinutes: number;
-
-  /** Organization admin key for usage reads; separate from the chat key. */
-  openaiAdminKey?: string;
-  usageOpenaiProjectId?: string;
 
   /** Searches the web for a mention. On by default when BRAVE_SEARCH_API_KEY is set. */
   webSearch: FeatureConfig & {
@@ -126,12 +119,10 @@ export interface ConfigFile {
     http_port?: number;
   };
   ai_chat?: ReactiveFeatureFile;
+  /** Also holds one section per provider, named for it; each provider's module defines its keys. */
   ai?: {
     enabled?: boolean;
     provider?: string;
-    models?: string[];
-    system_prompt_file?: string;
-    thinking?: boolean;
     uwu?: boolean;
     rate_limit_per_user?: number;
     max_input_chars?: number;
@@ -142,7 +133,6 @@ export interface ConfigFile {
   link_open?: ReactiveFeatureFile;
   tweet_read?: ReactiveFeatureFile;
   discord_actions?: ReactiveFeatureFile & { guild_ids?: string[] };
-  usage?: { openai_project_id?: string };
   mood_poll?: FeatureFile;
   wellness?: FeatureFile & { glue_alert_threshold?: number };
   weekly_stats?: FeatureFile;
@@ -167,7 +157,7 @@ const secret = (name: string) => process.env[name] || undefined;
 /** Builds the app config from config.yaml (`file`, which tests replace) and the secrets in .env. */
 export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
   validateConfigFile(file);
-  const { discord, general, ai, usage, autonomous_chat: auto, landmine: mine } = file;
+  const { discord, general, ai, autonomous_chat: auto, landmine: mine } = file;
   const {
     ai_chat: aiChat,
     web_search: search,
@@ -184,10 +174,22 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
   const discordToken = secret("DISCORD_TOKEN");
   if (!discordToken) throw new Error("FATAL: Missing required environment variable: DISCORD_TOKEN");
 
-  const aiProvider = ai?.provider ?? "openai";
-  if (!AI_PROVIDER_NAMES.includes(aiProvider as AiProviderName)) {
-    throw new Error(`FATAL: Unknown ai.provider: ${aiProvider}`);
+  // No provider is assumed: with AI on, one must be named. A provider that is named is checked
+  // even with AI off, so switching AI on later cannot fail at startup.
+  const aiEnabled = ai?.enabled ?? true;
+  const aiProvider = ai?.provider || undefined;
+  const known = Object.keys(AI_PROVIDERS).join(", ");
+  if (!aiProvider && aiEnabled) {
+    throw new Error(`FATAL: ai.provider is required in config.yaml (one of: ${known})`);
   }
+  const providerModule =
+    aiProvider && Object.hasOwn(AI_PROVIDERS, aiProvider) ? AI_PROVIDERS[aiProvider] : undefined;
+  if (aiProvider && !providerModule) {
+    throw new Error(`FATAL: Unknown ai.provider: ${aiProvider} (known: ${known})`);
+  }
+  const providerSection = aiProvider
+    ? (ai as Record<string, unknown> | undefined)?.[aiProvider]
+    : undefined;
 
   // A feature that posts to named channels, and one that reacts to messages and may use "all".
   const feature = (name: string, section: FeatureFile | undefined, on = true) => ({
@@ -209,15 +211,12 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     httpPort: general?.http_port ?? 8000,
     timeZone: general?.time_zone ?? "America/Los_Angeles",
 
-    aiEnabled: ai?.enabled ?? true,
+    aiEnabled,
     aiChat: reactiveFeature("ai_chat", aiChat),
-    aiProvider: aiProvider as AiProviderName,
-    // OPENAI_API_KEY is the original name, still accepted for OpenAI.
-    aiApiKey:
-      secret("AI_API_KEY") ?? (aiProvider === "openai" ? secret("OPENAI_API_KEY") : undefined),
-    aiModels: [...new Set(ai?.models ?? [])],
-    aiSystemPromptFile: ai?.system_prompt_file || undefined,
-    aiThinking: ai?.thinking ?? false,
+    aiProvider,
+    aiProviderSettings: providerModule?.parseConfig(providerSection, secret),
+    aiApiKey: providerModule && secret(providerModule.apiKeyEnv),
+    aiApiKeyEnv: providerModule?.apiKeyEnv,
     aiRateLimitPerUser: ai?.rate_limit_per_user ?? 2,
     aiDailyTokenBudget: ai?.budget?.daily_tokens ?? 10_000_000,
     aiDailyRequestQuota: ai?.budget?.daily_request_quota ?? undefined,
@@ -226,9 +225,6 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     aiEnableUwu: ai?.uwu ?? true,
     aiContextMaxMessages: Math.min(ai?.context?.max_messages ?? 40, 100),
     aiContextInactivityMinutes: ai?.context?.inactivity_minutes ?? 20,
-
-    openaiAdminKey: secret("OPENAI_ADMIN_KEY"),
-    usageOpenaiProjectId: usage?.openai_project_id || undefined,
 
     webSearch: {
       ...reactiveFeature("web_search", search, Boolean(webSearchApiKey)),

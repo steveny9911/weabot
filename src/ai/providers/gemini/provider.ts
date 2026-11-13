@@ -1,10 +1,9 @@
 /** Google Gemini through @google/genai for every AI feature. Haru's persona comes from a prompt file. */
 import { readFileSync } from "node:fs";
 import { ApiError, type Content, FinishReason, GoogleGenAI, ThinkingLevel } from "@google/genai";
-import type { AppConfig } from "../../config.ts";
-import type { Fetcher } from "../../types/fetch.ts";
-import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
-import type { AiProvider, ProviderStep } from "./types.ts";
+import type { Fetcher } from "../../../types/fetch.ts";
+import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
+import type { AiProvider, ProviderStep } from "../types.ts";
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const MAX_IMAGE_BYTES = 5_000_000;
@@ -12,28 +11,34 @@ const TIMEOUT_MS = 8_000;
 /** Errors that retrying another model cannot fix. */
 const STOP_STATUSES = [400, 401, 403];
 
+/** The checked `ai.gemini` settings. */
+export interface GeminiSettings {
+  /** Models to try in order. */
+  models: string[];
+  /** File holding Haru's persona. */
+  systemPromptFile: string;
+  /** Lets models think before answering; off asks for their lowest thinking level. */
+  thinking: boolean;
+}
+
 export function createGeminiProvider(
-  config: AppConfig,
+  settings: GeminiSettings,
+  apiKey: string | undefined,
   deps: { fetch?: Fetcher; attemptTimeoutMs?: number } = {},
 ): AiProvider {
-  const models = config.aiModels;
-  if (models.length === 0) throw new Error("FATAL: ai.models is required for the gemini provider");
-  if (!config.aiSystemPromptFile) {
-    throw new Error("FATAL: ai.system_prompt_file is required for the gemini provider");
-  }
-  const persona = readFileSync(config.aiSystemPromptFile, "utf8").trim();
-  if (!persona) throw new Error(`FATAL: ${config.aiSystemPromptFile} is empty`);
+  const models = settings.models;
+  const persona = readFileSync(settings.systemPromptFile, "utf8").trim();
+  if (!persona) throw new Error(`FATAL: ${settings.systemPromptFile} is empty`);
 
   const fetchImpl: Fetcher = deps.fetch ?? ((input, init) => fetch(input, init));
   const attemptMs = deps.attemptTimeoutMs ?? TIMEOUT_MS;
   const client = new GoogleGenAI({
-    apiKey: config.aiApiKey ?? "",
+    apiKey: apiKey ?? "",
     httpOptions: { fetch: fetchImpl },
   });
 
   return {
     label: "Gemini",
-    missingKeyError: "AI_API_KEY not set",
     start(request) {
       let calls = 0;
       let contents: Content[] | undefined;
@@ -95,7 +100,7 @@ export function createGeminiProvider(
                         responseJsonSchema: AUTONOMOUS_PARTICIPATION_FORMAT.schema,
                       }
                     : {}),
-                  ...(config.aiThinking
+                  ...(settings.thinking
                     ? {}
                     : { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }),
                   abortSignal: AbortSignal.any([signal, AbortSignal.timeout(attemptMs)]),

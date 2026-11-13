@@ -1,6 +1,5 @@
-/** Provider-reported month-to-date billing and model token usage. */
-import type { AppConfig } from "../config.ts";
-import type { Fetcher } from "../types/fetch.ts";
+/** OpenAI month-to-date billing and token usage: the report behind `\usage` with this provider. */
+import type { Fetcher } from "../../../types/fetch.ts";
 
 export type UsageValue<T> = { ok: true; value: T } | { ok: false; reason: string };
 export interface TokenTotals {
@@ -57,7 +56,18 @@ async function available<T>(read: () => Promise<T>): Promise<UsageValue<T>> {
   }
 }
 
-export function createUsageService(config: AppConfig, deps: UsageDependencies = {}): UsageService {
+/** What the usage report reads from the `ai.openai` section and `.env`. */
+export interface UsageSettings {
+  /** Organization admin key; separate from the chat key. */
+  adminKey?: string;
+  /** Limits costs and tokens to one project; unset means the whole organization. */
+  projectId?: string;
+}
+
+export function createUsageService(
+  settings: UsageSettings,
+  deps: UsageDependencies = {},
+): UsageService {
   const now = deps.now ?? (() => new Date());
   const fetcher: Fetcher = deps.fetch ?? fetch;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -74,14 +84,14 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
     url.searchParams.set("end_time", String(Math.floor(end.getTime() / 1000)));
     url.searchParams.set("bucket_width", "1d");
     url.searchParams.set("limit", "31");
-    if (config.usageOpenaiProjectId) {
-      url.searchParams.append("project_ids[]", config.usageOpenaiProjectId);
+    if (settings.projectId) {
+      url.searchParams.append("project_ids[]", settings.projectId);
     }
     const results: Record<string, unknown>[] = [];
     const seen = new Set<string>();
     for (let page = 0; page < 100; page++) {
       const response = await fetcher(url, {
-        headers: { Authorization: `Bearer ${config.openaiAdminKey}` },
+        headers: { Authorization: `Bearer ${settings.adminKey}` },
         signal,
         redirect: "error",
       });
@@ -117,7 +127,7 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
     const missing = { ok: false as const, reason: "OPENAI_ADMIN_KEY not configured" };
     try {
       const [cost, tokens] = await Promise.all([
-        config.openaiAdminKey
+        settings.adminKey
           ? available(async () => {
               const results = await openaiResults("costs", start, end, signal);
               let amount = 0;
@@ -129,7 +139,7 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
               return { amount, currency: "USD" };
             })
           : Promise.resolve(missing),
-        config.openaiAdminKey
+        settings.adminKey
           ? available(async () => {
               const results = await openaiResults("usage/completions", start, end, signal);
               return results.reduce<TokenTotals>(
@@ -146,7 +156,7 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
       return {
         start: start.toISOString(),
         asOf: end.toISOString(),
-        openaiScope: config.usageOpenaiProjectId ? "project" : "organization",
+        openaiScope: settings.projectId ? "project" : "organization",
         openaiCost: cost,
         tokens,
       };
@@ -166,4 +176,36 @@ export function createUsageService(config: AppConfig, deps: UsageDependencies = 
       return report;
     },
   };
+}
+
+function money(result: UsageValue<Money>): string {
+  if (!result.ok) return `Unavailable (${result.reason})`;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: result.value.currency,
+  }).format(result.value.amount);
+}
+
+/** Compact Discord text, readable on mobile without a wide table. */
+export function formatUsageMessage(report: MonthlyUsage): string {
+  const month = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(report.start));
+  const count = (value: number) => value.toLocaleString("en-US");
+  const unavailable = report.tokens.ok ? "" : `Unavailable (${report.tokens.reason})`;
+  return [
+    `📊 **Usage — ${month} (month to date)**`,
+    `${report.start.slice(0, 10)} → ${report.asOf.slice(0, 16).replace("T", " ")} UTC`,
+    "",
+    `**OpenAI API cost:** ${money(report.openaiCost)}`,
+    "",
+    `**Input tokens:** ${report.tokens.ok ? count(report.tokens.value.input) : unavailable}`,
+    `**Cache tokens:** ${report.tokens.ok ? count(report.tokens.value.cached) : unavailable}`,
+    `**Output tokens:** ${report.tokens.ok ? count(report.tokens.value.output) : unavailable}`,
+    "",
+    `OpenAI ${report.openaiScope}`,
+    "Cache tokens are included in input tokens. Provider totals may lag.",
+  ].join("\n");
 }

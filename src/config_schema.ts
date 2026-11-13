@@ -1,4 +1,6 @@
 /** Checks config.yaml for typos: unknown keys, and an `enabled` that is not true or false. */
+import { AI_PROVIDERS } from "./ai/providers/index.ts";
+import type { KeyTree } from "./ai/providers/module.ts";
 import type { ConfigFile } from "./config.ts";
 
 /** The keys of `T`, as nested objects with `true` for each setting that is not a section. */
@@ -18,9 +20,6 @@ const KEYS: Keys<ConfigFile> = {
   ai: {
     enabled: true,
     provider: true,
-    models: true,
-    system_prompt_file: true,
-    thinking: true,
     uwu: true,
     rate_limit_per_user: true,
     max_input_chars: true,
@@ -31,7 +30,6 @@ const KEYS: Keys<ConfigFile> = {
   link_open: { enabled: true, channel_ids: true },
   tweet_read: { enabled: true, channel_ids: true },
   discord_actions: { enabled: true, channel_ids: true, guild_ids: true },
-  usage: { openai_project_id: true },
   mood_poll: { enabled: true, channel_ids: true },
   wellness: { enabled: true, channel_ids: true, glue_alert_threshold: true },
   weekly_stats: { enabled: true, channel_ids: true },
@@ -54,10 +52,6 @@ const KEYS: Keys<ConfigFile> = {
     step_penalty: { enabled: true, timeout_seconds: true },
   },
 };
-
-interface KeyTree {
-  [key: string]: true | KeyTree;
-}
 
 /** A missing or null value uses the default, so only a wrong value is an error. */
 function check(path: string, value: unknown, keys: KeyTree): void {
@@ -83,5 +77,12 @@ function check(path: string, value: unknown, keys: KeyTree): void {
 
 /** Throws for a key Haru does not know, so a typo cannot silently leave a setting at its default. */
 export function validateConfigFile(file: unknown): void {
-  check("", file, KEYS);
+  // Each provider's section is checked against the keys its own module accepts.
+  for (const name of Object.keys(AI_PROVIDERS)) {
+    if (name in KEYS.ai) throw new Error(`FATAL: provider name ${name} clashes with ai.${name}`);
+  }
+  const providerSections = Object.fromEntries(
+    Object.entries(AI_PROVIDERS).map(([name, provider]) => [name, provider.configKeys]),
+  );
+  check("", file, { ...KEYS, ai: { ...KEYS.ai, ...providerSections } });
 }

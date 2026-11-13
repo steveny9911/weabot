@@ -1,13 +1,24 @@
 import { expect, test } from "bun:test";
-import { createUsageService } from "./usage.ts";
-import type { AppConfig } from "../config.ts";
-import { formatUsageMessage } from "../features/usage.ts";
+import type { Fetcher } from "../../../types/fetch.ts";
+import { createUsageService, formatUsageMessage } from "./usage.ts";
 
 const date = new Date("2026-10-06T13:45:00Z");
-const config = { openaiAdminKey: "admin-test", usageOpenaiProjectId: "proj-test" } as AppConfig;
+const config = { adminKey: "admin-test", projectId: "proj-test" };
 function page(results: unknown[], more = false, next?: string): Response {
   return Response.json({ data: [{ results }], has_more: more, next_page: next });
 }
+
+/** Answers the costs endpoint with `cost` and the completions endpoint with `tokens`. */
+const serve =
+  (cost: unknown[] | Response, tokens: unknown[]): Fetcher =>
+  (input) =>
+    Promise.resolve(
+      String(input).includes("/costs?")
+        ? cost instanceof Response
+          ? cost
+          : page(cost)
+        : page(tokens),
+    );
 
 test("usage queries UTC month through today, scopes both OpenAI endpoints, and paginates", async () => {
   const urls: URL[] = [];
@@ -71,24 +82,24 @@ test("usage shares in-flight reads, caches for five minutes, and refreshes at UT
 });
 
 test("missing admin key performs no OpenAI reads", async () => {
-  const report = await createUsageService({} as AppConfig, {
-    now: () => date,
-    fetch: () => {
-      throw new Error("Should not fetch");
+  const report = await createUsageService(
+    {},
+    {
+      now: () => date,
+      fetch: () => {
+        throw new Error("Should not fetch");
+      },
     },
-  }).getMonthToDate();
+  ).getMonthToDate();
   expect(report.openaiCost).toStrictEqual({ ok: false, reason: "OPENAI_ADMIN_KEY not configured" });
   expect(report.tokens).toStrictEqual({ ok: false, reason: "OPENAI_ADMIN_KEY not configured" });
 });
 test("provider failure is isolated and never exposes response bodies or keys", async () => {
   const report = await createUsageService(config, {
     now: () => date,
-    fetch: (input) =>
-      Promise.resolve(
-        String(input).includes("/costs?")
-          ? new Response("secret-admin-test", { status: 403 })
-          : page([{ input_tokens: 5, output_tokens: 2 }]),
-      ),
+    fetch: serve(new Response("secret-admin-test", { status: 403 }), [
+      { input_tokens: 5, output_tokens: 2 },
+    ]),
   }).getMonthToDate();
   expect(report.openaiCost.ok).toStrictEqual(false);
   expect(report.tokens).toStrictEqual({ ok: true, value: { input: 5, cached: 0, output: 2 } });
@@ -105,12 +116,7 @@ test("malformed data and repeated cursors fail rather than showing partial or ze
   ]) {
     const report = await createUsageService(config, {
       now: () => date,
-      fetch: (input) =>
-        Promise.resolve(
-          String(input).includes("/costs?")
-            ? page([{ amount: { value: "2", currency: "usd" } }])
-            : page([result]),
-        ),
+      fetch: serve([{ amount: { value: "2", currency: "usd" } }], [result]),
     }).getMonthToDate();
     expect(report.openaiCost.ok).toStrictEqual(false);
     expect(report.tokens.ok).toStrictEqual(false);
@@ -126,12 +132,10 @@ test("malformed data and repeated cursors fail rather than showing partial or ze
 test("usage message formats money and exact token counts with scope and cache semantics", async () => {
   const report = await createUsageService(config, {
     now: () => date,
-    fetch: (input) =>
-      Promise.resolve(
-        String(input).includes("/costs?")
-          ? page([{ amount: { value: 3.5, currency: "usd" } }])
-          : page([{ input_tokens: 1234567, input_cached_tokens: 123000, output_tokens: 8000 }]),
-      ),
+    fetch: serve(
+      [{ amount: { value: 3.5, currency: "usd" } }],
+      [{ input_tokens: 1234567, input_cached_tokens: 123000, output_tokens: 8000 }],
+    ),
   }).getMonthToDate();
   const message = formatUsageMessage(report);
   expect(message).toContain("October 2026 (month to date)");

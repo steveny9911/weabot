@@ -496,48 +496,41 @@ test("usage command bypasses AI budgets and does not mutate conversation context
     admission: { allowed: false, reason: "daily_budget", remaining: 0, resetInMs: 0 },
   });
   let reads = 0;
-  state.deps.usageService = {
-    getMonthToDate() {
-      reads++;
-      return Promise.resolve({
-        start: "2026-10-01T00:00:00Z",
-        asOf: "2026-10-06T00:00:00Z",
-        openaiScope: "organization",
-        openaiCost: { ok: true, value: { amount: 2, currency: "USD" } },
-        tokens: { ok: true, value: { input: 100, cached: 20, output: 10 } },
-      });
-    },
+  state.deps.aiService.usageReport = () => {
+    reads++;
+    return Promise.resolve("provider usage report");
   };
   await handleMessage(createMentionMessage(" <@!12345> \\UsAgE "), state.deps);
   expect(reads).toStrictEqual(1);
   expect(state.aiCalls.length).toStrictEqual(0);
   expect(state.requestCount).toStrictEqual(0);
   expect(state.recordedTokens).toStrictEqual([]);
-  expect(state.posted[0]).toContain("**OpenAI API cost:** $2.00");
+  expect(state.posted[0]).toStrictEqual("provider usage report");
 });
 
 test("usage shows Haru's own daily counts when the provider has no billing report", async () => {
   const state = createDeps(
-    createMockConfig({ aiProvider: "gemini", aiDailyRequestQuota: 100, aiDailyRequestPercent: 90 }),
+    createMockConfig({ aiDailyRequestQuota: 100, aiDailyRequestPercent: 90 }),
   );
-  state.deps.usageService = {
-    getMonthToDate() {
-      throw new Error("unexpected");
-    },
-  };
+  expect(state.deps.aiService.usageReport).toBeUndefined();
   await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
   expect(state.posted[0]).toContain("**Requests:** 0 / 90");
   expect(state.posted[0]).toContain("**Tokens:** 0");
 });
 
+test("usage says it is unavailable when the provider's report fails", async () => {
+  const state = createDeps(createMockConfig());
+  state.deps.aiService.usageReport = () => Promise.reject(new Error("provider down"));
+  await handleMessage(createMentionMessage("<@12345> \\usage"), state.deps);
+  expect(state.posted).toStrictEqual(["Usage reporting is unavailable right now."]);
+});
+
 test("usage requires a mention and configured channel and ignores bots", async () => {
   const state = createDeps(createMockConfig({ aiEnabled: false }));
   let reads = 0;
-  state.deps.usageService = {
-    getMonthToDate() {
-      reads++;
-      throw new Error("unexpected");
-    },
+  state.deps.aiService.usageReport = () => {
+    reads++;
+    throw new Error("unexpected");
   };
   await handleMessage({ ...createMentionMessage("\\usage"), mentions: [] }, state.deps);
   await handleMessage(

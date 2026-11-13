@@ -1,5 +1,4 @@
-import type { UsageService } from "../services/usage.ts";
-import { formatDailyUsageMessage, formatUsageMessage } from "../features/usage.ts";
+import { formatDailyUsageMessage } from "../features/usage.ts";
 import type { AppConfig } from "../config.ts";
 import type { AiService } from "../ai/types.ts";
 import { formatActionResults } from "../features/discord_actions/results.ts";
@@ -32,7 +31,6 @@ import { loadContext } from "./context.ts";
 export interface BotDependencies {
   config: AppConfig;
   discord: DiscordClient;
-  usageService?: UsageService;
   aiService: AiService;
   rateLimitService: RateLimitService;
   linkOpenService: LinkOpenService;
@@ -173,15 +171,13 @@ async function usageReport(deps: BotDependencies, channelId: string): Promise<st
   }
   const unavailable = "Usage reporting is unavailable right now.";
   try {
-    if (config.aiProvider === "gemini") {
-      const quota = config.aiDailyRequestQuota;
-      return formatDailyUsageMessage(
-        await deps.rateLimitService.getUsageStats(),
-        quota && Math.floor((quota * config.aiDailyRequestPercent) / 100),
-      );
-    }
-    const report = await deps.usageService?.getMonthToDate();
-    return report ? formatUsageMessage(report) : unavailable;
+    // A provider with its own billing report supplies it; the others show Haru's own counts.
+    if (deps.aiService.usageReport) return await deps.aiService.usageReport();
+    const quota = config.aiDailyRequestQuota;
+    return formatDailyUsageMessage(
+      await deps.rateLimitService.getUsageStats(),
+      quota && Math.floor((quota * config.aiDailyRequestPercent) / 100),
+    );
   } catch {
     return unavailable;
   }
