@@ -57,6 +57,8 @@ export interface AppConfig {
   linkOpen: FeatureConfig;
   /** Reading tweet links in mentions. */
   tweetRead: FeatureConfig;
+  /** The \gacha command. */
+  gacha: FeatureConfig;
   /** The event and invite tools. */
   discordActions: FeatureConfig & {
     /** Servers allowed to use the tools; empty allows all. */
@@ -132,6 +134,7 @@ export interface ConfigFile {
   web_search?: ReactiveFeatureFile & { max_results?: number };
   link_open?: ReactiveFeatureFile;
   tweet_read?: ReactiveFeatureFile;
+  gacha?: ReactiveFeatureFile;
   discord_actions?: ReactiveFeatureFile & { guild_ids?: string[] };
   mood_poll?: FeatureFile;
   wellness?: FeatureFile & { glue_alert_threshold?: number };
@@ -164,6 +167,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     link_open: open,
     tweet_read: tweet,
     discord_actions: actions,
+    gacha,
   } = file;
   const { mood_poll: poll, wellness: care, weekly_stats: weekly } = file;
 
@@ -233,6 +237,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     },
     linkOpen: reactiveFeature("link_open", open),
     tweetRead: reactiveFeature("tweet_read", tweet),
+    gacha: reactiveFeature("gacha", gacha),
     discordActions: {
       ...reactiveFeature("discord_actions", actions),
       guildIds: parseIds("discord_actions.guild_ids", actions?.guild_ids),

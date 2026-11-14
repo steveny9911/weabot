@@ -5,6 +5,7 @@ import { formatActionResults } from "../features/discord_actions/results.ts";
 import type { DiscordActionService } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LandmineService } from "../features/landmine.ts";
+import type { GachaResult, GachaService } from "../features/gacha.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
 import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
 import {
@@ -16,6 +17,7 @@ import { selectGreetingGifForReply } from "../features/reaction_gif.ts";
 import type { ContextStorageService } from "../services/storage.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import {
+  isGachaCommand,
   isOpenCommand,
   isResetCommand,
   isUsageCommand,
@@ -39,6 +41,7 @@ export interface BotDependencies {
   tweetService?: TweetService;
   discordActionService?: DiscordActionService;
   landmineService?: LandmineService;
+  gachaService?: GachaService;
 }
 
 /** The fields of a Discord message the bot reads; a missing one is "". */
@@ -66,7 +69,7 @@ function parseMessage(raw: Record<string, unknown>): IncomingMessage {
   };
 }
 
-/** Answers mentions: \\usage, \\reset, \\open, and otherwise an AI reply within the rate limits. */
+/** Answers mentions: \\usage, \\reset, \\gacha, \\open, and otherwise an AI reply within the rate limits. */
 export async function handleMessage(
   raw: Record<string, unknown>,
   deps: BotDependencies,
@@ -88,6 +91,7 @@ export async function handleMessage(
   // Billing commands do not generate AI replies, spend tokens, or mutate context.
   if (isUsageCommand(content)) return void (await reply(await usageReport(deps, channelId)));
   if (isResetCommand(content)) return await resetContext(deps, message);
+  if (isGachaCommand(content)) return await gacha(deps, message);
 
   console.log(`Bot mentioned by user ${userId} in channel ${channelId}`);
   if (!config.aiEnabled || !isActiveIn(config.aiChat, channelId)) {
@@ -162,6 +166,43 @@ export async function handleMessage(
 
   const greetingGif = actionReply ? null : selectGreetingGifForReply(finalReply);
   if (greetingGif) await reply(greetingGif);
+}
+
+/** Replies to the \\gacha message with a ten-pull image. */
+async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<void> {
+  const { discord, gachaService } = deps;
+  const { channelId, authorId, id } = message;
+  if (!gachaService || !isActiveIn(deps.config.gacha, channelId)) {
+    return void (await discord.sendMessage(channelId, "Ehehe~ the gacha is turned off right now."));
+  }
+
+  const result = await gachaService.pull(authorId);
+  if (!result.ok) return void (await discord.sendMessage(channelId, gachaRefusal(result)));
+
+  const sent = await discord.sendImage(channelId, {
+    bytes: result.image,
+    filename: "gacha.png",
+    contentType: "image/png",
+    altText: result.altText,
+    replyToMessageId: id,
+  });
+  if (!sent.ok) {
+    await discord.sendMessage(
+      channelId,
+      "Eep... I couldn't send the picture. Try again in a moment~",
+    );
+  }
+}
+
+function gachaRefusal(result: Exclude<GachaResult, { ok: true }>): string {
+  switch (result.reason) {
+    case "cooldown":
+      return `Easy there~ try again in ${formatTime(result.retryInMs)}~`;
+    case "busy":
+      return "Ehehe~ so many pulls waiting! Try again in a moment~";
+    case "failed":
+      return "Eep... the gacha machine jammed. Try again in a moment~";
+  }
 }
 
 async function usageReport(deps: BotDependencies, channelId: string): Promise<string> {

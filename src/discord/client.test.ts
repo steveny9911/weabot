@@ -435,3 +435,62 @@ test("sendMessage and timeoutMember report a network error once, without retryin
     fetchMock.restore();
   }
 });
+
+test("sendImage uploads one attachment as a reply, without a JSON content type", async () => {
+  let requests = 0;
+  const fetchMock = mockFetch(async (url, init) => {
+    requests++;
+    expect(url).toStrictEqual("https://discord.com/api/v10/channels/chan/messages");
+    expect(init?.method).toStrictEqual("POST");
+    expect(init?.headers).toStrictEqual({ Authorization: "Bot token" });
+    assert(init?.body instanceof FormData);
+    expect(JSON.parse(init.body.get("payload_json") as string)).toStrictEqual({
+      message_reference: { message_id: "msg-1", fail_if_not_exists: false },
+      attachments: [{ id: 0, filename: "pull.png", description: "ten operators" }],
+    });
+    const file = init.body.get("files[0]") as File;
+    expect(file.name).toStrictEqual("pull.png");
+    expect(file.type).toStrictEqual("image/png");
+    expect([...new Uint8Array(await file.arrayBuffer())]).toStrictEqual([1, 2, 3]);
+    return Response.json({ id: "sent" });
+  });
+  try {
+    const result = await createDiscordClient("token").sendImage("chan", {
+      bytes: new Uint8Array([1, 2, 3]),
+      filename: "pull.png",
+      contentType: "image/png",
+      altText: "ten operators",
+      replyToMessageId: "msg-1",
+    });
+    expect(result).toStrictEqual({ ok: true });
+    expect(requests).toStrictEqual(1);
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("sendImage reports a refusal and omits an empty description", async () => {
+  const fetchMock = mockFetch((_url, init) => {
+    assert(init?.body instanceof FormData);
+    expect(JSON.parse(init.body.get("payload_json") as string).attachments).toStrictEqual([
+      { id: 0, filename: "pull.png" },
+    ]);
+    return new Response("Missing Permissions", { status: 403 });
+  });
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const result = await createDiscordClient("token").sendImage("chan", {
+      bytes: new Uint8Array([1]),
+      filename: "pull.png",
+      contentType: "image/png",
+      replyToMessageId: "msg-1",
+    });
+    expect(result).toStrictEqual({
+      ok: false,
+      error: "Discord upload error 403: Missing Permissions",
+    });
+  } finally {
+    logged.mockRestore();
+    fetchMock.restore();
+  }
+});

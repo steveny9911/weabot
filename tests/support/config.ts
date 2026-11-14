@@ -46,6 +46,7 @@ function defaults(): AppConfig {
     webSearch: { enabled: false, channelIds: "all", apiKey: undefined, maxResults: 3 },
     linkOpen: feature(),
     tweetRead: feature(),
+    gacha: feature(),
     discordActions: { enabled: false, channelIds: "all", guildIds: [] },
     moodPoll: { enabled: true, channelIds: channels() },
     wellness: { enabled: true, channelIds: channels(), glueAlertThreshold: 7 },

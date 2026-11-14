@@ -87,6 +87,7 @@ test("an empty config.yaml gives the defaults", () => {
   });
   expect(config.linkOpen).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
   expect(config.tweetRead).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
+  expect(config.gacha).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
   expect(config.discordActions).toStrictEqual({
     enabled: true,
     channelIds: ["chan-1"],
@@ -128,6 +129,7 @@ ai_chat: { enabled: false, channel_ids: ["chan-4"] }
 web_search: { enabled: true, max_results: 5, channel_ids: all }
 tweet_read: { enabled: false }
 link_open: { channel_ids: ["chan-9"] }
+gacha: { enabled: false, channel_ids: ["chan-7"] }
 discord_actions: { enabled: false, guild_ids: ["guild-1"] }
 mood_poll: { enabled: false, channel_ids: ["chan-2"] }
 wellness: { channel_ids: ["chan-3"], glue_alert_threshold: 3 }
@@ -168,6 +170,7 @@ landmine:
   expect(config.webSearch).toMatchObject({ enabled: true, channelIds: "all", maxResults: 5 });
   expect(config.tweetRead.enabled).toStrictEqual(false);
   expect(config.linkOpen).toStrictEqual({ enabled: true, channelIds: ["chan-9"] });
+  expect(config.gacha).toStrictEqual({ enabled: false, channelIds: ["chan-7"] });
   expect(config.moodPoll).toStrictEqual({ enabled: false, channelIds: ["chan-2"] });
   expect(config.wellness).toStrictEqual({
     enabled: true,

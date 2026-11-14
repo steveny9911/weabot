@@ -116,6 +116,7 @@ async function withAutonomousJob(
             getBotUserId: () => Promise.resolve("bot"),
             sendMessage: () => Promise.reject(new Error("unexpected sendMessage")),
             timeoutMember: () => Promise.reject(new Error("unexpected timeoutMember")),
+            sendImage: () => Promise.reject(new Error("unexpected sendImage")),
             postMessage(_channel, payload) {
               assert("content" in payload);
               posts.push(payload.content);

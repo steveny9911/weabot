@@ -1,4 +1,4 @@
-/** Parsing for mentions and the \\usage, \\reset, \\open commands, plus reply text helpers. */
+/** Parsing for mentions and the \\usage, \\reset, \\gacha, \\open commands, plus reply text helpers. */
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 
 /** The text without user mentions such as `<@123>` and `<@!123>`. */
@@ -44,6 +44,11 @@ export function isUsageCommand(content: string): boolean {
 /** `@Haru \\reset` */
 export function isResetCommand(content: string): boolean {
   return /(^|\s)\\reset(\s|$)/i.test(content);
+}
+
+/** `@Haru \\gacha`; any text after it is ignored. */
+export function isGachaCommand(content: string): boolean {
+  return /^\\gacha\b/i.test(stripMentions(content));
 }
 
 /** `@Haru \\open <url> [question]` */

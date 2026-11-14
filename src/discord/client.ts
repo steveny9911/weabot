@@ -36,6 +36,18 @@ export interface DiscordClient {
   /** A text reply. `suppressMentions` sends it without pinging anyone. */
   sendMessage(channelId: string, content: string, suppressMentions?: boolean): Promise<SendResult>;
 
+  /** Replies to a message with one image attached; `altText` is its description. */
+  sendImage(
+    channelId: string,
+    image: {
+      bytes: Uint8Array<ArrayBuffer>;
+      filename: string;
+      contentType: string;
+      altText?: string;
+      replyToMessageId: string;
+    },
+  ): Promise<SendResult>;
+
   /** Times a member out for `seconds`; needs Timeout Members. */
   timeoutMember(
     guildId: string,
@@ -118,6 +130,26 @@ export function createDiscordClient(token: string): DiscordClient {
             }),
           )
         : Promise.resolve({ ok: false, error: "missing channelId" }),
+
+    sendImage: (channelId, { bytes, filename, contentType, altText, replyToMessageId }) =>
+      write("upload", () => {
+        const form = new FormData();
+        form.append(
+          "payload_json",
+          JSON.stringify({
+            // The reply pings the author, as a normal Discord reply does.
+            message_reference: { message_id: replyToMessageId, fail_if_not_exists: false },
+            attachments: [{ id: 0, filename, ...(altText ? { description: altText } : {}) }],
+          }),
+        );
+        form.append("files[0]", new Blob([bytes], { type: contentType }), filename);
+        // No Content-Type here: fetch adds the multipart one, with its boundary.
+        return fetchWithRetry(
+          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages`,
+          { method: "POST", headers: { Authorization: headers.Authorization! }, body: form },
+          { timeoutMs: 60_000 },
+        );
+      }),
 
     timeoutMember: (guildId, userId, seconds, reason) =>
       write("timeout", () =>
