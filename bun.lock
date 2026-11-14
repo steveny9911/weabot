@@ -6,7 +6,7 @@
       "name": "weabot",
       "dependencies": {
         "@google/genai": "3.0.0",
-        "arknights-gacha-result-generator": "github:steveny9911/arknights-gacha-result-generator#4219f104098a2cfd6958a77af7c7acaab55b41ad",
+        "arknights-gacha-result-generator": "github:steveny9911/arknights-gacha-result-generator#48ca1f66a8f9d8644a246f16fb8e5ea55960f59f",
       },
       "devDependencies": {
         "@types/bun": "~1.4.4",
@@ -98,7 +98,7 @@
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 
-    "arknights-gacha-result-generator": ["arknights-gacha-result-generator@github:steveny9911/arknights-gacha-result-generator#4219f10", { "dependencies": { "sharp": "^0.35.5" }, "bin": { "ak-gacha": "./src/cli.ts" } }, "steveny9911-arknights-gacha-result-generator-4219f10", "sha512-nZ54p9DtcHO7S5XkEUGEnPLJIdv6Zubb1lHieHh6JadWb4FpwzrcHiCAw83TSKql5w9OERw6UoAPTL4KaljS/A=="],
+    "arknights-gacha-result-generator": ["arknights-gacha-result-generator@github:steveny9911/arknights-gacha-result-generator#48ca1f6", { "dependencies": { "sharp": "^0.35.5" }, "bin": { "ak-gacha": "./src/cli.ts" } }, "steveny9911-arknights-gacha-result-generator-48ca1f6", "sha512-z6GyiICYrDkadfMBJecZRLX2Uyy0RMn0BhdlCfecDWCR7HZDF69A67EUkYsKOJ5/lCgYuedz/yo29D7ZidruDw=="],
 
     "base64-js": ["base64-js@1.5.1", "", {}, "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="],
 

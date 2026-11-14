@@ -22,11 +22,14 @@ test("pull returns the image with alt text naming every operator", async () => {
     image: new Uint8Array([9]),
     altText: "Arknights ten-pull: 3★ 克洛丝, 6★ 能天使",
   });
-  expect(calls).toStrictEqual([{ cacheDir: "/cache" }]);
+  expect(calls).toStrictEqual([{ cacheDir: "/cache", format: "webp" }]);
 });
 
 test("alt text is cut to Discord's 1024 characters", async () => {
-  const long = Array.from({ length: 10 }, () => ({ name: "名".repeat(200), rarity: 4 }));
+  const long = Array.from({ length: 10 }, () => ({
+    name: "名".repeat(200),
+    rarity: 4,
+  }));
   const gacha = createGachaService({
     cacheDir: "/cache",
     generate: () => Promise.resolve({ image: new Uint8Array(), pulls: long }),
@@ -62,7 +65,10 @@ test("a failed render is logged, reported, and costs no cooldown", async () => {
   });
   const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect(await gacha.pull("u1")).toStrictEqual({ ok: false, reason: "failed" });
+    expect(await gacha.pull("u1")).toStrictEqual({
+      ok: false,
+      reason: "failed",
+    });
     expect(logged).toHaveBeenCalledTimes(1);
   } finally {
     logged.mockRestore();
