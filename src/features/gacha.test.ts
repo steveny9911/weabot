@@ -61,8 +61,7 @@ test("a failed render is logged, reported, and costs no cooldown", async () => {
   let fail = true;
   const gacha = createGachaService({
     cacheDir: "/cache",
-    generate: () =>
-      fail ? Promise.reject(new Error("offline")) : Promise.resolve(rendered),
+    generate: () => (fail ? Promise.reject(new Error("offline")) : Promise.resolve(rendered)),
   });
   const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
@@ -96,22 +95,8 @@ test("pulls queue and draw one at a time; those beyond the queue limit are refus
     users.map((id) => gacha.pull(id).then((r) => (order.push(id), r))),
   );
   const outcomes: string[] = results.map((r) => (r.ok ? "ok" : r.reason));
-  expect(outcomes).toStrictEqual([
-    "ok",
-    "ok",
-    "ok",
-    "ok",
-    "ok",
-    "busy",
-    "busy",
-  ]);
-  expect(order.filter((id) => id !== "f" && id !== "g")).toStrictEqual([
-    "a",
-    "b",
-    "c",
-    "d",
-    "e",
-  ]);
+  expect(outcomes).toStrictEqual(["ok", "ok", "ok", "ok", "ok", "busy", "busy"]);
+  expect(order.filter((id) => id !== "f" && id !== "g")).toStrictEqual(["a", "b", "c", "d", "e"]);
   expect(peak).toStrictEqual(1);
   expect((await gacha.pull("late")).ok).toStrictEqual(true);
 });
@@ -121,16 +106,12 @@ test("a render that takes too long fails, and the pull queued behind it still ru
   const gacha = createGachaService({
     cacheDir: "/cache",
     // Only the first render hangs.
-    generate: () =>
-      ++calls === 1 ? new Promise(() => {}) : Promise.resolve(rendered),
+    generate: () => (++calls === 1 ? new Promise(() => {}) : Promise.resolve(rendered)),
     renderTimeoutMs: 20,
   });
   const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
-    const [stuck, next] = await Promise.all([
-      gacha.pull("u1"),
-      gacha.pull("u2"),
-    ]);
+    const [stuck, next] = await Promise.all([gacha.pull("u1"), gacha.pull("u2")]);
     expect(stuck).toStrictEqual({ ok: false, reason: "failed" });
     expect(next.ok).toStrictEqual(true);
   } finally {

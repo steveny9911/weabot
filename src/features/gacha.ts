@@ -12,10 +12,7 @@ export interface GachaService {
 }
 
 /** The generator's `generateTenPullImage`, as far as this service uses it. */
-type GenerateTenPull = (options: {
-  cacheDir: string;
-  format: "webp";
-}) => Promise<{
+type GenerateTenPull = (options: { cacheDir: string; format: "webp" }) => Promise<{
   image: Uint8Array;
   pulls: Array<{ name: string; rarity: number }>;
 }>;
@@ -33,16 +30,10 @@ const MAX_WAITING = 5;
 
 /** Loaded on first use, so the image library costs nothing (and cannot break startup) until then. */
 const generateWithLibrary: GenerateTenPull = async (options) =>
-  (await import("arknights-gacha-result-generator")).generateTenPullImage(
-    options,
-  );
+  (await import("arknights-gacha-result-generator")).generateTenPullImage(options);
 
 export function createGachaService(deps: GachaDependencies): GachaService {
-  const {
-    cacheDir,
-    generate = generateWithLibrary,
-    renderTimeoutMs = 60_000,
-  } = deps;
+  const { cacheDir, generate = generateWithLibrary, renderTimeoutMs = 60_000 } = deps;
   const readyAt = new Map<string, number>();
   let waiting = 0;
   let queue: Promise<unknown> = Promise.resolve();
@@ -52,10 +43,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
     try {
       // A render that outlives the timeout is left to finish; the queue does not wait for it.
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("render timed out")),
-          renderTimeoutMs,
-        );
+        timer = setTimeout(() => reject(new Error("render timed out")), renderTimeoutMs);
       });
       const { image, pulls } = await Promise.race([
         generate({ cacheDir, format: "webp" }),
@@ -87,8 +75,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
           reason: "cooldown",
           retryInMs: wait,
         });
-      if (waiting >= MAX_WAITING)
-        return Promise.resolve({ ok: false, reason: "busy" });
+      if (waiting >= MAX_WAITING) return Promise.resolve({ ok: false, reason: "busy" });
 
       // Both set before the first await, so two quick commands cannot both pass.
       waiting++;

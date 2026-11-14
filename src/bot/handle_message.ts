@@ -7,11 +7,7 @@ import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LandmineService } from "../features/landmine.ts";
 import type { GachaResult, GachaService } from "../features/gacha.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
-import {
-  extractTweetId,
-  formatTweetNotes,
-  type TweetService,
-} from "../net/tweet.ts";
+import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
 import {
   formatSearchResultsForContext,
   extractAutoSearchQuery,
@@ -83,14 +79,7 @@ export async function handleMessage(
   const message = parseMessage(raw);
   const { channelId, authorId: userId, content } = message;
   // Never answer a bot, including Haru itself, to avoid loops.
-  if (
-    !botId ||
-    !channelId ||
-    !userId ||
-    message.authorIsBot ||
-    userId === botId
-  )
-    return;
+  if (!botId || !channelId || !userId || message.authorIsBot || userId === botId) return;
 
   // Landmines roll for every human message. Not awaited, so a slow Discord call cannot delay replies.
   void deps.landmineService?.step(raw);
@@ -100,8 +89,7 @@ export async function handleMessage(
     discord.sendMessage(channelId, text, suppressMentions);
 
   // Billing commands do not generate AI replies, spend tokens, or mutate context.
-  if (isUsageCommand(content))
-    return void (await reply(await usageReport(deps, channelId)));
+  if (isUsageCommand(content)) return void (await reply(await usageReport(deps, channelId)));
   if (isResetCommand(content)) return await resetContext(deps, message);
   if (isGachaCommand(content)) return await gacha(deps, message);
 
@@ -112,16 +100,12 @@ export async function handleMessage(
   }
 
   // A \open that cannot run is answered before it uses up any allowance.
-  const openCommand = isOpenCommand(content)
-    ? parseOpenCommand(content)
-    : undefined;
+  const openCommand = isOpenCommand(content) ? parseOpenCommand(content) : undefined;
   if (openCommand !== undefined && !isActiveIn(config.linkOpen, channelId)) {
     return void (await reply("Ehehe~ opening links is turned off right now."));
   }
   if (openCommand === null) {
-    return void (await reply(
-      "Can you put a link after \\open? Like: \\open https://example.com",
-    ));
+    return void (await reply("Can you put a link after \\open? Like: \\open https://example.com"));
   }
 
   // Checking and consuming the allowance must be one atomic operation.
@@ -141,13 +125,7 @@ export async function handleMessage(
 
   // Only the current uninterrupted conversation is context.
   const contextReset = await deps.storageService.getContextReset(channelId);
-  const context = await loadContext(
-    discord,
-    config,
-    channelId,
-    raw,
-    contextReset?.resetAt,
-  );
+  const context = await loadContext(discord, config, channelId, raw, contextReset?.resetAt);
   if (web.notes) context.push(web.notes);
 
   // Tools exist only for explicit human mention handling, never autonomous jobs, opened links or tweets.
@@ -170,51 +148,36 @@ export async function handleMessage(
         })
       : undefined;
   const aiResult = await aiService.generateReply(context, actionSession);
-  const actionReply = actionSession
-    ? formatActionResults(actionSession.results)
-    : null;
+  const actionReply = actionSession ? formatActionResults(actionSession.results) : null;
   await rateLimitService.recordModelCalls(aiResult.requestsUsed);
-  if (aiResult.tokensUsed)
-    await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
+  if (aiResult.tokensUsed) await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
 
   if (!aiResult.ok) {
     console.error("AI generation failed:", aiResult.error);
-    const fallback =
-      "Hmm, my brain's a bit fuzzy right now. Try again in a moment~";
+    const fallback = "Hmm, my brain's a bit fuzzy right now. Try again in a moment~";
     return void (await reply(actionReply ?? fallback, Boolean(actionSession)));
   }
 
   let finalReply = actionReply ?? aiResult.text;
   if (web.linked) {
-    finalReply =
-      stripUrls(finalReply) ||
-      "I read it! Tell me what part you want me to focus on~";
+    finalReply = stripUrls(finalReply) || "I read it! Tell me what part you want me to focus on~";
   }
   if (!(await reply(finalReply, Boolean(actionSession))).ok) return;
 
-  const greetingGif = actionReply
-    ? null
-    : selectGreetingGifForReply(finalReply);
+  const greetingGif = actionReply ? null : selectGreetingGifForReply(finalReply);
   if (greetingGif) await reply(greetingGif);
 }
 
 /** Replies to the \\gacha message with a ten-pull image. */
-async function gacha(
-  deps: BotDependencies,
-  message: IncomingMessage,
-): Promise<void> {
+async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<void> {
   const { discord, gachaService } = deps;
   const { channelId, authorId, id } = message;
   if (!gachaService || !isActiveIn(deps.config.gacha, channelId)) {
-    return void (await discord.sendMessage(
-      channelId,
-      "Ehehe~ the gacha is turned off right now.",
-    ));
+    return void (await discord.sendMessage(channelId, "Ehehe~ the gacha is turned off right now."));
   }
 
   const result = await gachaService.pull(authorId);
-  if (!result.ok)
-    return void (await discord.sendMessage(channelId, gachaRefusal(result)));
+  if (!result.ok) return void (await discord.sendMessage(channelId, gachaRefusal(result)));
 
   const sent = await discord.sendImage(channelId, {
     bytes: result.image,
@@ -242,10 +205,7 @@ function gachaRefusal(result: Exclude<GachaResult, { ok: true }>): string {
   }
 }
 
-async function usageReport(
-  deps: BotDependencies,
-  channelId: string,
-): Promise<string> {
+async function usageReport(deps: BotDependencies, channelId: string): Promise<string> {
   const { config } = deps;
   if (!config.channelIds.includes(channelId)) {
     return "Usage is available in configured bot channels only.";
@@ -265,18 +225,10 @@ async function usageReport(
 }
 
 /** Forgets the conversation before this message, and any event action waiting on an answer. */
-async function resetContext(
-  deps: BotDependencies,
-  message: IncomingMessage,
-): Promise<void> {
+async function resetContext(deps: BotDependencies, message: IncomingMessage): Promise<void> {
   const { id, guildId, channelId, authorId } = message;
   if (guildId) {
-    await deps.discordActionService?.clearPending(
-      guildId,
-      channelId,
-      authorId,
-      id || undefined,
-    );
+    await deps.discordActionService?.clearPending(guildId, channelId, authorId, id || undefined);
   }
   const sentAt = Date.parse(message.timestamp);
   await deps.storageService.setContextReset({
@@ -284,15 +236,11 @@ async function resetContext(
     messageId: id,
     resetAt: Number.isFinite(sentAt) ? sentAt : Date.now(),
   });
-  await deps.discord.sendMessage(
-    channelId,
-    "Okay!~ I cleared our chat context.",
-  );
+  await deps.discord.sendMessage(channelId, "Okay!~ I cleared our chat context.");
   console.log(`Context reset by user ${authorId} in channel ${channelId}`);
 }
 
-type WebNotes =
-  { notes?: Record<string, unknown>; linked: boolean } | { failure: string };
+type WebNotes = { notes?: Record<string, unknown>; linked: boolean } | { failure: string };
 
 /**
  * Web notes for the AI: the page of a \open, else a linked tweet, else web search results.
@@ -311,8 +259,7 @@ async function readWeb(
     if (!result.ok) {
       console.error(`[LINK] open failed: ${result.error}`);
       return {
-        failure:
-          "Eep... I couldn't safely open that link. Can you try another one?~",
+        failure: "Eep... I couldn't safely open that link. Can you try another one?~",
       };
     }
     const lines = [
@@ -321,17 +268,14 @@ async function readWeb(
       `Title: ${result.page.title || "Untitled"}`,
       `Excerpt: ${result.page.excerpt}`,
     ];
-    if (openCommand.userRequest)
-      lines.push(`User request: ${openCommand.userRequest}`);
+    if (openCommand.userRequest) lines.push(`User request: ${openCommand.userRequest}`);
     return {
       notes: { author: "web", content: lines.join("\n") },
       linked: true,
     };
   }
 
-  const tweetId = isActiveIn(config.tweetRead, channelId)
-    ? extractTweetId(content)
-    : null;
+  const tweetId = isActiveIn(config.tweetRead, channelId) ? extractTweetId(content) : null;
   if (tweetId && tweetService) {
     const result = await tweetService.read(tweetId);
     if (!result.ok) {
