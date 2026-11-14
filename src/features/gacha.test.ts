@@ -71,25 +71,31 @@ test("a failed render is logged, reported, and costs no cooldown", async () => {
   expect((await gacha.pull("u1")).ok).toStrictEqual(true);
 });
 
-test("a pull is refused as busy while another user's render is running", async () => {
-  let release = () => {};
-  let calls = 0;
+test("pulls queue and draw one at a time; those beyond the queue limit are refused", async () => {
+  let running = 0;
+  let peak = 0;
+  const order: string[] = [];
   const gacha = createGachaService({
     cacheDir: "/cache",
-    // Only the first render waits to be released.
-    generate: () =>
-      ++calls === 1
-        ? new Promise((resolve) => (release = () => resolve(rendered)))
-        : Promise.resolve(rendered),
+    generate: async () => {
+      peak = Math.max(peak, ++running);
+      await Bun.sleep(2);
+      running--;
+      return rendered;
+    },
   });
-  const first = gacha.pull("u1");
-  expect(await gacha.pull("u2")).toStrictEqual({ ok: false, reason: "busy" });
-  release();
-  expect((await first).ok).toStrictEqual(true);
-  expect((await gacha.pull("u2")).ok).toStrictEqual(true);
+  const users = ["a", "b", "c", "d", "e", "f", "g"];
+  const results = await Promise.all(
+    users.map((id) => gacha.pull(id).then((r) => (order.push(id), r))),
+  );
+  const outcomes: string[] = results.map((r) => (r.ok ? "ok" : r.reason));
+  expect(outcomes).toStrictEqual(["ok", "ok", "ok", "ok", "ok", "busy", "busy"]);
+  expect(order.filter((id) => id !== "f" && id !== "g")).toStrictEqual(["a", "b", "c", "d", "e"]);
+  expect(peak).toStrictEqual(1);
+  expect((await gacha.pull("late")).ok).toStrictEqual(true);
 });
 
-test("a render that takes too long fails, and the next pull can run", async () => {
+test("a render that takes too long fails, and the pull queued behind it still runs", async () => {
   let calls = 0;
   const gacha = createGachaService({
     cacheDir: "/cache",
@@ -99,9 +105,10 @@ test("a render that takes too long fails, and the next pull can run", async () =
   });
   const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect(await gacha.pull("u1")).toStrictEqual({ ok: false, reason: "failed" });
+    const [stuck, next] = await Promise.all([gacha.pull("u1"), gacha.pull("u2")]);
+    expect(stuck).toStrictEqual({ ok: false, reason: "failed" });
+    expect(next.ok).toStrictEqual(true);
   } finally {
     logged.mockRestore();
   }
-  expect((await gacha.pull("u2")).ok).toStrictEqual(true);
 });

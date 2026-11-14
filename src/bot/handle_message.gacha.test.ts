@@ -94,10 +94,7 @@ test("\\gacha says so when it is off here or has no service, and pulls nothing",
 test("\\gacha explains each refusal and sends no image", async () => {
   const cases = [
     [{ ok: false, reason: "cooldown", retryInMs: 12_000 }, "Easy there~ try again in 12 seconds~"],
-    [
-      { ok: false, reason: "busy" },
-      "Ehehe~ I'm drawing someone else's pull! Try again in a moment~",
-    ],
+    [{ ok: false, reason: "busy" }, "Ehehe~ so many pulls waiting! Try again in a moment~"],
     [{ ok: false, reason: "failed" }, "Eep... the gacha machine jammed. Try again in a moment~"],
   ] as const;
   for (const [result, text] of cases) {

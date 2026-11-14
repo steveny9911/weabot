@@ -3,10 +3,11 @@
 export type GachaResult =
   | { ok: true; image: Uint8Array<ArrayBuffer>; altText: string }
   | { ok: false; reason: "cooldown"; retryInMs: number }
+  /** `busy`: too many pulls are already waiting. */
   | { ok: false; reason: "busy" | "failed" };
 
 export interface GachaService {
-  /** Draws a ten-pull. One draw runs at a time, across all users. Never throws. */
+  /** Draws a ten-pull. Draws queue up and run one at a time, across all users. Never throws. */
   pull(userId: string): Promise<GachaResult>;
 }
 
@@ -24,6 +25,8 @@ export interface GachaDependencies {
 }
 
 const COOLDOWN_MS = 30_000;
+/** Pulls waiting or drawing at once. */
+const MAX_WAITING = 5;
 
 /** Loaded on first use, so the image library costs nothing (and cannot break startup) until then. */
 const generateWithLibrary: GenerateTenPull = async (options) =>
@@ -32,34 +35,42 @@ const generateWithLibrary: GenerateTenPull = async (options) =>
 export function createGachaService(deps: GachaDependencies): GachaService {
   const { cacheDir, generate = generateWithLibrary, renderTimeoutMs = 60_000 } = deps;
   const readyAt = new Map<string, number>();
-  let busy = false;
+  let waiting = 0;
+  let queue: Promise<unknown> = Promise.resolve();
+
+  async function draw(userId: string): Promise<GachaResult> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // A render that outlives the timeout is left to finish; the queue does not wait for it.
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("render timed out")), renderTimeoutMs);
+      });
+      const { image, pulls } = await Promise.race([generate({ cacheDir }), timeout]);
+      const altText = `Arknights ten-pull: ${pulls.map((p) => `${p.rarity}★ ${p.name}`).join(", ")}`;
+      // Discord's alt text limit is 1024 characters.
+      return { ok: true, image: new Uint8Array(image), altText: altText.slice(0, 1024) };
+    } catch (error) {
+      console.error("[GACHA] Failed:", error);
+      readyAt.delete(userId); // a failed draw costs the user nothing
+      return { ok: false, reason: "failed" };
+    } finally {
+      clearTimeout(timer);
+      waiting--;
+    }
+  }
 
   return {
-    async pull(userId) {
+    pull(userId) {
       const wait = (readyAt.get(userId) ?? 0) - Date.now();
-      if (wait > 0) return { ok: false, reason: "cooldown", retryInMs: wait };
-      if (busy) return { ok: false, reason: "busy" };
+      if (wait > 0) return Promise.resolve({ ok: false, reason: "cooldown", retryInMs: wait });
+      if (waiting >= MAX_WAITING) return Promise.resolve({ ok: false, reason: "busy" });
 
-      busy = true;
+      // Both set before the first await, so two quick commands cannot both pass.
+      waiting++;
       readyAt.set(userId, Date.now() + COOLDOWN_MS);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        // A render that outlives the timeout is left to finish; the next pull does not wait for it.
-        const timeout = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("render timed out")), renderTimeoutMs);
-        });
-        const { image, pulls } = await Promise.race([generate({ cacheDir }), timeout]);
-        const altText = `Arknights ten-pull: ${pulls.map((p) => `${p.rarity}★ ${p.name}`).join(", ")}`;
-        // Discord's alt text limit is 1024 characters.
-        return { ok: true, image: new Uint8Array(image), altText: altText.slice(0, 1024) };
-      } catch (error) {
-        console.error("[GACHA] Failed:", error);
-        readyAt.delete(userId); // a failed draw costs the user nothing
-        return { ok: false, reason: "failed" };
-      } finally {
-        clearTimeout(timer);
-        busy = false;
-      }
+      const turn = queue.then(() => draw(userId));
+      queue = turn;
+      return turn;
     },
   };
 }

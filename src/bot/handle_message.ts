@@ -199,7 +199,7 @@ function gachaRefusal(result: Exclude<GachaResult, { ok: true }>): string {
     case "cooldown":
       return `Easy there~ try again in ${formatTime(result.retryInMs)}~`;
     case "busy":
-      return "Ehehe~ I'm drawing someone else's pull! Try again in a moment~";
+      return "Ehehe~ so many pulls waiting! Try again in a moment~";
     case "failed":
       return "Eep... the gacha machine jammed. Try again in a moment~";
   }

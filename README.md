@@ -226,8 +226,9 @@ Mention Haru to chat, or use a command:
 
 `\gacha` replies with a picture of ten random Arknights operators, made by
 [arknights-gacha-result-generator](https://github.com/steveny9911/arknights-gacha-result-generator).
-It uses no AI. The game art is downloaded on the first pull and cached in `gacha-cache` next to the
-database, so in Docker it lives in the `./data` volume. Haru needs Attach Files in the channel.
+It uses no AI; pulls are drawn one at a time, in order. The game art is downloaded on the first pull
+and cached in `gacha-cache` next to the database, so in Docker it lives in the `./data` volume. Haru
+needs Attach Files in the channel.
 
 ### Landmines
 
