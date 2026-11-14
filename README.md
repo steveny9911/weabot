@@ -218,20 +218,16 @@ Mention Haru to chat, or use a command:
 - `@Haru \usage` (month-to-date costs and token totals)
 - `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
-- `@Haru \gacha` (replies with an image of an Arknights ten-pull; one per user every 30 seconds)
+- `@Haru \gacha` (replies with an image of an Arknights ten-pull)
 - `@Haru https://x.com/user/status/123 what is this?` (reads the tweet's text, up to 4 photos per
   tweet and a quoted tweet via FxTwitter/VxTwitter; videos are skipped)
 
 ### Gacha
 
-`\gacha` replies to your message with a picture of ten random Arknights operators, made by
-[arknights-gacha-result-generator](https://github.com/steveny9911/arknights-gacha-result-generator)
-(pinned in `package.json`). It uses no AI, so it works with `ai.enabled: false`. Turn it off, or
-limit it to some channels, under `gacha` in `config.yaml`. The generator downloads the game art from
-GitHub into a `gacha-cache` folder next to the database (`./data/gacha-cache`, so in Docker it
-persists in the `./data` volume). The first pull after a fresh install downloads about 20 MB and is
-slow; later pulls take about two seconds. Pulls run one at a time, and at most five wait at once.
-Haru needs Attach Files in the channel.
+`\gacha` replies with a picture of ten random Arknights operators, made by
+[arknights-gacha-result-generator](https://github.com/steveny9911/arknights-gacha-result-generator).
+It uses no AI. The game art is downloaded on the first pull and cached in `gacha-cache` next to the
+database, so in Docker it lives in the `./data` volume. Haru needs Attach Files in the channel.
 
 ### Landmines
 

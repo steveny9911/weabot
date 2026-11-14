@@ -48,9 +48,6 @@ export interface DiscordClient {
     },
   ): Promise<SendResult>;
 
-  /** Shows "Haru is typing..." for a few seconds, or until a message is sent. Never throws. */
-  triggerTyping(channelId: string): Promise<void>;
-
   /** Times a member out for `seconds`; needs Timeout Members. */
   timeoutMember(
     guildId: string,
@@ -153,23 +150,6 @@ export function createDiscordClient(token: string): DiscordClient {
           { timeoutMs: 60_000 },
         );
       }),
-
-    async triggerTyping(channelId) {
-      try {
-        const response = await fetch(
-          `${API_BASE}/channels/${encodeURIComponent(channelId)}/typing`,
-          {
-            method: "POST",
-            headers,
-            signal: AbortSignal.timeout(REACTION_TIMEOUT_MS),
-            redirect: "error",
-          },
-        );
-        await response.body?.cancel();
-      } catch {
-        // Only a courtesy; the reply does not depend on it.
-      }
-    },
 
     timeoutMember: (guildId, userId, seconds, reason) =>
       write("timeout", () =>

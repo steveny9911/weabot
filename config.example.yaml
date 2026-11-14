@@ -118,9 +118,7 @@ tweet_read:
   enabled: true
   channel_ids: all
 
-# The \gacha command: Haru replies with an image of an Arknights ten-pull. It does not use AI, so it
-# works with ai.enabled false. Downloaded game art is cached in a gacha-cache folder next to the
-# database (general.db_path); the first pull after a fresh install downloads it and is slow.
+# The \gacha command: an image of an Arknights ten-pull. It does not use AI. See the README.
 gacha:
   enabled: true
   channel_ids: all

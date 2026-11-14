@@ -41,7 +41,6 @@ export interface BotDependencies {
   tweetService?: TweetService;
   discordActionService?: DiscordActionService;
   landmineService?: LandmineService;
-  /** Without it, \\gacha answers that it is turned off. */
   gachaService?: GachaService;
 }
 
@@ -92,7 +91,6 @@ export async function handleMessage(
   // Billing commands do not generate AI replies, spend tokens, or mutate context.
   if (isUsageCommand(content)) return void (await reply(await usageReport(deps, channelId)));
   if (isResetCommand(content)) return await resetContext(deps, message);
-  // Like \\usage it uses no AI, so it works with AI off.
   if (isGachaCommand(content)) return await gacha(deps, message);
 
   console.log(`Bot mentioned by user ${userId} in channel ${channelId}`);
@@ -178,13 +176,8 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
     return void (await discord.sendMessage(channelId, "Ehehe~ the gacha is turned off right now."));
   }
 
-  // Only a courtesy while the image renders; it never throws.
-  void discord.triggerTyping(channelId);
   const result = await gachaService.pull(authorId);
-  if (!result.ok) {
-    if (result.reason === "failed") console.error(`[GACHA] Failed: ${result.error}`);
-    return void (await discord.sendMessage(channelId, gachaRefusal(result)));
-  }
+  if (!result.ok) return void (await discord.sendMessage(channelId, gachaRefusal(result)));
 
   const sent = await discord.sendImage(channelId, {
     bytes: result.image,
@@ -193,9 +186,6 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
     altText: result.altText,
     replyToMessageId: id,
   });
-  console.log(
-    `[GACHA] Pull for user ${authorId} in channel ${channelId}: ${sent.ok ? "sent" : "not sent"}`,
-  );
   if (!sent.ok) {
     await discord.sendMessage(
       channelId,
@@ -208,10 +198,8 @@ function gachaRefusal(result: Exclude<GachaResult, { ok: true }>): string {
   switch (result.reason) {
     case "cooldown":
       return `Easy there~ try again in ${formatTime(result.retryInMs)}~`;
-    case "pending":
-      return "Hold on~ I'm still drawing your last pull!";
     case "busy":
-      return "Ehehe~ so many pulls at once! Try again in a moment~";
+      return "Ehehe~ I'm drawing someone else's pull! Try again in a moment~";
     case "failed":
       return "Eep... the gacha machine jammed. Try again in a moment~";
   }

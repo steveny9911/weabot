@@ -57,7 +57,7 @@ export interface AppConfig {
   linkOpen: FeatureConfig;
   /** Reading tweet links in mentions. */
   tweetRead: FeatureConfig;
-  /** The \gacha command. It does not use AI, so it works with `aiEnabled` off. */
+  /** The \gacha command. */
   gacha: FeatureConfig;
   /** The event and invite tools. */
   discordActions: FeatureConfig & {

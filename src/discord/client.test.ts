@@ -494,25 +494,3 @@ test("sendImage reports a refusal and omits an empty description", async () => {
     fetchMock.restore();
   }
 });
-
-test("triggerTyping posts to the typing route and never throws", async () => {
-  const urls: string[] = [];
-  const fetchMock = mockFetch((url) => {
-    urls.push(url);
-    return new Response(null, { status: 204 });
-  });
-  try {
-    await createDiscordClient("token").triggerTyping("chan");
-    expect(urls).toStrictEqual(["https://discord.com/api/v10/channels/chan/typing"]);
-  } finally {
-    fetchMock.restore();
-  }
-  const failing = mockFetch(() => {
-    throw new Error("network down");
-  });
-  try {
-    await createDiscordClient("token").triggerTyping("chan");
-  } finally {
-    failing.restore();
-  }
-});

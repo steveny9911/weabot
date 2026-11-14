@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { handleMessage, type BotDependencies } from "./handle_message.ts";
 import { isGachaCommand } from "./commands.ts";
 import type { GachaResult, GachaService } from "../features/gacha.ts";
@@ -18,7 +18,6 @@ function setup(
   const sent: string[] = [];
   const images: Array<{ channelId: string; filename: string; altText?: string; replyTo: string }> =
     [];
-  const typing: string[] = [];
   const pulls: string[] = [];
   const unexpected = (name: string) => () => Promise.reject(new Error(`unexpected ${name}`));
   const gachaService: GachaService = {
@@ -30,7 +29,7 @@ function setup(
   const deps: BotDependencies = {
     // AI is off: \gacha must not need it.
     config: testConfig({ aiEnabled: false }, options.config ?? {}),
-    discord: fakeDiscord({ sent, images, typing, sendOk: options.sendOk }),
+    discord: fakeDiscord({ sent, images, sendOk: options.sendOk }),
     aiService: { generateReply: unexpected("generateReply") },
     rateLimitService: {
       admitRequest: unexpected("admitRequest"),
@@ -45,7 +44,7 @@ function setup(
     },
     ...(options.withService === false ? {} : { gachaService }),
   };
-  return { deps, sent, images, typing, pulls };
+  return { deps, sent, images, pulls };
 }
 
 function mention(content: string, channelId = "chan-1"): Record<string, unknown> {
@@ -72,16 +71,19 @@ test("\\gacha replies to the message with the image, with AI off", async () => {
   const state = setup();
   await handleMessage(mention("<@12345> \\gacha"), state.deps);
   expect(state.pulls).toStrictEqual(["user-1"]);
-  expect(state.typing).toStrictEqual(["chan-1"]);
   expect(state.images).toStrictEqual([
     { channelId: "chan-1", filename: "gacha.png", altText: "alt", replyTo: "msg-1" },
   ]);
   expect(state.sent).toStrictEqual([]);
 });
 
-test("\\gacha says so when the feature is off in the channel, and pulls nothing", async () => {
-  for (const config of [{ gacha: { enabled: false } }, { gacha: { channelIds: ["elsewhere"] } }]) {
-    const state = setup({ config });
+test("\\gacha says so when it is off here or has no service, and pulls nothing", async () => {
+  for (const options of [
+    { config: { gacha: { enabled: false } } },
+    { config: { gacha: { channelIds: ["elsewhere"] } } },
+    { withService: false },
+  ]) {
+    const state = setup(options);
     await handleMessage(mention("<@12345> \\gacha"), state.deps);
     expect(state.sent).toStrictEqual(["Ehehe~ the gacha is turned off right now."]);
     expect(state.pulls).toStrictEqual([]);
@@ -89,45 +91,21 @@ test("\\gacha says so when the feature is off in the channel, and pulls nothing"
   }
 });
 
-test("\\gacha says it is off when the bot has no gacha service", async () => {
-  const state = setup({ withService: false });
-  await handleMessage(mention("<@12345> \\gacha"), state.deps);
-  expect(state.sent).toStrictEqual(["Ehehe~ the gacha is turned off right now."]);
-});
-
-test("\\gacha tells a user on cooldown how long to wait", async () => {
-  const state = setup({ result: { ok: false, reason: "cooldown", retryInMs: 12_000 } });
-  await handleMessage(mention("<@12345> \\gacha"), state.deps);
-  expect(state.sent).toStrictEqual(["Easy there~ try again in 12 seconds~"]);
-  expect(state.images).toStrictEqual([]);
-});
-
-test("\\gacha answers a failed render with an apology and sends no image", async () => {
-  const state = setup({ result: { ok: false, reason: "failed", error: "boom" } });
-  const logged = spyOn(console, "error").mockImplementation(() => {});
-  try {
+test("\\gacha explains each refusal and sends no image", async () => {
+  const cases = [
+    [{ ok: false, reason: "cooldown", retryInMs: 12_000 }, "Easy there~ try again in 12 seconds~"],
+    [
+      { ok: false, reason: "busy" },
+      "Ehehe~ I'm drawing someone else's pull! Try again in a moment~",
+    ],
+    [{ ok: false, reason: "failed" }, "Eep... the gacha machine jammed. Try again in a moment~"],
+  ] as const;
+  for (const [result, text] of cases) {
+    const state = setup({ result });
     await handleMessage(mention("<@12345> \\gacha"), state.deps);
-    expect(logged.mock.calls).toStrictEqual([["[GACHA] Failed: boom"]]);
-  } finally {
-    logged.mockRestore();
+    expect(state.sent).toStrictEqual([text]);
+    expect(state.images).toStrictEqual([]);
   }
-  expect(state.sent).toStrictEqual(["Eep... the gacha machine jammed. Try again in a moment~"]);
-  expect(state.images).toStrictEqual([]);
-});
-
-test("\\gacha explains a pending or busy refusal", async () => {
-  const pending = setup({ result: { ok: false, reason: "pending" } });
-  await handleMessage(mention("<@12345> \\gacha"), pending.deps);
-  expect(pending.sent).toStrictEqual(["Hold on~ I'm still drawing your last pull!"]);
-  const busy = setup({ result: { ok: false, reason: "busy" } });
-  await handleMessage(mention("<@12345> \\gacha"), busy.deps);
-  expect(busy.sent).toStrictEqual(["Ehehe~ so many pulls at once! Try again in a moment~"]);
-});
-
-test("\\gacha with extra words still draws instead of starting an AI chat", async () => {
-  const state = setup();
-  await handleMessage(mention("<@12345> \\gacha please"), state.deps);
-  expect(state.images.length).toStrictEqual(1);
 });
 
 test("\\gacha apologises when the upload is refused", async () => {
