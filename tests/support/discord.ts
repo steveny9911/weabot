@@ -8,6 +8,10 @@ export function fakeDiscord(
     sent?: string[];
     /** Raw Discord messages returned as channel history. */
     recent?: Array<Record<string, unknown>>;
+    /** Every image the bot sends is pushed here. */
+    images?: Array<{ channelId: string; filename: string; altText?: string; replyTo: string }>;
+    /** Every channel the bot starts typing in is pushed here. */
+    typing?: string[];
     /** False makes every send fail. */
     sendOk?: boolean;
   } = {},
@@ -19,6 +23,15 @@ export function fakeDiscord(
     sendMessage(_channelId, content) {
       options.sent?.push(content);
       return Promise.resolve(options.sendOk === false ? { ok: false, error: "500" } : { ok: true });
+    },
+    sendImage(channelId, image) {
+      const { filename, altText, replyToMessageId: replyTo } = image;
+      options.images?.push({ channelId, filename, altText, replyTo });
+      return Promise.resolve(options.sendOk === false ? { ok: false, error: "500" } : { ok: true });
+    },
+    triggerTyping(channelId) {
+      options.typing?.push(channelId);
+      return Promise.resolve();
     },
     postMessage: unexpected("postMessage"),
     timeoutMember: unexpected("timeoutMember"),

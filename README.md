@@ -64,6 +64,7 @@ bun install
 2. Select the **bot** scope.
 3. Select these permissions:
    - `Send Messages`
+   - `Attach Files` (only for `\gacha`)
    - `Read Messages/View Channels`
    - `Embed Links`
    - `Timeout Members` (only for landmine timeouts)
@@ -125,9 +126,9 @@ landmine:
 ```
 
 `channel_ids: all` makes a feature work in every channel Haru can read. It is allowed for `ai_chat`,
-`web_search`, `link_open`, `tweet_read`, `discord_actions` and `landmine`. The jobs and autonomous
-chat post to channels you name, so they need a list. `ai.enabled` is the master switch for AI:
-`ai_chat`, `autonomous_chat` and `discord_actions` cannot work with it off. With AI on,
+`web_search`, `link_open`, `tweet_read`, `gacha`, `discord_actions` and `landmine`. The jobs and
+autonomous chat post to channels you name, so they need a list. `ai.enabled` is the master switch
+for AI: `ai_chat`, `autonomous_chat` and `discord_actions` cannot work with it off. With AI on,
 `ai.provider` must name a provider; Haru stops at startup without one. Haru refuses to start on a
 key it does not know, so a typo cannot silently leave a setting at its default.
 
@@ -217,8 +218,20 @@ Mention Haru to chat, or use a command:
 - `@Haru \usage` (month-to-date costs and token totals)
 - `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
+- `@Haru \gacha` (replies with an image of an Arknights ten-pull; one per user every 30 seconds)
 - `@Haru https://x.com/user/status/123 what is this?` (reads the tweet's text, up to 4 photos per
   tweet and a quoted tweet via FxTwitter/VxTwitter; videos are skipped)
+
+### Gacha
+
+`\gacha` replies to your message with a picture of ten random Arknights operators, made by
+[arknights-gacha-result-generator](https://github.com/steveny9911/arknights-gacha-result-generator)
+(pinned in `package.json`). It uses no AI, so it works with `ai.enabled: false`. Turn it off, or
+limit it to some channels, under `gacha` in `config.yaml`. The generator downloads the game art from
+GitHub into a `gacha-cache` folder next to the database (`./data/gacha-cache`, so in Docker it
+persists in the `./data` volume). The first pull after a fresh install downloads about 50 MB and is
+slow; later pulls take about two seconds. Pulls run one at a time. Haru needs Attach Files in the
+channel.
 
 ### Landmines
 

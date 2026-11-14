@@ -1,3 +1,4 @@
+import { dirname, join, resolve } from "node:path";
 import { loadConfig } from "./src/config.ts";
 import { createDiscordClient } from "./src/discord/client.ts";
 import { createDiscordEventsClient } from "./src/discord/events.ts";
@@ -14,6 +15,7 @@ import { createWebSearchService } from "./src/net/web_search.ts";
 import { createTweetService } from "./src/net/tweet.ts";
 import { createLandmineQueries } from "./src/db/landmines.ts";
 import { createLandmineService } from "./src/features/landmine.ts";
+import { createGachaService } from "./src/features/gacha.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
 import { createServer } from "./src/app/server.ts";
@@ -41,6 +43,9 @@ const webSearch = createWebSearchService(config);
 const linkOpen = createLinkOpenService();
 const tweets = createTweetService();
 
+// Next to the database, so in Docker it lands in the writable ./data volume.
+const gachaCacheDir = join(resolve(dirname(config.databasePath)), "gacha-cache");
+
 const botDeps: BotDependencies = {
   config,
   discord,
@@ -50,6 +55,7 @@ const botDeps: BotDependencies = {
   storageService: storage,
   webSearchService: webSearch,
   tweetService: tweets,
+  gachaService: createGachaService({ cacheDir: gachaCacheDir }),
   landmineService: createLandmineService({ config, mines: createLandmineQueries(db), discord }),
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
@@ -91,6 +97,7 @@ const features = {
   "Web search": config.webSearch,
   "Link open": config.linkOpen,
   "Tweet reading": config.tweetRead,
+  Gacha: config.gacha,
   "Event/invite actions": config.discordActions,
   "Autonomous chat": config.autonomousChat,
   Landmines: config.landmine,
