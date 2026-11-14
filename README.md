@@ -229,9 +229,9 @@ Mention Haru to chat, or use a command:
 (pinned in `package.json`). It uses no AI, so it works with `ai.enabled: false`. Turn it off, or
 limit it to some channels, under `gacha` in `config.yaml`. The generator downloads the game art from
 GitHub into a `gacha-cache` folder next to the database (`./data/gacha-cache`, so in Docker it
-persists in the `./data` volume). The first pull after a fresh install downloads about 50 MB and is
-slow; later pulls take about two seconds. Pulls run one at a time. Haru needs Attach Files in the
-channel.
+persists in the `./data` volume). The first pull after a fresh install downloads about 20 MB and is
+slow; later pulls take about two seconds. Pulls run one at a time, and at most five wait at once.
+Haru needs Attach Files in the channel.
 
 ### Landmines
 

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { handleMessage, type BotDependencies } from "./handle_message.ts";
 import { isGachaCommand } from "./commands.ts";
 import type { GachaResult, GachaService } from "../features/gacha.ts";
@@ -63,7 +63,7 @@ test("isGachaCommand matches only a bare \\gacha, with or without a mention", ()
   expect(isGachaCommand("<@12345> \\gacha")).toStrictEqual(true);
   expect(isGachaCommand(" <@!12345>  \\GaCha ")).toStrictEqual(true);
   expect(isGachaCommand("\\gacha")).toStrictEqual(true);
-  expect(isGachaCommand("<@12345> \\gacha 50")).toStrictEqual(false);
+  expect(isGachaCommand("<@12345> \\gacha 50")).toStrictEqual(true); // extra text is ignored
   expect(isGachaCommand("<@12345> do a \\gacha")).toStrictEqual(false);
   expect(isGachaCommand("<@12345> \\gachas")).toStrictEqual(false);
 });
@@ -104,17 +104,30 @@ test("\\gacha tells a user on cooldown how long to wait", async () => {
 
 test("\\gacha answers a failed render with an apology and sends no image", async () => {
   const state = setup({ result: { ok: false, reason: "failed", error: "boom" } });
-  const errors: unknown[][] = [];
-  const original = console.error;
-  console.error = (...args: unknown[]) => void errors.push(args);
+  const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
     await handleMessage(mention("<@12345> \\gacha"), state.deps);
+    expect(logged.mock.calls).toStrictEqual([["[GACHA] Failed: boom"]]);
   } finally {
-    console.error = original;
+    logged.mockRestore();
   }
   expect(state.sent).toStrictEqual(["Eep... the gacha machine jammed. Try again in a moment~"]);
   expect(state.images).toStrictEqual([]);
-  expect(errors).toStrictEqual([["[GACHA] Failed: boom"]]);
+});
+
+test("\\gacha explains a pending or busy refusal", async () => {
+  const pending = setup({ result: { ok: false, reason: "pending" } });
+  await handleMessage(mention("<@12345> \\gacha"), pending.deps);
+  expect(pending.sent).toStrictEqual(["Hold on~ I'm still drawing your last pull!"]);
+  const busy = setup({ result: { ok: false, reason: "busy" } });
+  await handleMessage(mention("<@12345> \\gacha"), busy.deps);
+  expect(busy.sent).toStrictEqual(["Ehehe~ so many pulls at once! Try again in a moment~"]);
+});
+
+test("\\gacha with extra words still draws instead of starting an AI chat", async () => {
+  const state = setup();
+  await handleMessage(mention("<@12345> \\gacha please"), state.deps);
+  expect(state.images.length).toStrictEqual(1);
 });
 
 test("\\gacha apologises when the upload is refused", async () => {

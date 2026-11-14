@@ -5,7 +5,7 @@ import { formatActionResults } from "../features/discord_actions/results.ts";
 import type { DiscordActionService } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LandmineService } from "../features/landmine.ts";
-import type { GachaService } from "../features/gacha.ts";
+import type { GachaResult, GachaService } from "../features/gacha.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
 import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
 import {
@@ -178,19 +178,12 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
     return void (await discord.sendMessage(channelId, "Ehehe~ the gacha is turned off right now."));
   }
 
-  const typing = discord.triggerTyping(channelId);
+  // Only a courtesy while the image renders; it never throws.
+  void discord.triggerTyping(channelId);
   const result = await gachaService.pull(authorId);
-  await typing;
   if (!result.ok) {
-    if (result.reason === "cooldown") {
-      const wait = formatTime(result.retryInMs);
-      return void (await discord.sendMessage(channelId, `Easy there~ try again in ${wait}~`));
-    }
-    console.error(`[GACHA] Failed: ${result.error}`);
-    return void (await discord.sendMessage(
-      channelId,
-      "Eep... the gacha machine jammed. Try again in a moment~",
-    ));
+    if (result.reason === "failed") console.error(`[GACHA] Failed: ${result.error}`);
+    return void (await discord.sendMessage(channelId, gachaRefusal(result)));
   }
 
   const sent = await discord.sendImage(channelId, {
@@ -208,6 +201,19 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
       channelId,
       "Eep... I couldn't send the picture. Try again in a moment~",
     );
+  }
+}
+
+function gachaRefusal(result: Exclude<GachaResult, { ok: true }>): string {
+  switch (result.reason) {
+    case "cooldown":
+      return `Easy there~ try again in ${formatTime(result.retryInMs)}~`;
+    case "pending":
+      return "Hold on~ I'm still drawing your last pull!";
+    case "busy":
+      return "Ehehe~ so many pulls at once! Try again in a moment~";
+    case "failed":
+      return "Eep... the gacha machine jammed. Try again in a moment~";
   }
 }
 

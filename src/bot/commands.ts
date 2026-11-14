@@ -46,9 +46,9 @@ export function isResetCommand(content: string): boolean {
   return /(^|\s)\\reset(\s|$)/i.test(content);
 }
 
-/** `@Haru \\gacha` */
+/** `@Haru \\gacha`; any text after it is ignored. */
 export function isGachaCommand(content: string): boolean {
-  return /^\\gacha$/i.test(stripMentions(content));
+  return /^\\gacha\b/i.test(stripMentions(content));
 }
 
 /** `@Haru \\open <url> [question]` */
