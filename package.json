@@ -25,6 +25,7 @@
     "@types/bun": "~1.4.4"
   },
   "dependencies": {
-    "@google/genai": "3.0.0"
+    "@google/genai": "3.0.0",
+    "arknights-gacha-result-generator": "github:steveny9911/arknights-gacha-result-generator#4219f104098a2cfd6958a77af7c7acaab55b41ad"
   }
 }
