@@ -72,7 +72,7 @@ test("\\gacha replies to the message with the image, with AI off", async () => {
   await handleMessage(mention("<@12345> \\gacha"), state.deps);
   expect(state.pulls).toStrictEqual(["user-1"]);
   expect(state.images).toStrictEqual([
-    { channelId: "chan-1", filename: "gacha.png", altText: "alt", replyTo: "msg-1" },
+    { channelId: "chan-1", filename: "gacha.webp", altText: "alt", replyTo: "msg-1" },
   ]);
   expect(state.sent).toStrictEqual([]);
 });
