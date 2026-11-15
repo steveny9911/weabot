@@ -131,6 +131,17 @@ test("pulls queue and draw one at a time; those beyond the queue limit are refus
   expect((await gacha.pull("late")).ok).toStrictEqual(true);
 });
 
+test("the queue size is configurable", async () => {
+  const gacha = createGachaService({
+    cacheDir: "/cache",
+    pity: freshPity(),
+    queueSize: 2,
+    generate: async () => (await Bun.sleep(2), rendered),
+  });
+  const results = await Promise.all(["a", "b", "c"].map((id) => gacha.pull(id)));
+  expect(results.map((r) => (r.ok ? "ok" : r.reason))).toStrictEqual(["ok", "ok", "busy"]);
+});
+
 test("a render that takes too long fails, and the pull queued behind it still runs", async () => {
   let calls = 0;
   const gacha = createGachaService({

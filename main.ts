@@ -61,6 +61,7 @@ const botDeps: BotDependencies = {
     pity: createGachaPityQueries(db),
     cooldownMs: config.gacha.cooldownSeconds * 1000,
     renderTimeoutMs: config.gacha.timeoutSeconds * 1000,
+    queueSize: config.gacha.queueSize,
   }),
   landmineService: createLandmineService({ config, mines: createLandmineQueries(db), discord }),
   discordActionService: createDiscordActionService(
