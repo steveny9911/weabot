@@ -21,10 +21,12 @@ export interface GachaDependencies {
   /** Where the generator caches the game art it downloads. */
   cacheDir: string;
   generate?: GenerateTenPull;
+  /** How long a user waits between pulls. */
+  cooldownMs?: number;
+  /** How long a render may take before it is given up on. */
   renderTimeoutMs?: number;
 }
 
-const COOLDOWN_MS = 30_000;
 /** Pulls waiting or drawing at once. */
 const MAX_WAITING = 5;
 
@@ -33,7 +35,12 @@ const generateWithLibrary: GenerateTenPull = async (options) =>
   (await import("arknights-gacha-result-generator")).generateTenPullImage(options);
 
 export function createGachaService(deps: GachaDependencies): GachaService {
-  const { cacheDir, generate = generateWithLibrary, renderTimeoutMs = 60_000 } = deps;
+  const {
+    cacheDir,
+    generate = generateWithLibrary,
+    cooldownMs = 10_000,
+    renderTimeoutMs = 30_000,
+  } = deps;
   const readyAt = new Map<string, number>();
   let waiting = 0;
   let queue: Promise<unknown> = Promise.resolve();
@@ -79,7 +86,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
 
       // Both set before the first await, so two quick commands cannot both pass.
       waiting++;
-      readyAt.set(userId, Date.now() + COOLDOWN_MS);
+      readyAt.set(userId, Date.now() + cooldownMs);
       const turn = queue.then(() => draw(userId));
       queue = turn;
       return turn;

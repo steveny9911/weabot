@@ -55,7 +55,11 @@ const botDeps: BotDependencies = {
   storageService: storage,
   webSearchService: webSearch,
   tweetService: tweets,
-  gachaService: createGachaService({ cacheDir: gachaCacheDir }),
+  gachaService: createGachaService({
+    cacheDir: gachaCacheDir,
+    cooldownMs: config.gacha.cooldownSeconds * 1000,
+    renderTimeoutMs: config.gacha.timeoutSeconds * 1000,
+  }),
   landmineService: createLandmineService({ config, mines: createLandmineQueries(db), discord }),
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),

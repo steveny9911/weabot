@@ -39,22 +39,38 @@ test("alt text is cut to Discord's 1024 characters", async () => {
   expect(result.altText.length).toStrictEqual(1024);
 });
 
-test("a user waits out the cooldown; other users are not affected", async () => {
+test("a user waits out the cooldown (10 seconds by default); other users are not affected", async () => {
   setSystemTime(new Date("2026-01-01T00:00:00Z"));
   const gacha = createGachaService({
     cacheDir: "/cache",
     generate: () => Promise.resolve(rendered),
   });
   expect((await gacha.pull("u1")).ok).toStrictEqual(true);
-  setSystemTime(new Date("2026-01-01T00:00:10Z"));
+  setSystemTime(new Date("2026-01-01T00:00:04Z"));
   expect(await gacha.pull("u1")).toStrictEqual({
     ok: false,
     reason: "cooldown",
-    retryInMs: 20_000,
+    retryInMs: 6_000,
   });
   expect((await gacha.pull("u2")).ok).toStrictEqual(true);
-  setSystemTime(new Date("2026-01-01T00:00:30Z"));
+  setSystemTime(new Date("2026-01-01T00:00:10Z"));
   expect((await gacha.pull("u1")).ok).toStrictEqual(true);
+});
+
+test("the cooldown length is configurable", async () => {
+  setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  const gacha = createGachaService({
+    cacheDir: "/cache",
+    generate: () => Promise.resolve(rendered),
+    cooldownMs: 60_000,
+  });
+  expect((await gacha.pull("u1")).ok).toStrictEqual(true);
+  setSystemTime(new Date("2026-01-01T00:00:30Z"));
+  expect(await gacha.pull("u1")).toStrictEqual({
+    ok: false,
+    reason: "cooldown",
+    retryInMs: 30_000,
+  });
 });
 
 test("a failed render is logged, reported, and costs no cooldown", async () => {
