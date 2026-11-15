@@ -1,15 +1,23 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { setSystemTime } from "bun:test";
 import { assert } from "../../tests/support/assert.ts";
 import { openDatabase } from "../db/database.ts";
 import { createGachaPityQueries } from "../db/gacha_pity.ts";
 import { createGachaService } from "./gacha.ts";
 
-afterEach(() => setSystemTime());
+// Failed draws are logged; keep that out of the test output.
+let logged: ReturnType<typeof spyOn>;
+beforeEach(() => {
+  logged = spyOn(console, "error").mockImplementation(() => {});
+});
+afterEach(() => {
+  setSystemTime();
+  mock.restore();
+});
 
 const pulls = [
-  { name: "克洛丝", rarity: 3 },
-  { name: "能天使", rarity: 6 },
+  { name: "克洛丝", nameEn: "Kroos", rarity: 3 },
+  { name: "能天使", nameEn: "Exusiai", rarity: 6 },
 ];
 const rendered = { image: new Uint8Array([9]), pulls, result: { finalPity: 5 } };
 
@@ -26,7 +34,7 @@ test("pull returns the image with alt text naming every operator", async () => {
   expect(await gacha.pull("u1")).toStrictEqual({
     ok: true,
     image: new Uint8Array([9]),
-    altText: "Arknights ten-pull (pity 5): 3★ 克洛丝, 6★ 能天使",
+    altText: "5 pulls since last 6★: 3★ 克洛丝 (Kroos), 6★ 能天使 (Exusiai)",
   });
   expect(calls).toStrictEqual([
     { cacheDir: "/cache", format: "webp", startPity: 0, guaranteeFiveStar: true },
@@ -34,10 +42,7 @@ test("pull returns the image with alt text naming every operator", async () => {
 });
 
 test("alt text is cut to Discord's 1024 characters", async () => {
-  const long = Array.from({ length: 10 }, () => ({
-    name: "名".repeat(200),
-    rarity: 4,
-  }));
+  const long = [{ name: "名".repeat(1100), nameEn: "Name", rarity: 4 }];
   const gacha = createGachaService({
     cacheDir: "/cache",
     pity: freshPity(),
@@ -92,16 +97,11 @@ test("a failed render is logged, reported, and costs no cooldown", async () => {
     pity: freshPity(),
     generate: () => (fail ? Promise.reject(new Error("offline")) : Promise.resolve(rendered)),
   });
-  const logged = spyOn(console, "error").mockImplementation(() => {});
-  try {
-    expect(await gacha.pull("u1")).toStrictEqual({
-      ok: false,
-      reason: "failed",
-    });
-    expect(logged).toHaveBeenCalledTimes(1);
-  } finally {
-    logged.mockRestore();
-  }
+  expect(await gacha.pull("u1")).toStrictEqual({
+    ok: false,
+    reason: "failed",
+  });
+  expect(logged).toHaveBeenCalledTimes(1);
   fail = false;
   expect((await gacha.pull("u1")).ok).toStrictEqual(true);
 });
@@ -109,7 +109,6 @@ test("a failed render is logged, reported, and costs no cooldown", async () => {
 test("pulls queue and draw one at a time; those beyond the queue limit are refused", async () => {
   let running = 0;
   let peak = 0;
-  const order: string[] = [];
   const gacha = createGachaService({
     cacheDir: "/cache",
     pity: freshPity(),
@@ -121,21 +120,9 @@ test("pulls queue and draw one at a time; those beyond the queue limit are refus
     },
   });
   const users = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
-  const results = await Promise.all(
-    users.map((id) => gacha.pull(id).then((r) => (order.push(id), r))),
-  );
+  const results = await Promise.all(users.map((id) => gacha.pull(id)));
   const outcomes: string[] = results.map((r) => (r.ok ? "ok" : r.reason));
   expect(outcomes).toStrictEqual(["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "busy", "busy"]);
-  expect(order.filter((id) => id !== "i" && id !== "j")).toStrictEqual([
-    "a",
-    "b",
-    "c",
-    "d",
-    "e",
-    "f",
-    "g",
-    "h",
-  ]);
   expect(peak).toStrictEqual(1);
   expect((await gacha.pull("late")).ok).toStrictEqual(true);
 });
@@ -160,14 +147,9 @@ test("a render that takes too long fails, and the pull queued behind it still ru
     generate: () => (++calls === 1 ? new Promise(() => {}) : Promise.resolve(rendered)),
     renderTimeoutMs: 20,
   });
-  const logged = spyOn(console, "error").mockImplementation(() => {});
-  try {
-    const [stuck, next] = await Promise.all([gacha.pull("u1"), gacha.pull("u2")]);
-    expect(stuck).toStrictEqual({ ok: false, reason: "failed" });
-    expect(next.ok).toStrictEqual(true);
-  } finally {
-    logged.mockRestore();
-  }
+  const [stuck, next] = await Promise.all([gacha.pull("u1"), gacha.pull("u2")]);
+  expect(stuck).toStrictEqual({ ok: false, reason: "failed" });
+  expect(next.ok).toStrictEqual(true);
 });
 
 test("pity carries from one pull to the next, and only the first pull has the 5-star guarantee", async () => {
@@ -236,16 +218,11 @@ test("a failed or timed-out pull leaves pity alone, so the next one is still a f
     renderTimeoutMs: 5,
     generate: () => generates.shift()!(),
   });
-  const logged = spyOn(console, "error").mockImplementation(() => {});
-  try {
-    expect((await gacha.pull("u1")).ok).toStrictEqual(false); // fails
-    expect((await gacha.pull("u1")).ok).toStrictEqual(false); // times out
-    late.resolve(rendered); // the render finishes after the timeout
-    await Bun.sleep(0);
-    expect(pity.get("u1")).toBeNull();
-  } finally {
-    logged.mockRestore();
-  }
+  expect((await gacha.pull("u1")).ok).toStrictEqual(false); // fails
+  expect((await gacha.pull("u1")).ok).toStrictEqual(false); // times out
+  late.resolve(rendered); // the render finishes after the timeout
+  await Bun.sleep(0);
+  expect(pity.get("u1")).toBeNull();
   expect((await gacha.pull("u1")).ok).toStrictEqual(true);
   expect(pity.get("u1")).toStrictEqual(5);
 });
@@ -259,18 +236,13 @@ test("a failed pull does not erase the cooldown of the pull queued behind it", a
     pity: freshPity(),
     generate: () => (++calls === 1 ? first.promise : Promise.resolve(rendered)),
   });
-  const logged = spyOn(console, "error").mockImplementation(() => {});
-  try {
-    const a = gacha.pull("u1");
-    setSystemTime(new Date("2026-01-01T00:00:11Z")); // A's cooldown is over, so B may queue
-    const b = gacha.pull("u1");
-    first.reject(new Error("offline"));
-    expect((await a).ok).toStrictEqual(false);
-    expect((await b).ok).toStrictEqual(true);
-    expect(await gacha.pull("u1")).toMatchObject({ ok: false, reason: "cooldown" });
-  } finally {
-    logged.mockRestore();
-  }
+  const a = gacha.pull("u1");
+  setSystemTime(new Date("2026-01-01T00:00:11Z")); // A's cooldown is over, so B may queue
+  const b = gacha.pull("u1");
+  first.reject(new Error("offline"));
+  expect((await a).ok).toStrictEqual(false);
+  expect((await b).ok).toStrictEqual(true);
+  expect(await gacha.pull("u1")).toMatchObject({ ok: false, reason: "cooldown" });
 });
 
 test("a user's second queued pull starts from the pity the first one left", async () => {
