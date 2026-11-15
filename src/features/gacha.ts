@@ -20,7 +20,7 @@ type GenerateTenPull = (options: {
   guaranteeFiveStar: boolean;
 }) => Promise<{
   image: Uint8Array;
-  pulls: Array<{ name: string; rarity: number }>;
+  pulls: Array<{ name: string; nameEn: string; rarity: number }>;
   result: { finalPity: number };
 }>;
 
@@ -76,13 +76,10 @@ export function createGachaService(deps: GachaDependencies): GachaService {
       ]);
       // Only a draw that finished in time gets here, so a failure or a late render leaves pity alone.
       pity.save(userId, result.finalPity);
-      const altText = `Arknights ten-pull (pity ${result.finalPity}): ${pulls.map((p) => `${p.rarity}★ ${p.name}`).join(", ")}`;
+      const names = pulls.map((p) => `${p.rarity}★ ${p.name} (${p.nameEn})`).join(", ");
       // Discord's alt text limit is 1024 characters.
-      return {
-        ok: true,
-        image: new Uint8Array(image),
-        altText: altText.slice(0, 1024),
-      };
+      const altText = `${result.finalPity} pulls since last 6★: ${names}`.slice(0, 1024);
+      return { ok: true, image: new Uint8Array(image), altText };
     } catch (error) {
       console.error("[GACHA] Failed:", error);
       // A failed draw costs the user nothing, unless a newer pull has set a cooldown since.
