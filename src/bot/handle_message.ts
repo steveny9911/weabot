@@ -29,6 +29,7 @@ import {
 } from "./commands.ts";
 import { isActiveIn } from "../feature_config.ts";
 import { loadContext } from "./context.ts";
+import { withTyping } from "./typing.ts";
 
 export interface BotDependencies {
   config: AppConfig;
@@ -85,8 +86,9 @@ export async function handleMessage(
   void deps.landmineService?.step(raw);
   if (!messageMentionsBot(raw, botId)) return;
 
+  // Every answer is a Discord reply to the message that asked for it.
   const reply = (text: string, suppressMentions = false) =>
-    discord.sendMessage(channelId, text, suppressMentions);
+    discord.sendMessage(channelId, text, { replyTo: message.id, suppressMentions });
 
   // Billing commands do not generate AI replies, spend tokens, or mutate context.
   if (isUsageCommand(content)) return void (await reply(await usageReport(deps, channelId)));
@@ -120,64 +122,78 @@ export async function handleMessage(
     ));
   }
 
-  const web = await readWeb(deps, message, openCommand);
-  if ("failure" in web) return void (await reply(web.failure));
+  // Typing starts only once the mention is accepted, so refusals do not flash an indicator.
+  return await withTyping(
+    () => discord.sendTyping(channelId),
+    async () => {
+      const web = await readWeb(deps, message, openCommand);
+      if ("failure" in web) return void (await reply(web.failure));
 
-  // Only the current uninterrupted conversation is context.
-  const contextReset = await deps.storageService.getContextReset(channelId);
-  const context = await loadContext(discord, config, channelId, raw, contextReset?.resetAt);
-  if (web.notes) context.push(web.notes);
+      // Only the current uninterrupted conversation is context.
+      const contextReset = await deps.storageService.getContextReset(channelId);
+      const context = await loadContext(discord, config, channelId, raw, contextReset?.resetAt);
+      if (web.notes) context.push(web.notes);
 
-  // Tools exist only for explicit human mention handling, never autonomous jobs, opened links or tweets.
-  const { guildId, id: messageId } = message;
-  const allowedGuilds = config.discordActions.guildIds;
-  const actionSession =
-    deps.discordActionService &&
-    isActiveIn(config.discordActions, channelId) &&
-    !web.linked &&
-    guildId &&
-    messageId &&
-    (!allowedGuilds.length || allowedGuilds.includes(guildId))
-      ? await deps.discordActionService.createSession({
-          guildId,
-          channelId,
-          userId,
-          botId,
-          messageId,
-          content,
-        })
-      : undefined;
-  const aiResult = await aiService.generateReply(context, actionSession);
-  const actionReply = actionSession ? formatActionResults(actionSession.results) : null;
-  await rateLimitService.recordModelCalls(aiResult.requestsUsed);
-  if (aiResult.tokensUsed) await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
+      // Tools exist only for explicit human mention handling, never autonomous jobs, opened links or tweets.
+      const { guildId, id: messageId } = message;
+      const allowedGuilds = config.discordActions.guildIds;
+      const actionSession =
+        deps.discordActionService &&
+        isActiveIn(config.discordActions, channelId) &&
+        !web.linked &&
+        guildId &&
+        messageId &&
+        (!allowedGuilds.length || allowedGuilds.includes(guildId))
+          ? await deps.discordActionService.createSession({
+              guildId,
+              channelId,
+              userId,
+              botId,
+              messageId,
+              content,
+            })
+          : undefined;
+      const aiResult = await aiService.generateReply(context, actionSession);
+      const actionReply = actionSession ? formatActionResults(actionSession.results) : null;
+      await rateLimitService.recordModelCalls(aiResult.requestsUsed);
+      if (aiResult.tokensUsed) await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
 
-  if (!aiResult.ok) {
-    console.error("AI generation failed:", aiResult.error);
-    const fallback = "Hmm, my brain's a bit fuzzy right now. Try again in a moment~";
-    return void (await reply(actionReply ?? fallback, Boolean(actionSession)));
-  }
+      if (!aiResult.ok) {
+        console.error("AI generation failed:", aiResult.error);
+        const fallback = "Hmm, my brain's a bit fuzzy right now. Try again in a moment~";
+        return void (await reply(actionReply ?? fallback, Boolean(actionSession)));
+      }
 
-  let finalReply = actionReply ?? aiResult.text;
-  if (web.linked) {
-    finalReply = stripUrls(finalReply) || "I read it! Tell me what part you want me to focus on~";
-  }
-  if (!(await reply(finalReply, Boolean(actionSession))).ok) return;
+      let finalReply = actionReply ?? aiResult.text;
+      if (web.linked) {
+        finalReply =
+          stripUrls(finalReply) || "I read it! Tell me what part you want me to focus on~";
+      }
+      if (!(await reply(finalReply, Boolean(actionSession))).ok) return;
 
-  const greetingGif = actionReply ? null : selectGreetingGifForReply(finalReply);
-  if (greetingGif) await reply(greetingGif);
+      const greetingGif = actionReply ? null : selectGreetingGifForReply(finalReply);
+      if (greetingGif) await discord.sendMessage(channelId, greetingGif); // no second ping
+    },
+  );
 }
 
 /** Replies to the \\gacha message with a ten-pull image. */
 async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<void> {
   const { discord, gachaService } = deps;
   const { channelId, authorId, id } = message;
+  const say = (text: string) => discord.sendMessage(channelId, text, { replyTo: id });
   if (!gachaService || !isActiveIn(deps.config.gacha, channelId)) {
-    return void (await discord.sendMessage(channelId, "Ehehe~ the gacha is turned off right now."));
+    return void (await say("Ehehe~ the gacha is turned off right now."));
   }
 
-  const result = await gachaService.pull(authorId);
-  if (!result.ok) return void (await discord.sendMessage(channelId, gachaRefusal(result)));
+  // A pull can wait in the queue and then render for several seconds.
+  const result = await withTyping(
+    () => discord.sendTyping(channelId),
+    () => gachaService.pull(authorId),
+  );
+  if (!result.ok) {
+    return void (await say(gachaRefusal(result)));
+  }
 
   const sent = await discord.sendImage(channelId, {
     bytes: result.image,
@@ -187,10 +203,7 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
     replyToMessageId: id,
   });
   if (!sent.ok) {
-    await discord.sendMessage(
-      channelId,
-      "Eep... I couldn't send the picture. Try again in a moment~",
-    );
+    await say("Eep... I couldn't send the picture. Try again in a moment~");
   }
 }
 
@@ -236,7 +249,9 @@ async function resetContext(deps: BotDependencies, message: IncomingMessage): Pr
     messageId: id,
     resetAt: Number.isFinite(sentAt) ? sentAt : Date.now(),
   });
-  await deps.discord.sendMessage(channelId, "Okay!~ I cleared our chat context.");
+  await deps.discord.sendMessage(channelId, "Okay!~ I cleared our chat context.", {
+    replyTo: id,
+  });
   console.log(`Context reset by user ${authorId} in channel ${channelId}`);
 }
 

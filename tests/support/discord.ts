@@ -10,6 +10,10 @@ export function fakeDiscord(
     recent?: Array<Record<string, unknown>>;
     /** Every image the bot sends is pushed here. */
     images?: Array<{ channelId: string; filename: string; altText?: string; replyTo: string }>;
+    /** Counts each typing indicator the bot sends. */
+    typing?: { count: number };
+    /** The message each text reply is threaded under, in send order. */
+    replyTos?: Array<string | undefined>;
     /** False makes every send fail. */
     sendOk?: boolean;
   } = {},
@@ -18,9 +22,14 @@ export function fakeDiscord(
   return {
     getBotUserId: () => Promise.resolve("12345"),
     getRecentMessages: () => Promise.resolve((options.recent ?? []).map(mapDiscordMessage)),
-    sendMessage(_channelId, content) {
+    sendMessage(_channelId, content, sendOptions) {
       options.sent?.push(content);
+      options.replyTos?.push(sendOptions?.replyTo);
       return Promise.resolve(options.sendOk === false ? { ok: false, error: "500" } : { ok: true });
+    },
+    sendTyping() {
+      if (options.typing) options.typing.count += 1;
+      return Promise.resolve();
     },
     sendImage(channelId, image) {
       const { filename, altText, replyToMessageId: replyTo } = image;
