@@ -122,6 +122,10 @@ tweet_read:
 gacha:
   enabled: true
   channel_ids: all
+  # Seconds a user waits between pulls.
+  cooldown_seconds: 10
+  # Seconds before a render is given up on. The first pull downloads the game art, so keep some room.
+  timeout_seconds: 30
 
 # Event and invite tools.
 discord_actions:

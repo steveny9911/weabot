@@ -1,4 +1,5 @@
 /** The \gacha command: a picture of an Arknights ten-pull, from arknights-gacha-result-generator. */
+import type { GachaPityQueries } from "../db/gacha_pity.ts";
 
 export type GachaResult =
   | { ok: true; image: Uint8Array<ArrayBuffer>; altText: string }
@@ -12,19 +13,29 @@ export interface GachaService {
 }
 
 /** The generator's `generateTenPullImage`, as far as this service uses it. */
-type GenerateTenPull = (options: { cacheDir: string; format: "webp" }) => Promise<{
+type GenerateTenPull = (options: {
+  cacheDir: string;
+  format: "webp";
+  startPity: number;
+  guaranteeFiveStar: boolean;
+}) => Promise<{
   image: Uint8Array;
   pulls: Array<{ name: string; rarity: number }>;
+  result: { finalPity: number };
 }>;
 
 export interface GachaDependencies {
   /** Where the generator caches the game art it downloads. */
   cacheDir: string;
+  /** Each user's pity, kept between pulls. */
+  pity: GachaPityQueries;
   generate?: GenerateTenPull;
+  /** How long a user waits between pulls. */
+  cooldownMs?: number;
+  /** How long a render may take before it is given up on. */
   renderTimeoutMs?: number;
 }
 
-const COOLDOWN_MS = 30_000;
 /** Pulls waiting or drawing at once. */
 const MAX_WAITING = 5;
 
@@ -33,22 +44,38 @@ const generateWithLibrary: GenerateTenPull = async (options) =>
   (await import("arknights-gacha-result-generator")).generateTenPullImage(options);
 
 export function createGachaService(deps: GachaDependencies): GachaService {
-  const { cacheDir, generate = generateWithLibrary, renderTimeoutMs = 60_000 } = deps;
+  const {
+    cacheDir,
+    pity,
+    generate = generateWithLibrary,
+    cooldownMs = 10_000,
+    renderTimeoutMs = 30_000,
+  } = deps;
   const readyAt = new Map<string, number>();
   let waiting = 0;
   let queue: Promise<unknown> = Promise.resolve();
 
-  async function draw(userId: string): Promise<GachaResult> {
+  async function draw(userId: string, cooldownEnd: number): Promise<GachaResult> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       // A render that outlives the timeout is left to finish; the queue does not wait for it.
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("render timed out")), renderTimeoutMs);
       });
-      const { image, pulls } = await Promise.race([
-        generate({ cacheDir, format: "webp" }),
+      // Read here, not in pull(): draws run one at a time, so a user's second queued pull sees the
+      // pity their first one left. No saved pity means a first pull, which gets the 5-star guarantee.
+      const saved = pity.get(userId);
+      const { image, pulls, result } = await Promise.race([
+        generate({
+          cacheDir,
+          format: "webp",
+          startPity: saved ?? 0,
+          guaranteeFiveStar: saved === null,
+        }),
         timeout,
       ]);
+      // Only a draw that finished in time gets here, so a failure or a late render leaves pity alone.
+      pity.save(userId, result.finalPity);
       const altText = `Arknights ten-pull: ${pulls.map((p) => `${p.rarity}★ ${p.name}`).join(", ")}`;
       // Discord's alt text limit is 1024 characters.
       return {
@@ -58,7 +85,8 @@ export function createGachaService(deps: GachaDependencies): GachaService {
       };
     } catch (error) {
       console.error("[GACHA] Failed:", error);
-      readyAt.delete(userId); // a failed draw costs the user nothing
+      // A failed draw costs the user nothing, unless a newer pull has set a cooldown since.
+      if (readyAt.get(userId) === cooldownEnd) readyAt.delete(userId);
       return { ok: false, reason: "failed" };
     } finally {
       clearTimeout(timer);
@@ -79,8 +107,9 @@ export function createGachaService(deps: GachaDependencies): GachaService {
 
       // Both set before the first await, so two quick commands cannot both pass.
       waiting++;
-      readyAt.set(userId, Date.now() + COOLDOWN_MS);
-      const turn = queue.then(() => draw(userId));
+      const cooldownEnd = Date.now() + cooldownMs;
+      readyAt.set(userId, cooldownEnd);
+      const turn = queue.then(() => draw(userId, cooldownEnd));
       queue = turn;
       return turn;
     },

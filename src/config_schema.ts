@@ -29,7 +29,7 @@ const KEYS: Keys<ConfigFile> = {
   web_search: { enabled: true, channel_ids: true, max_results: true },
   link_open: { enabled: true, channel_ids: true },
   tweet_read: { enabled: true, channel_ids: true },
-  gacha: { enabled: true, channel_ids: true },
+  gacha: { enabled: true, channel_ids: true, cooldown_seconds: true, timeout_seconds: true },
   discord_actions: { enabled: true, channel_ids: true, guild_ids: true },
   mood_poll: { enabled: true, channel_ids: true },
   wellness: { enabled: true, channel_ids: true, glue_alert_threshold: true },

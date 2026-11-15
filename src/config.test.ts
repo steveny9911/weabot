@@ -87,7 +87,12 @@ test("an empty config.yaml gives the defaults", () => {
   });
   expect(config.linkOpen).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
   expect(config.tweetRead).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
-  expect(config.gacha).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
+  expect(config.gacha).toStrictEqual({
+    enabled: true,
+    channelIds: ["chan-1"],
+    cooldownSeconds: 10,
+    timeoutSeconds: 30,
+  });
   expect(config.discordActions).toStrictEqual({
     enabled: true,
     channelIds: ["chan-1"],
@@ -129,7 +134,7 @@ ai_chat: { enabled: false, channel_ids: ["chan-4"] }
 web_search: { enabled: true, max_results: 5, channel_ids: all }
 tweet_read: { enabled: false }
 link_open: { channel_ids: ["chan-9"] }
-gacha: { enabled: false, channel_ids: ["chan-7"] }
+gacha: { enabled: false, channel_ids: ["chan-7"], cooldown_seconds: 5, timeout_seconds: 45 }
 discord_actions: { enabled: false, guild_ids: ["guild-1"] }
 mood_poll: { enabled: false, channel_ids: ["chan-2"] }
 wellness: { channel_ids: ["chan-3"], glue_alert_threshold: 3 }
@@ -170,7 +175,12 @@ landmine:
   expect(config.webSearch).toMatchObject({ enabled: true, channelIds: "all", maxResults: 5 });
   expect(config.tweetRead.enabled).toStrictEqual(false);
   expect(config.linkOpen).toStrictEqual({ enabled: true, channelIds: ["chan-9"] });
-  expect(config.gacha).toStrictEqual({ enabled: false, channelIds: ["chan-7"] });
+  expect(config.gacha).toStrictEqual({
+    enabled: false,
+    channelIds: ["chan-7"],
+    cooldownSeconds: 5,
+    timeoutSeconds: 45,
+  });
   expect(config.moodPoll).toStrictEqual({ enabled: false, channelIds: ["chan-2"] });
   expect(config.wellness).toStrictEqual({
     enabled: true,
@@ -319,6 +329,14 @@ test("startup stops on a setting it cannot use, and says which", () => {
   fails(
     "landmine: { channel_ids: [123] }",
     "landmine.channel_ids in config.yaml must be a list of quoted strings",
+  );
+  fails(
+    "gacha: { cooldown_seconds: 0 }",
+    "gacha.cooldown_seconds in config.yaml must be a number above 0",
+  );
+  fails(
+    "gacha: { timeout_seconds: '30' }",
+    "gacha.timeout_seconds in config.yaml must be a number above 0",
   );
   fails("landmine: { chanse: 0.5 }", "Unknown setting landmine.chanse");
   fails("landmines: {}", "Unknown setting landmines");

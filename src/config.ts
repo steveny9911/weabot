@@ -58,7 +58,12 @@ export interface AppConfig {
   /** Reading tweet links in mentions. */
   tweetRead: FeatureConfig;
   /** The \gacha command. */
-  gacha: FeatureConfig;
+  gacha: FeatureConfig & {
+    /** Seconds a user waits between pulls. */
+    cooldownSeconds: number;
+    /** Seconds before a render is given up on. */
+    timeoutSeconds: number;
+  };
   /** The event and invite tools. */
   discordActions: FeatureConfig & {
     /** Servers allowed to use the tools; empty allows all. */
@@ -134,7 +139,7 @@ export interface ConfigFile {
   web_search?: ReactiveFeatureFile & { max_results?: number };
   link_open?: ReactiveFeatureFile;
   tweet_read?: ReactiveFeatureFile;
-  gacha?: ReactiveFeatureFile;
+  gacha?: ReactiveFeatureFile & { cooldown_seconds?: number; timeout_seconds?: number };
   discord_actions?: ReactiveFeatureFile & { guild_ids?: string[] };
   mood_poll?: FeatureFile;
   wellness?: FeatureFile & { glue_alert_threshold?: number };
@@ -156,6 +161,15 @@ export interface ConfigFile {
 
 /** A secret from the environment (.env); blank means unset. */
 const secret = (name: string) => process.env[name] || undefined;
+
+/** A setting that must be above zero; a missing one uses `fallback`. */
+function positive(name: string, value: number | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !(value > 0)) {
+    throw new Error(`FATAL: ${name} in config.yaml must be a number above 0`);
+  }
+  return value;
+}
 
 /** Builds the app config from config.yaml (`file`, which tests replace) and the secrets in .env. */
 export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
@@ -237,7 +251,11 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     },
     linkOpen: reactiveFeature("link_open", open),
     tweetRead: reactiveFeature("tweet_read", tweet),
-    gacha: reactiveFeature("gacha", gacha),
+    gacha: {
+      ...reactiveFeature("gacha", gacha),
+      cooldownSeconds: positive("gacha.cooldown_seconds", gacha?.cooldown_seconds, 10),
+      timeoutSeconds: positive("gacha.timeout_seconds", gacha?.timeout_seconds, 30),
+    },
     discordActions: {
       ...reactiveFeature("discord_actions", actions),
       guildIds: parseIds("discord_actions.guild_ids", actions?.guild_ids),
