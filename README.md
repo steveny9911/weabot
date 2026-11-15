@@ -235,7 +235,7 @@ user's first pull is guaranteed a 5â˜… or better; after that the chance of a 6â˜
 pull in a row without one, as in the game. A failed or timed-out pull does not change the counter.
 `gacha.cooldown_seconds` (default 10) is the wait between one user's pulls, and
 `gacha.timeout_seconds` (default 30) is how long a render may take. Renders run one at a time;
-`gacha.queue_size` (default 5) is how many pulls may wait or draw at once, and more are refused.
+`gacha.queue_size` (default 8) is how many pulls may wait or draw at once, and more are refused.
 
 ### Landmines
 

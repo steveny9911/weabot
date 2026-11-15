@@ -128,7 +128,7 @@ gacha:
   timeout_seconds: 30
   # Pulls that may wait or draw at once, across all users. Renders run one at a time, so a pull at
   # the back waits about this many renders (around 2 seconds each); more are told to try again.
-  queue_size: 5
+  queue_size: 8
 
 # Event and invite tools.
 discord_actions:

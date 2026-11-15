@@ -120,13 +120,22 @@ test("pulls queue and draw one at a time; those beyond the queue limit are refus
       return rendered;
     },
   });
-  const users = ["a", "b", "c", "d", "e", "f", "g"];
+  const users = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
   const results = await Promise.all(
     users.map((id) => gacha.pull(id).then((r) => (order.push(id), r))),
   );
   const outcomes: string[] = results.map((r) => (r.ok ? "ok" : r.reason));
-  expect(outcomes).toStrictEqual(["ok", "ok", "ok", "ok", "ok", "busy", "busy"]);
-  expect(order.filter((id) => id !== "f" && id !== "g")).toStrictEqual(["a", "b", "c", "d", "e"]);
+  expect(outcomes).toStrictEqual(["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "busy", "busy"]);
+  expect(order.filter((id) => id !== "i" && id !== "j")).toStrictEqual([
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+  ]);
   expect(peak).toStrictEqual(1);
   expect((await gacha.pull("late")).ok).toStrictEqual(true);
 });

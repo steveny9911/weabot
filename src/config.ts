@@ -261,7 +261,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
       ...reactiveFeature("gacha", gacha),
       cooldownSeconds: positive("gacha.cooldown_seconds", gacha?.cooldown_seconds, 10),
       timeoutSeconds: positive("gacha.timeout_seconds", gacha?.timeout_seconds, 30),
-      queueSize: positive("gacha.queue_size", gacha?.queue_size, 5),
+      queueSize: positive("gacha.queue_size", gacha?.queue_size, 8),
     },
     discordActions: {
       ...reactiveFeature("discord_actions", actions),

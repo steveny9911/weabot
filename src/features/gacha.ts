@@ -49,7 +49,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
     generate = generateWithLibrary,
     cooldownMs = 10_000,
     renderTimeoutMs = 30_000,
-    queueSize = 5,
+    queueSize = 8,
   } = deps;
   const readyAt = new Map<string, number>();
   let waiting = 0;
