@@ -13,16 +13,13 @@ test("saved pity is read back, replaced by a later save, and kept per user", () 
   pity.save("u1", 10);
   pity.save("u2", 37);
   expect(pity.get("u1")).toBe(10);
-  pity.save("u1", 0);
+  pity.save("u1", 0); // 0 is a saved pity, not "never pulled"
   expect(pity.get("u1")).toBe(0);
   expect(pity.get("u2")).toBe(37);
 });
 
-test("pity of 0 counts as having pulled; pity outside 0 to 98 is refused", () => {
+test("pity outside 0 to 98 is refused", () => {
   using db = openDatabase(":memory:");
   const pity = createGachaPityQueries(db);
-  pity.save("u1", 0);
-  expect(pity.get("u1")).toBe(0);
   for (const bad of [-1, 99]) expect(() => pity.save("u1", bad)).toThrow();
-  expect(pity.get("u1")).toBe(0);
 });

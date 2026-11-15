@@ -204,30 +204,53 @@ test("each user has their own pity", async () => {
 
 test("a failed or timed-out pull leaves pity alone, so the next one is still a first pull", async () => {
   const pity = freshPity();
-  let mode: "fail" | "hang" | "ok" = "fail";
+  const late = Promise.withResolvers<typeof rendered>();
+  const generates = [
+    () => Promise.reject(new Error("offline")),
+    () => late.promise,
+    () => Promise.resolve(rendered),
+  ];
   const gacha = createGachaService({
     cacheDir: "/cache",
     pity,
-    renderTimeoutMs: 20,
-    generate: () => {
-      if (mode === "fail") return Promise.reject(new Error("offline"));
-      if (mode === "hang") return new Promise((resolve) => setTimeout(() => resolve(rendered), 60));
-      return Promise.resolve(rendered);
-    },
+    renderTimeoutMs: 5,
+    generate: () => generates.shift()!(),
   });
   const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect((await gacha.pull("u1")).ok).toStrictEqual(false);
-    mode = "hang";
-    expect((await gacha.pull("u1")).ok).toStrictEqual(false);
-    await Bun.sleep(80); // the late render finishes and is discarded
+    expect((await gacha.pull("u1")).ok).toStrictEqual(false); // fails
+    expect((await gacha.pull("u1")).ok).toStrictEqual(false); // times out
+    late.resolve(rendered); // the render finishes after the timeout
+    await Bun.sleep(0);
     expect(pity.get("u1")).toBeNull();
   } finally {
     logged.mockRestore();
   }
-  mode = "ok";
   expect((await gacha.pull("u1")).ok).toStrictEqual(true);
   expect(pity.get("u1")).toStrictEqual(5);
+});
+
+test("a failed pull does not erase the cooldown of the pull queued behind it", async () => {
+  setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  const first = Promise.withResolvers<typeof rendered>();
+  let calls = 0;
+  const gacha = createGachaService({
+    cacheDir: "/cache",
+    pity: freshPity(),
+    generate: () => (++calls === 1 ? first.promise : Promise.resolve(rendered)),
+  });
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const a = gacha.pull("u1");
+    setSystemTime(new Date("2026-01-01T00:00:11Z")); // A's cooldown is over, so B may queue
+    const b = gacha.pull("u1");
+    first.reject(new Error("offline"));
+    expect((await a).ok).toStrictEqual(false);
+    expect((await b).ok).toStrictEqual(true);
+    expect(await gacha.pull("u1")).toMatchObject({ ok: false, reason: "cooldown" });
+  } finally {
+    logged.mockRestore();
+  }
 });
 
 test("a user's second queued pull starts from the pity the first one left", async () => {

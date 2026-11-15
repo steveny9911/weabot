@@ -1,6 +1,5 @@
-import type { GachaPityQueries } from "../db/gacha_pity.ts";
-
 /** The \gacha command: a picture of an Arknights ten-pull, from arknights-gacha-result-generator. */
+import type { GachaPityQueries } from "../db/gacha_pity.ts";
 
 export type GachaResult =
   | { ok: true; image: Uint8Array<ArrayBuffer>; altText: string }
@@ -56,7 +55,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
   let waiting = 0;
   let queue: Promise<unknown> = Promise.resolve();
 
-  async function draw(userId: string): Promise<GachaResult> {
+  async function draw(userId: string, cooldownEnd: number): Promise<GachaResult> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       // A render that outlives the timeout is left to finish; the queue does not wait for it.
@@ -86,7 +85,8 @@ export function createGachaService(deps: GachaDependencies): GachaService {
       };
     } catch (error) {
       console.error("[GACHA] Failed:", error);
-      readyAt.delete(userId); // a failed draw costs the user nothing
+      // A failed draw costs the user nothing, unless a newer pull has set a cooldown since.
+      if (readyAt.get(userId) === cooldownEnd) readyAt.delete(userId);
       return { ok: false, reason: "failed" };
     } finally {
       clearTimeout(timer);
@@ -107,8 +107,9 @@ export function createGachaService(deps: GachaDependencies): GachaService {
 
       // Both set before the first await, so two quick commands cannot both pass.
       waiting++;
-      readyAt.set(userId, Date.now() + cooldownMs);
-      const turn = queue.then(() => draw(userId));
+      const cooldownEnd = Date.now() + cooldownMs;
+      readyAt.set(userId, cooldownEnd);
+      const turn = queue.then(() => draw(userId, cooldownEnd));
       queue = turn;
       return turn;
     },
