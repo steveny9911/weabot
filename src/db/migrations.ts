@@ -71,4 +71,11 @@ CREATE TABLE landmines (
 ) STRICT;
 INSERT INTO landmines (id, remaining) VALUES (1, 100000);
 `,
+  `
+CREATE TABLE gacha_pity (
+  user_id     TEXT PRIMARY KEY,
+  pity        INTEGER NOT NULL CHECK (pity BETWEEN 0 AND 98),
+  updated_at  INTEGER NOT NULL
+) STRICT;
+`,
 ];
