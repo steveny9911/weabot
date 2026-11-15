@@ -2,7 +2,6 @@ import type { AppConfig } from "../config.ts";
 import {
   collectImageUrls,
   getImageUrlsFromContextMessage,
-  MAX_CONTEXT_IMAGES,
   getReplyReference,
 } from "./context_images.ts";
 import { withResponseDeadline } from "./deadline.ts";
@@ -108,7 +107,7 @@ export function createAiService(
           ? participationInstructions(participationOptions.instructions, allowedMessageIds, choices)
           : actionOptions?.instructions,
         userText,
-        imageUrls: collectImageUrls(messages, MAX_CONTEXT_IMAGES),
+        imageUrls: collectImageUrls(messages, config.aiContextMaxImages),
         currentUserMessage: actionOptions?.currentUserMessage,
         tools: actionOptions?.tools,
         format: participationOptions ? "participation" : "text",

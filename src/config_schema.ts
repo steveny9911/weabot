@@ -23,7 +23,7 @@ const KEYS: Keys<ConfigFile> = {
     uwu: true,
     rate_limit_per_user: true,
     max_input_chars: true,
-    context: { max_messages: true, inactivity_minutes: true },
+    context: { max_messages: true, max_images: true, inactivity_minutes: true },
     budget: { daily_tokens: true, daily_request_quota: true, mention_percent: true },
   },
   web_search: { enabled: true, channel_ids: true, max_results: true },

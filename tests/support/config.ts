@@ -42,6 +42,7 @@ function defaults(): AppConfig {
     aiMaxInputChars: 0,
     aiEnableUwu: false,
     aiContextMaxMessages: 40,
+    aiContextMaxImages: 4,
     aiContextInactivityMinutes: 20,
     webSearch: { enabled: false, channelIds: "all", apiKey: undefined, maxResults: 3 },
     linkOpen: feature(),

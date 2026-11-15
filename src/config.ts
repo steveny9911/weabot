@@ -46,6 +46,7 @@ export interface AppConfig {
   aiEnableUwu: boolean;
   aiContextMaxMessages: number;
   /** Minutes of silence that start a new conversation context. */
+  aiContextMaxImages: number;
   aiContextInactivityMinutes: number;
 
   /** Searches the web for a mention. On by default when BRAVE_SEARCH_API_KEY is set. */
@@ -135,7 +136,7 @@ export interface ConfigFile {
     uwu?: boolean;
     rate_limit_per_user?: number;
     max_input_chars?: number;
-    context?: { max_messages?: number; inactivity_minutes?: number };
+    context?: { max_messages?: number; max_images?: number; inactivity_minutes?: number };
     budget?: { daily_tokens?: number; daily_request_quota?: number; mention_percent?: number };
   };
   web_search?: ReactiveFeatureFile & { max_results?: number };
@@ -248,6 +249,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     aiMaxInputChars: ai?.max_input_chars ?? 0,
     aiEnableUwu: ai?.uwu ?? true,
     aiContextMaxMessages: Math.min(ai?.context?.max_messages ?? 40, 100),
+    aiContextMaxImages: ai?.context?.max_images ?? 4,
     aiContextInactivityMinutes: ai?.context?.inactivity_minutes ?? 20,
 
     webSearch: {
@@ -279,7 +281,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
       cooldownMinutes: auto?.cooldown_minutes ?? 1,
       replyChance: auto?.reply_chance ?? 0.35,
       settleSeconds: 8,
-      maxContextMessages: auto?.max_context_messages ?? 40,
+      maxContextMessages: auto?.max_context_messages ?? 20,
       requestPercent: auto?.request_percent ?? 30,
     },
 

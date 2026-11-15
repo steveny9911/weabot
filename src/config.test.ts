@@ -78,6 +78,7 @@ test("an empty config.yaml gives the defaults", () => {
   expect(config.aiMaxInputChars).toStrictEqual(0);
   expect(config.aiEnableUwu).toStrictEqual(true);
   expect(config.aiContextMaxMessages).toStrictEqual(40);
+  expect(config.aiContextMaxImages).toStrictEqual(4);
   expect(config.aiContextInactivityMinutes).toStrictEqual(20);
   expect(config.webSearch).toStrictEqual({
     enabled: false,
@@ -107,7 +108,7 @@ test("an empty config.yaml gives the defaults", () => {
     cooldownMinutes: 1,
     replyChance: 0.35,
     settleSeconds: 8,
-    maxContextMessages: 40,
+    maxContextMessages: 20,
     requestPercent: 30,
   });
   expect(config.landmine).toStrictEqual({
@@ -129,7 +130,7 @@ ai:
   provider: gemini
   gemini: { models: [model-a, model-b, model-a], system_prompt_file: persona.md, thinking: true }
   uwu: false
-  context: { max_messages: 10 }
+  context: { max_messages: 10, max_images: 2 }
   budget: { daily_request_quota: 500, mention_percent: 80 }
 ai_chat: { enabled: false, channel_ids: ["chan-4"] }
 web_search: { enabled: true, max_results: 5, channel_ids: all }
@@ -170,6 +171,7 @@ landmine:
   });
   expect(config.aiEnableUwu).toStrictEqual(false);
   expect(config.aiContextMaxMessages).toStrictEqual(10);
+  expect(config.aiContextMaxImages).toStrictEqual(2);
   expect(config.aiDailyRequestQuota).toStrictEqual(500);
   expect(config.aiDailyRequestPercent).toStrictEqual(80);
   expect(config.aiChat).toStrictEqual({ enabled: false, channelIds: ["chan-4"] });
