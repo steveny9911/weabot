@@ -26,6 +26,6 @@
   },
   "dependencies": {
     "@google/genai": "3.0.0",
-    "arknights-gacha-result-generator": "github:steveny9911/arknights-gacha-result-generator#48ca1f66a8f9d8644a246f16fb8e5ea55960f59f"
+    "arknights-gacha-result-generator": "github:steveny9911/arknights-gacha-result-generator#aeb63f364338a66c7b3d61ad98f6c009eacb2fa1"
   }
 }

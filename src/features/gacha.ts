@@ -1,3 +1,5 @@
+import type { GachaPityQueries } from "../db/gacha_pity.ts";
+
 /** The \gacha command: a picture of an Arknights ten-pull, from arknights-gacha-result-generator. */
 
 export type GachaResult =
@@ -12,14 +14,22 @@ export interface GachaService {
 }
 
 /** The generator's `generateTenPullImage`, as far as this service uses it. */
-type GenerateTenPull = (options: { cacheDir: string; format: "webp" }) => Promise<{
+type GenerateTenPull = (options: {
+  cacheDir: string;
+  format: "webp";
+  startPity: number;
+  guaranteeFiveStar: boolean;
+}) => Promise<{
   image: Uint8Array;
   pulls: Array<{ name: string; rarity: number }>;
+  result: { finalPity: number };
 }>;
 
 export interface GachaDependencies {
   /** Where the generator caches the game art it downloads. */
   cacheDir: string;
+  /** Each user's pity, kept between pulls. */
+  pity: GachaPityQueries;
   generate?: GenerateTenPull;
   /** How long a user waits between pulls. */
   cooldownMs?: number;
@@ -37,6 +47,7 @@ const generateWithLibrary: GenerateTenPull = async (options) =>
 export function createGachaService(deps: GachaDependencies): GachaService {
   const {
     cacheDir,
+    pity,
     generate = generateWithLibrary,
     cooldownMs = 10_000,
     renderTimeoutMs = 30_000,
@@ -52,10 +63,20 @@ export function createGachaService(deps: GachaDependencies): GachaService {
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("render timed out")), renderTimeoutMs);
       });
-      const { image, pulls } = await Promise.race([
-        generate({ cacheDir, format: "webp" }),
+      // Read here, not in pull(): draws run one at a time, so a user's second queued pull sees the
+      // pity their first one left. No saved pity means a first pull, which gets the 5-star guarantee.
+      const saved = pity.get(userId);
+      const { image, pulls, result } = await Promise.race([
+        generate({
+          cacheDir,
+          format: "webp",
+          startPity: saved ?? 0,
+          guaranteeFiveStar: saved === null,
+        }),
         timeout,
       ]);
+      // Only a draw that finished in time gets here, so a failure or a late render leaves pity alone.
+      pity.save(userId, result.finalPity);
       const altText = `Arknights ten-pull: ${pulls.map((p) => `${p.rarity}★ ${p.name}`).join(", ")}`;
       // Discord's alt text limit is 1024 characters.
       return {

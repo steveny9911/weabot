@@ -1,6 +1,8 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { setSystemTime } from "bun:test";
 import { assert } from "../../tests/support/assert.ts";
+import { openDatabase } from "../db/database.ts";
+import { createGachaPityQueries } from "../db/gacha_pity.ts";
 import { createGachaService } from "./gacha.ts";
 
 afterEach(() => setSystemTime());
@@ -9,12 +11,16 @@ const pulls = [
   { name: "克洛丝", rarity: 3 },
   { name: "能天使", rarity: 6 },
 ];
-const rendered = { image: new Uint8Array([9]), pulls };
+const rendered = { image: new Uint8Array([9]), pulls, result: { finalPity: 5 } };
+
+/** Real pity storage, in a database of its own. */
+const freshPity = () => createGachaPityQueries(openDatabase(":memory:"));
 
 test("pull returns the image with alt text naming every operator", async () => {
   const calls: unknown[] = [];
   const gacha = createGachaService({
     cacheDir: "/cache",
+    pity: freshPity(),
     generate: (options) => (calls.push(options), Promise.resolve(rendered)),
   });
   expect(await gacha.pull("u1")).toStrictEqual({
@@ -22,7 +28,9 @@ test("pull returns the image with alt text naming every operator", async () => {
     image: new Uint8Array([9]),
     altText: "Arknights ten-pull: 3★ 克洛丝, 6★ 能天使",
   });
-  expect(calls).toStrictEqual([{ cacheDir: "/cache", format: "webp" }]);
+  expect(calls).toStrictEqual([
+    { cacheDir: "/cache", format: "webp", startPity: 0, guaranteeFiveStar: true },
+  ]);
 });
 
 test("alt text is cut to Discord's 1024 characters", async () => {
@@ -32,7 +40,9 @@ test("alt text is cut to Discord's 1024 characters", async () => {
   }));
   const gacha = createGachaService({
     cacheDir: "/cache",
-    generate: () => Promise.resolve({ image: new Uint8Array(), pulls: long }),
+    pity: freshPity(),
+    generate: () =>
+      Promise.resolve({ image: new Uint8Array(), pulls: long, result: { finalPity: 0 } }),
   });
   const result = await gacha.pull("u1");
   assert(result.ok);
@@ -43,6 +53,7 @@ test("a user waits out the cooldown (10 seconds by default); other users are not
   setSystemTime(new Date("2026-01-01T00:00:00Z"));
   const gacha = createGachaService({
     cacheDir: "/cache",
+    pity: freshPity(),
     generate: () => Promise.resolve(rendered),
   });
   expect((await gacha.pull("u1")).ok).toStrictEqual(true);
@@ -61,6 +72,7 @@ test("the cooldown length is configurable", async () => {
   setSystemTime(new Date("2026-01-01T00:00:00Z"));
   const gacha = createGachaService({
     cacheDir: "/cache",
+    pity: freshPity(),
     generate: () => Promise.resolve(rendered),
     cooldownMs: 60_000,
   });
@@ -77,6 +89,7 @@ test("a failed render is logged, reported, and costs no cooldown", async () => {
   let fail = true;
   const gacha = createGachaService({
     cacheDir: "/cache",
+    pity: freshPity(),
     generate: () => (fail ? Promise.reject(new Error("offline")) : Promise.resolve(rendered)),
   });
   const logged = spyOn(console, "error").mockImplementation(() => {});
@@ -99,6 +112,7 @@ test("pulls queue and draw one at a time; those beyond the queue limit are refus
   const order: string[] = [];
   const gacha = createGachaService({
     cacheDir: "/cache",
+    pity: freshPity(),
     generate: async () => {
       peak = Math.max(peak, ++running);
       await Bun.sleep(2);
@@ -121,6 +135,7 @@ test("a render that takes too long fails, and the pull queued behind it still ru
   let calls = 0;
   const gacha = createGachaService({
     cacheDir: "/cache",
+    pity: freshPity(),
     // Only the first render hangs.
     generate: () => (++calls === 1 ? new Promise(() => {}) : Promise.resolve(rendered)),
     renderTimeoutMs: 20,
@@ -133,4 +148,104 @@ test("a render that takes too long fails, and the pull queued behind it still ru
   } finally {
     logged.mockRestore();
   }
+});
+
+test("pity carries from one pull to the next, and only the first pull has the 5-star guarantee", async () => {
+  setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  const calls: Array<{ startPity: number; guaranteeFiveStar: boolean }> = [];
+  let finalPity = 10;
+  const pity = freshPity();
+  const gacha = createGachaService({
+    cacheDir: "/cache",
+    pity,
+    generate: (options) => (
+      calls.push(options),
+      Promise.resolve({ ...rendered, result: { finalPity } })
+    ),
+  });
+  await gacha.pull("u1");
+  expect(pity.get("u1")).toStrictEqual(10);
+
+  setSystemTime(new Date("2026-01-01T00:01:00Z"));
+  finalPity = 0; // a 6-star resets it
+  await gacha.pull("u1");
+  expect(pity.get("u1")).toStrictEqual(0);
+
+  setSystemTime(new Date("2026-01-01T00:02:00Z"));
+  await gacha.pull("u1");
+  expect(
+    calls.map(({ startPity, guaranteeFiveStar }) => [startPity, guaranteeFiveStar]),
+  ).toStrictEqual([
+    [0, true],
+    [10, false],
+    [0, false],
+  ]);
+});
+
+test("each user has their own pity", async () => {
+  const calls: Array<{ startPity: number; guaranteeFiveStar: boolean }> = [];
+  const pity = freshPity();
+  pity.save("u1", 40);
+  const gacha = createGachaService({
+    cacheDir: "/cache",
+    pity,
+    generate: (options) => (calls.push(options), Promise.resolve(rendered)),
+  });
+  await gacha.pull("u1");
+  await gacha.pull("u2");
+  expect(
+    calls.map(({ startPity, guaranteeFiveStar }) => [startPity, guaranteeFiveStar]),
+  ).toStrictEqual([
+    [40, false],
+    [0, true],
+  ]);
+  expect(pity.get("u2")).toStrictEqual(5);
+});
+
+test("a failed or timed-out pull leaves pity alone, so the next one is still a first pull", async () => {
+  const pity = freshPity();
+  let mode: "fail" | "hang" | "ok" = "fail";
+  const gacha = createGachaService({
+    cacheDir: "/cache",
+    pity,
+    renderTimeoutMs: 20,
+    generate: () => {
+      if (mode === "fail") return Promise.reject(new Error("offline"));
+      if (mode === "hang") return new Promise((resolve) => setTimeout(() => resolve(rendered), 60));
+      return Promise.resolve(rendered);
+    },
+  });
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect((await gacha.pull("u1")).ok).toStrictEqual(false);
+    mode = "hang";
+    expect((await gacha.pull("u1")).ok).toStrictEqual(false);
+    await Bun.sleep(80); // the late render finishes and is discarded
+    expect(pity.get("u1")).toBeNull();
+  } finally {
+    logged.mockRestore();
+  }
+  mode = "ok";
+  expect((await gacha.pull("u1")).ok).toStrictEqual(true);
+  expect(pity.get("u1")).toStrictEqual(5);
+});
+
+test("a user's second queued pull starts from the pity the first one left", async () => {
+  setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  const starts: number[] = [];
+  const gacha = createGachaService({
+    cacheDir: "/cache",
+    pity: freshPity(),
+    cooldownMs: 1, // short enough that the user can queue again while the first pull is drawing
+    generate: async (options) => {
+      starts.push(options.startPity);
+      await Bun.sleep(20);
+      return { ...rendered, result: { finalPity: options.startPity + 10 } };
+    },
+  });
+  const first = gacha.pull("u1");
+  setSystemTime(new Date("2026-01-01T00:00:01Z"));
+  const second = gacha.pull("u1");
+  expect((await Promise.all([first, second])).every((r) => r.ok)).toStrictEqual(true);
+  expect(starts).toStrictEqual([0, 10]);
 });

@@ -230,6 +230,12 @@ It uses no AI; pulls are drawn one at a time, in order. The game art is download
 and cached in `gacha-cache` next to the database, so in Docker it lives in the `./data` volume. Haru
 needs Attach Files in the channel.
 
+Each user has one pity counter, shared across channels and servers and kept in the database. A
+user's first pull is guaranteed a 5★ or better; after that the chance of a 6★ rises from the 50th
+pull in a row without one, as in the game. A failed or timed-out pull does not change the counter.
+`gacha.cooldown_seconds` (default 10) is the wait between one user's pulls, and
+`gacha.timeout_seconds` (default 30) is how long a render may take.
+
 ### Landmines
 
 Configure landmines in the `landmine` section of `config.yaml`. With `enabled: true`, every message

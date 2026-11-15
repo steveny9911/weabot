@@ -15,6 +15,7 @@ import { createWebSearchService } from "./src/net/web_search.ts";
 import { createTweetService } from "./src/net/tweet.ts";
 import { createLandmineQueries } from "./src/db/landmines.ts";
 import { createLandmineService } from "./src/features/landmine.ts";
+import { createGachaPityQueries } from "./src/db/gacha_pity.ts";
 import { createGachaService } from "./src/features/gacha.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
@@ -57,6 +58,7 @@ const botDeps: BotDependencies = {
   tweetService: tweets,
   gachaService: createGachaService({
     cacheDir: gachaCacheDir,
+    pity: createGachaPityQueries(db),
     cooldownMs: config.gacha.cooldownSeconds * 1000,
     renderTimeoutMs: config.gacha.timeoutSeconds * 1000,
   }),
