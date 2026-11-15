@@ -63,6 +63,8 @@ export interface AppConfig {
     cooldownSeconds: number;
     /** Seconds before a render is given up on. */
     timeoutSeconds: number;
+    /** Pulls that may wait or draw at once; more are refused as busy. */
+    queueSize: number;
   };
   /** The event and invite tools. */
   discordActions: FeatureConfig & {
@@ -139,7 +141,11 @@ export interface ConfigFile {
   web_search?: ReactiveFeatureFile & { max_results?: number };
   link_open?: ReactiveFeatureFile;
   tweet_read?: ReactiveFeatureFile;
-  gacha?: ReactiveFeatureFile & { cooldown_seconds?: number; timeout_seconds?: number };
+  gacha?: ReactiveFeatureFile & {
+    cooldown_seconds?: number;
+    timeout_seconds?: number;
+    queue_size?: number;
+  };
   discord_actions?: ReactiveFeatureFile & { guild_ids?: string[] };
   mood_poll?: FeatureFile;
   wellness?: FeatureFile & { glue_alert_threshold?: number };
@@ -255,6 +261,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
       ...reactiveFeature("gacha", gacha),
       cooldownSeconds: positive("gacha.cooldown_seconds", gacha?.cooldown_seconds, 10),
       timeoutSeconds: positive("gacha.timeout_seconds", gacha?.timeout_seconds, 30),
+      queueSize: positive("gacha.queue_size", gacha?.queue_size, 8),
     },
     discordActions: {
       ...reactiveFeature("discord_actions", actions),

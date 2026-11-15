@@ -34,10 +34,9 @@ export interface GachaDependencies {
   cooldownMs?: number;
   /** How long a render may take before it is given up on. */
   renderTimeoutMs?: number;
+  /** How many pulls may wait or draw at once; more are refused as busy. */
+  queueSize?: number;
 }
-
-/** Pulls waiting or drawing at once. */
-const MAX_WAITING = 5;
 
 /** Loaded on first use, so the image library costs nothing (and cannot break startup) until then. */
 const generateWithLibrary: GenerateTenPull = async (options) =>
@@ -50,6 +49,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
     generate = generateWithLibrary,
     cooldownMs = 10_000,
     renderTimeoutMs = 30_000,
+    queueSize = 8,
   } = deps;
   const readyAt = new Map<string, number>();
   let waiting = 0;
@@ -103,7 +103,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
           reason: "cooldown",
           retryInMs: wait,
         });
-      if (waiting >= MAX_WAITING) return Promise.resolve({ ok: false, reason: "busy" });
+      if (waiting >= queueSize) return Promise.resolve({ ok: false, reason: "busy" });
 
       // Both set before the first await, so two quick commands cannot both pass.
       waiting++;
