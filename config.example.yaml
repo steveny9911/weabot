@@ -78,6 +78,8 @@ ai:
   context:
     # Whole number of recent messages sent as context. Maximum 100; larger values are cut to 100.
     max_messages: 40
+    # Whole number of images from that context sent to the model. 0 sends none.
+    max_images: 4
     # Whole number of minutes of silence that start a new conversation context.
     inactivity_minutes: 20
 
@@ -179,7 +181,7 @@ autonomous_chat:
   # Whole number of minutes between autonomous replies.
   cooldown_minutes: 1
   # Whole number of recent messages sent as context.
-  max_context_messages: 40
+  max_context_messages: 20
 
   # Number from 0 to 100. Percent of ai.budget.daily_request_quota below which it may run.
   request_percent: 30

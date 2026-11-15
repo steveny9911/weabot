@@ -1,7 +1,5 @@
 /** Image URLs from conversation context (and replied-to messages) sent to the model. */
 
-export const MAX_CONTEXT_IMAGES = 6;
-
 export function isHttpUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
