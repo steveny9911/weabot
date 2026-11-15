@@ -76,7 +76,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
       ]);
       // Only a draw that finished in time gets here, so a failure or a late render leaves pity alone.
       pity.save(userId, result.finalPity);
-      const altText = `Arknights ten-pull: ${pulls.map((p) => `${p.rarity}★ ${p.name}`).join(", ")}`;
+      const altText = `Arknights ten-pull (pity ${result.finalPity}): ${pulls.map((p) => `${p.rarity}★ ${p.name}`).join(", ")}`;
       // Discord's alt text limit is 1024 characters.
       return {
         ok: true,
