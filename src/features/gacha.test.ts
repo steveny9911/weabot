@@ -26,7 +26,7 @@ test("pull returns the image with alt text naming every operator", async () => {
   expect(await gacha.pull("u1")).toStrictEqual({
     ok: true,
     image: new Uint8Array([9]),
-    altText: "Arknights ten-pull: 3★ 克洛丝, 6★ 能天使",
+    altText: "Arknights ten-pull (pity 5): 3★ 克洛丝, 6★ 能天使",
   });
   expect(calls).toStrictEqual([
     { cacheDir: "/cache", format: "webp", startPity: 0, guaranteeFiveStar: true },
