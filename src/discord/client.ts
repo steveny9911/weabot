@@ -7,11 +7,16 @@ import { fetchWithRetry } from "../net/retry.ts";
 import { botJsonHeaders, DISCORD_API_BASE as API_BASE } from "./api.ts";
 
 const REACTION_TIMEOUT_MS = 15_000;
+const TYPING_TIMEOUT_MS = 5_000;
 
 export type MessagePayload =
   | CreatePollMessagePayload
   | EmbedMessagePayload
-  | { content: string; allowed_mentions?: { parse: string[] } };
+  | {
+      content: string;
+      message_reference?: { message_id: string; fail_if_not_exists: boolean };
+      allowed_mentions?: { parse: string[] };
+    };
 
 export interface PollVoter {
   userId: string;
@@ -33,8 +38,15 @@ export interface DiscordClient {
 
   postMessage(channelId: string, payload: MessagePayload): Promise<Response>;
 
-  /** A text reply. `suppressMentions` sends it without pinging anyone. */
-  sendMessage(channelId: string, content: string, suppressMentions?: boolean): Promise<SendResult>;
+  /** Sends text; `replyTo` threads it under that message, `suppressMentions` pings no one. */
+  sendMessage(
+    channelId: string,
+    content: string,
+    options?: { replyTo?: string; suppressMentions?: boolean },
+  ): Promise<SendResult>;
+
+  /** Shows "Haru is typing…" for about 10 s, or until Haru posts. Best effort: never throws. */
+  sendTyping(channelId: string): Promise<void>;
 
   /** Replies to a message with one image attached; `altText` is its description. */
   sendImage(
@@ -121,15 +133,31 @@ export function createDiscordClient(token: string): DiscordClient {
 
     postMessage,
 
-    sendMessage: (channelId, content, suppressMentions = false) =>
+    sendMessage: (channelId, content, { replyTo, suppressMentions = false } = {}) =>
       channelId
         ? write("post", () =>
             postMessage(channelId, {
               content,
+              ...(replyTo
+                ? { message_reference: { message_id: replyTo, fail_if_not_exists: false } }
+                : {}),
               ...(suppressMentions ? { allowed_mentions: { parse: [] } } : {}),
             }),
           )
         : Promise.resolve({ ok: false, error: "missing channelId" }),
+
+    async sendTyping(channelId) {
+      try {
+        await fetch(`${API_BASE}/channels/${encodeURIComponent(channelId)}/typing`, {
+          method: "POST",
+          headers,
+          signal: AbortSignal.timeout(TYPING_TIMEOUT_MS),
+          redirect: "error",
+        });
+      } catch {
+        // A missing indicator is not worth a log line or a failed reply.
+      }
+    },
 
     sendImage: (channelId, { bytes, filename, contentType, altText, replyToMessageId }) =>
       write("upload", () => {

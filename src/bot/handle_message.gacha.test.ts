@@ -19,6 +19,8 @@ function setup(
   const images: Array<{ channelId: string; filename: string; altText?: string; replyTo: string }> =
     [];
   const pulls: string[] = [];
+  const typing = { count: 0 };
+  const replyTos: Array<string | undefined> = [];
   const unexpected = (name: string) => () => Promise.reject(new Error(`unexpected ${name}`));
   const gachaService: GachaService = {
     pull(userId) {
@@ -29,7 +31,7 @@ function setup(
   const deps: BotDependencies = {
     // AI is off: \gacha must not need it.
     config: testConfig({ aiEnabled: false }, options.config ?? {}),
-    discord: fakeDiscord({ sent, images, sendOk: options.sendOk }),
+    discord: fakeDiscord({ sent, images, typing, replyTos, sendOk: options.sendOk }),
     aiService: { generateReply: unexpected("generateReply") },
     rateLimitService: {
       admitRequest: unexpected("admitRequest"),
@@ -44,7 +46,7 @@ function setup(
     },
     ...(options.withService === false ? {} : { gachaService }),
   };
-  return { deps, sent, images, pulls };
+  return { deps, sent, images, pulls, typing, replyTos };
 }
 
 function mention(content: string, channelId = "chan-1"): Record<string, unknown> {
@@ -75,6 +77,13 @@ test("\\gacha replies to the message with the image, with AI off", async () => {
     { channelId: "chan-1", filename: "gacha.webp", altText: "alt", replyTo: "msg-1" },
   ]);
   expect(state.sent).toStrictEqual([]);
+});
+
+test("\\gacha shows typing while it pulls and threads every refusal under the message", async () => {
+  const state = setup({ result: { ok: false, reason: "busy" } });
+  await handleMessage(mention("<@12345> \\gacha"), state.deps);
+  expect(state.typing.count).toStrictEqual(1);
+  expect(state.replyTos).toStrictEqual(["msg-1"]);
 });
 
 test("\\gacha says so when it is off here or has no service, and pulls nothing", async () => {

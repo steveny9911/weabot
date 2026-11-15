@@ -361,14 +361,20 @@ test("sendMessage posts text, can suppress mentions, and reports a refusal", asy
   });
   try {
     const client = createDiscordClient("token");
-    expect(await client.sendMessage("chan", "hi", true)).toStrictEqual({ ok: true });
+    expect(
+      await client.sendMessage("chan", "hi", { suppressMentions: true, replyTo: "m1" }),
+    ).toStrictEqual({ ok: true });
     status = 403;
     expect(await client.sendMessage("chan", "hello")).toStrictEqual({
       ok: false,
       error: "Discord post error 403: Missing Access",
     });
     expect(bodies).toStrictEqual([
-      { content: "hi", allowed_mentions: { parse: [] } },
+      {
+        content: "hi",
+        message_reference: { message_id: "m1", fail_if_not_exists: false },
+        allowed_mentions: { parse: [] },
+      },
       { content: "hello" },
     ]);
   } finally {
@@ -491,6 +497,25 @@ test("sendImage reports a refusal and omits an empty description", async () => {
     });
   } finally {
     logged.mockRestore();
+    fetchMock.restore();
+  }
+});
+
+test("sendTyping posts to the typing endpoint and never throws", async () => {
+  const urls: string[] = [];
+  let fail = false;
+  const fetchMock = mockFetch((url) => {
+    urls.push(String(url));
+    if (fail) throw new Error("network down");
+    return new Response(null, { status: 204 });
+  });
+  try {
+    const client = createDiscordClient("token");
+    await client.sendTyping("chan");
+    fail = true;
+    await client.sendTyping("chan");
+    expect(urls).toStrictEqual(Array(2).fill("https://discord.com/api/v10/channels/chan/typing"));
+  } finally {
     fetchMock.restore();
   }
 });

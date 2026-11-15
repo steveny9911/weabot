@@ -115,6 +115,7 @@ async function withAutonomousJob(
             ...(options.getMessage ? { getMessage: options.getMessage } : {}),
             getBotUserId: () => Promise.resolve("bot"),
             sendMessage: () => Promise.reject(new Error("unexpected sendMessage")),
+            sendTyping: () => Promise.reject(new Error("unexpected sendTyping")),
             timeoutMember: () => Promise.reject(new Error("unexpected timeoutMember")),
             sendImage: () => Promise.reject(new Error("unexpected sendImage")),
             postMessage(_channel, payload) {

@@ -56,6 +56,8 @@ function createDeps(
     sendOk?: boolean;
   } = {},
 ): {
+  typing: { count: number };
+  replyTos: Array<string | undefined>;
   deps: BotDependencies;
   aiCalls: Array<Array<Record<string, unknown>>>;
   linkCalls: string[];
@@ -70,11 +72,19 @@ function createDeps(
   const recordedTokens: number[] = [];
   const contextResets = new Map<string, ContextResetRecord>();
   const posted: string[] = [];
+  const typing = { count: 0 };
+  const replyTos: Array<string | undefined> = [];
   let requestCount = 0;
 
   const deps: BotDependencies = {
     config,
-    discord: fakeDiscord({ sent: posted, recent: overrides.recent, sendOk: overrides.sendOk }),
+    discord: fakeDiscord({
+      sent: posted,
+      typing,
+      replyTos,
+      recent: overrides.recent,
+      sendOk: overrides.sendOk,
+    }),
     aiService: {
       generateReply(messages: Array<Record<string, unknown>>) {
         aiCalls.push(messages);
@@ -147,6 +157,8 @@ function createDeps(
     webSearchCalls,
     recordedTokens,
     posted,
+    typing,
+    replyTos,
     get requestCount() {
       return requestCount;
     },
@@ -181,6 +193,22 @@ test("\\open command calls linkOpenService and injects web context", async () =>
   expect(String(webEntry?.["content"] ?? "")).toContain("Source domain: example.com");
   expect(String(webEntry?.["content"] ?? "")).toContain("Title: Example Title");
 });
+test("an AI reply shows typing and is threaded under the mention", async () => {
+  const ctx = createDeps(createMockConfig());
+  await handleMessage(createMentionMessage("<@12345> hello"), ctx.deps);
+  expect(ctx.typing.count).toStrictEqual(1);
+  expect(ctx.replyTos).toStrictEqual(["msg-trigger"]);
+});
+
+test("a refused request shows no typing but is still threaded", async () => {
+  const ctx = createDeps(createMockConfig(), {
+    admission: { allowed: false, reason: "user_limit", remaining: 0, resetInMs: 5000 },
+  });
+  await handleMessage(createMentionMessage("<@12345> hello"), ctx.deps);
+  expect(ctx.typing.count).toStrictEqual(0);
+  expect(ctx.replyTos).toStrictEqual(["msg-trigger"]);
+});
+
 test("\\open failure sends fallback message and skips AI", async () => {
   const config = createMockConfig();
   const ctx = createDeps(config, {
