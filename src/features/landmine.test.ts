@@ -196,3 +196,16 @@ test("a safe roll and a failed announcement are logged", async () => {
   expect(logs.some((l) => l.includes("Safe: user-1") && l.includes("0.900"))).toBe(true);
   expect(logs.some((l) => l.includes("Could not announce") && l.includes("403"))).toBe(true);
 });
+
+test("the report covers recent steps, left out older ones, and shows the landmines left", () => {
+  const { db, service } = setup();
+  const add = db.query("INSERT INTO landmine_steps (user_id, stepped_at) VALUES (?, ?)");
+  const now = Date.parse("2026-11-08T06:00:00Z");
+  add.run("recent", now - 86_400_000);
+  add.run("old", now - 8 * 86_400_000);
+  expect(service.report("week", now).embeds[0].description).toBe(
+    "1. <@recent> — 1\n\nStepped on this week: 1\nLandmines remaining: 100,000",
+  );
+  expect(service.report("month", now).embeds[0].description).toContain("<@old>");
+  db.close();
+});

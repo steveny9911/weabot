@@ -4,10 +4,14 @@ import { formatTime, isCommand } from "../bot/commands.ts";
 import { isActiveIn } from "../feature_config.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { createLandmineQueries } from "../db/landmines.ts";
+import { buildLandmineReport, reportStart, type ReportPeriod } from "./landmine_report.ts";
+import type { EmbedMessagePayload } from "./stats.ts";
 
 export interface LandmineService {
   /** Rolls one message; on a landmine announces it, and times the author out if enabled. Never throws. */
   step(message: Record<string, unknown>): Promise<void>;
+  /** The leaderboard of the last week or month, up to `now`. */
+  report(period: ReportPeriod, now?: number): EmbedMessagePayload;
 }
 
 export interface LandmineDependencies {
@@ -21,6 +25,13 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
   const { config, mines, discord, random = Math.random } = deps;
 
   return {
+    report(period, now = Date.now()) {
+      return buildLandmineReport(
+        period,
+        mines.stepsSince(reportStart(period, now)),
+        mines.remaining(),
+      );
+    },
     async step(message) {
       const guildId = message["guild_id"];
       const channelId = message["channel_id"];

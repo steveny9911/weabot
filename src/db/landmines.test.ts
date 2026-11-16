@@ -36,3 +36,32 @@ test("a recorded step keeps who stepped and when", () => {
   expect(rows.map((r) => r.user_id)).toStrictEqual(["user-1"]);
   expect(rows[0].stepped_at).toBeGreaterThanOrEqual(before);
 });
+
+test("steps since a time are counted per user, most first, and older steps are left out", () => {
+  using db = openDatabase(":memory:");
+  const mines = createLandmineQueries(db);
+  const add = db.query("INSERT INTO landmine_steps (user_id, stepped_at) VALUES (?, ?)");
+  for (const [user, time] of [
+    ["b", 100],
+    ["a", 100],
+    ["a", 200],
+    ["c", 99],
+    ["b", 300],
+    ["b", 400],
+  ] as const) {
+    add.run(user, time);
+  }
+  expect(mines.stepsSince(100)).toStrictEqual([
+    { userId: "b", steps: 3 },
+    { userId: "a", steps: 2 },
+  ]);
+  expect(mines.stepsSince(1_000)).toStrictEqual([]);
+});
+
+test("the landmines remaining are readable without using one up", () => {
+  using db = openDatabase(":memory:");
+  const mines = createLandmineQueries(db);
+  mines.claim();
+  expect(mines.remaining()).toBe(99_999);
+  expect(mines.remaining()).toBe(99_999);
+});

@@ -5,6 +5,7 @@ import { formatActionResults } from "../features/discord_actions/results.ts";
 import type { DiscordActionService } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LandmineService } from "../features/landmine.ts";
+import type { ReportPeriod } from "../features/landmine_report.ts";
 import { GACHA_FILENAME, type GachaResult, type GachaService } from "../features/gacha.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
 import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
@@ -18,6 +19,7 @@ import type { ContextStorageService } from "../services/storage.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import {
   isGachaCommand,
+  parseLandmineReportCommand,
   isOpenCommand,
   isResetCommand,
   isUsageCommand,
@@ -70,7 +72,7 @@ function parseMessage(raw: Record<string, unknown>): IncomingMessage {
   };
 }
 
-/** Answers mentions: \\usage, \\reset, \\gacha, \\open, and otherwise an AI reply within the rate limits. */
+/** Answers mentions: \\usage, \\reset, \\gacha, \\landmines, \\open, and otherwise an AI reply within the rate limits. */
 export async function handleMessage(
   raw: Record<string, unknown>,
   deps: BotDependencies,
@@ -94,6 +96,8 @@ export async function handleMessage(
   if (isUsageCommand(content)) return void (await reply(await usageReport(deps, channelId)));
   if (isResetCommand(content)) return await resetContext(deps, message);
   if (isGachaCommand(content)) return await gacha(deps, message);
+  const reportPeriod = parseLandmineReportCommand(content);
+  if (reportPeriod) return await landmineReport(deps, message, reportPeriod);
 
   console.log(`Bot mentioned by user ${userId} in channel ${channelId}`);
   if (!config.aiEnabled || !isActiveIn(config.aiChat, channelId)) {
@@ -175,6 +179,25 @@ export async function handleMessage(
       if (greetingGif) await discord.sendMessage(channelId, greetingGif); // no second ping
     },
   );
+}
+
+/** Posts the landmine leaderboard of the last week or month. */
+async function landmineReport(
+  deps: BotDependencies,
+  { channelId, id }: IncomingMessage,
+  period: ReportPeriod,
+): Promise<void> {
+  const { discord, landmineService, config } = deps;
+  if (!landmineService || !isActiveIn(config.landmine, channelId)) {
+    await discord.sendMessage(channelId, "Ehehe~ the landmines are turned off right now.", {
+      replyTo: id,
+    });
+    return;
+  }
+  const response = await discord.postMessage(channelId, landmineService.report(period));
+  if (response.ok) await response.body?.cancel();
+  else
+    console.error(`[LANDMINE] Could not post the report in ${channelId}: ${await response.text()}`);
 }
 
 /** Replies to the \\gacha message with a ten-pull image. */

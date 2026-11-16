@@ -5,6 +5,8 @@ import type { JobDeps } from "../jobs/channel_posts.ts";
 import { createAutonomousChatJob } from "../jobs/autonomous_chat.ts";
 import { collectExpiredPolls } from "../jobs/collect_polls.ts";
 import { postMoodPolls } from "../jobs/mood_poll.ts";
+import { postLandmineReport } from "../jobs/landmine_report.ts";
+import type { LandmineService } from "../features/landmine.ts";
 import { postStats } from "../jobs/stats.ts";
 import { runWellnessCheck } from "../jobs/wellness.ts";
 
@@ -31,7 +33,12 @@ export const bunCron: CronRegistrar = (name, schedule, handler) => {
 
 export function registerCronJobs(
   cron: CronRegistrar,
-  { ai, rateLimit, ...deps }: JobDeps & { ai: AiService; rateLimit: RateLimitService },
+  {
+    ai,
+    rateLimit,
+    landmines,
+    ...deps
+  }: JobDeps & { ai: AiService; rateLimit: RateLimitService; landmines: LandmineService },
   maintenance: () => void = () => {},
 ): void {
   const { discord, storage } = deps;
@@ -54,6 +61,12 @@ export function registerCronJobs(
       tag: "[CRON]",
     });
   });
+  cron("Weekly Landmine Report", "0 6 * * SUN", async () => {
+    await postLandmineReport(deps, landmines, "week");
+  });
+  cron("Monthly Landmine Report", "0 6 1 * *", async () => {
+    await postLandmineReport(deps, landmines, "month");
+  });
   cron("Poll Result Collection", "30 * * * *", async () => {
     console.log("[CRON] Checking for expired polls to collect...");
     const result = await collectExpiredPolls(discord, storage);
@@ -68,6 +81,8 @@ export function registerCronJobs(
   console.log("  - Daily Retro Poll (05:00 UTC)");
   console.log("  - Daily Wellness Check (06:00 UTC)");
   console.log("  - Weekly Stats Summary (Sundays 06:00 UTC)");
+  console.log("  - Weekly Landmine Report (Sundays 06:00 UTC)");
+  console.log("  - Monthly Landmine Report (1st of the month 06:00 UTC)");
   console.log("  - Poll Result Collection (every hour at :30)");
   console.log("  - Autonomous Chat (every minute, disabled unless configured)");
   console.log("  - Maintenance (every hour at :15)");

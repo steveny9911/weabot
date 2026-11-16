@@ -97,6 +97,8 @@ export interface AppConfig {
   };
 
   landmine: FeatureConfig & {
+    /** Where the weekly and monthly leaderboards are posted: a list, never "all". */
+    reportChannelIds: string[];
     /** Chance in [0, 1] that a message is a landmine. */
     chance: number;
     /** What happens to whoever steps on a landmine: a Discord timeout, if enabled. */
@@ -160,6 +162,7 @@ export interface ConfigFile {
     request_percent?: number;
   };
   landmine?: ReactiveFeatureFile & {
+    report_channel_ids?: string[];
     chance?: number;
     gifs?: string[];
     step_penalty?: { enabled?: boolean; timeout_seconds?: number };
@@ -287,6 +290,11 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
 
     landmine: {
       ...reactiveFeature("landmine", mine, false),
+      reportChannelIds: parseChannelList(
+        "landmine.report_channel_ids",
+        mine?.report_channel_ids,
+        channelIds,
+      ),
       chance: mine?.chance ?? 0.1,
       stepPenalty: {
         enabled: mine?.step_penalty?.enabled ?? true,

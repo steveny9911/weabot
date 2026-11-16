@@ -580,6 +580,7 @@ test("landmines are rolled for every message, mention or not", async () => {
   const { deps } = createDeps(config);
   const stepped: Array<Record<string, unknown>> = [];
   deps.landmineService = {
+    report: () => ({ embeds: [] }),
     step(message) {
       stepped.push(message);
       return Promise.resolve();
@@ -595,6 +596,7 @@ test("landmines are not rolled for bot messages", async () => {
   const { deps } = createDeps(config);
   let stepped = 0;
   deps.landmineService = {
+    report: () => ({ embeds: [] }),
     step() {
       stepped++;
       return Promise.resolve();

@@ -1,5 +1,5 @@
 /** A fake `DiscordClient` for bot tests: it records sent text and serves raw messages as history. */
-import type { DiscordClient } from "../../src/discord/client.ts";
+import type { DiscordClient, MessagePayload } from "../../src/discord/client.ts";
 import { mapDiscordMessage } from "../../src/features/chat_context.ts";
 
 export function fakeDiscord(
@@ -14,6 +14,8 @@ export function fakeDiscord(
     typing?: { count: number };
     /** The message each text reply is threaded under, in send order. */
     replyTos?: Array<string | undefined>;
+    /** Every embed or poll the bot posts is pushed here. */
+    posts?: Array<{ channelId: string; payload: MessagePayload }>;
     /** False makes every send fail. */
     sendOk?: boolean;
   } = {},
@@ -36,7 +38,11 @@ export function fakeDiscord(
       options.images?.push({ channelId, filename, altText, replyTo });
       return Promise.resolve(options.sendOk === false ? { ok: false, error: "500" } : { ok: true });
     },
-    postMessage: unexpected("postMessage"),
+    postMessage(channelId, payload) {
+      if (!options.posts) return unexpected("postMessage")();
+      options.posts.push({ channelId, payload });
+      return Promise.resolve(new Response("{}", { status: options.sendOk === false ? 500 : 200 }));
+    },
     timeoutMember: unexpected("timeoutMember"),
     addReaction: unexpected("addReaction"),
     getPollVoters: unexpected("getPollVoters"),

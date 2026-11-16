@@ -114,6 +114,7 @@ test("an empty config.yaml gives the defaults", () => {
   expect(config.landmine).toStrictEqual({
     enabled: false,
     channelIds: ["chan-1"],
+    reportChannelIds: ["chan-1"],
     chance: 0.1,
     stepPenalty: { enabled: true, timeoutSeconds: 60 },
     gifs: [],
@@ -149,6 +150,7 @@ autonomous_chat:
 landmine:
   enabled: true
   channel_ids: ["chan-8"]
+  report_channel_ids: ["chan-9"]
   chance: 0.25
   gifs: [https://a.example/1.gif]
   step_penalty: { enabled: false, timeout_seconds: 30 }
@@ -201,6 +203,7 @@ landmine:
   expect(config.landmine).toStrictEqual({
     enabled: true,
     channelIds: ["chan-8"],
+    reportChannelIds: ["chan-9"],
     chance: 0.25,
     stepPenalty: { enabled: false, timeoutSeconds: 30 },
     gifs: ["https://a.example/1.gif"],
