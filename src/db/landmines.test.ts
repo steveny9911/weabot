@@ -24,3 +24,15 @@ test("nothing is claimed once the landmines run out", () => {
   expect(mines.claim()).toBe(0);
   expect(mines.claim()).toBeNull();
 });
+
+test("a recorded step keeps who stepped and when", () => {
+  using db = openDatabase(":memory:");
+  const mines = createLandmineQueries(db);
+  const before = Date.now();
+  mines.recordStep("user-1");
+  const rows = db
+    .query<{ user_id: string; stepped_at: number }, []>("SELECT * FROM landmine_steps")
+    .all();
+  expect(rows.map((r) => r.user_id)).toStrictEqual(["user-1"]);
+  expect(rows[0].stepped_at).toBeGreaterThanOrEqual(before);
+});

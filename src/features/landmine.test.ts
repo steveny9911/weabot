@@ -97,6 +97,37 @@ test("only landmine channels in a server have landmines", async () => {
   expect(timeouts).toHaveLength(1);
 });
 
+const steppers = (db: ReturnType<typeof openDatabase>) =>
+  db
+    .query<{ user_id: string }, []>("SELECT user_id FROM landmine_steps")
+    .all()
+    .map((row) => row.user_id);
+
+test("a landmine is recorded against the user who stepped on it, even if the announcement fails", async () => {
+  const { db, service } = setup(
+    {},
+    {
+      send: async () => {
+        throw new Error("send failed");
+      },
+    },
+  );
+  await service.step(message());
+  expect(steppers(db)).toStrictEqual(["user-1"]);
+  db.close();
+});
+
+test("a safe roll, a failed timeout and an empty pool record nothing", async () => {
+  const safe = setup({}, { random: 0.9 });
+  await safe.service.step(message());
+  const failed = setup({}, { timeoutOk: false });
+  await failed.service.step(message());
+  const empty = setup();
+  empty.db.run("UPDATE landmines SET remaining = 0");
+  await empty.service.step(message());
+  expect([safe, failed, empty].map(({ db }) => steppers(db))).toStrictEqual([[], [], []]);
+});
+
 test("a failed timeout puts the landmine back and announces nothing", async () => {
   const { service, mines, sent } = setup({}, { timeoutOk: false });
   await service.step(message());

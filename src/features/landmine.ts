@@ -61,6 +61,8 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
           }
           timedOut = ` and has been timed out for ${formatTime(seconds * 1000)}`;
         }
+        // The step is final once claimed and timed out, so it counts even if the announcement fails.
+        mines.recordStep(userId);
 
         const gif = config.landmine.gifs[Math.floor(random() * config.landmine.gifs.length)];
         console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
