@@ -1,4 +1,5 @@
 import { isHttpUrl } from "../ai/context_images.ts";
+import { GACHA_FILENAME } from "./gacha.ts";
 
 export interface DiscordMessageReference {
   id: string;
@@ -50,16 +51,36 @@ function attachmentLooksLikeImage(attachment: Record<string, unknown>): boolean 
   return IMAGE_FILE_EXT_RE.test(new URL(url).pathname);
 }
 
-function extractImageUrls(message: Record<string, unknown>): string[] {
+/** A pull's alt text on one line, so it cannot pose as a message of its own; undefined if it has none. */
+function gachaAltText(attachment: Record<string, unknown>): string | undefined {
+  if (attachment["filename"] !== GACHA_FILENAME) return undefined;
+  const description = attachment["description"];
+  return typeof description === "string"
+    ? description.replace(/\s+/g, " ").trim() || undefined
+    : undefined;
+}
+
+/** The images to send to the model, and notes standing in for a bot's pulls that have alt text. */
+function readImages(
+  message: Record<string, unknown>,
+  authorIsBot: boolean,
+): { imageUrls: string[]; pullNotes: string[] } {
   const attachments = message["attachments"];
-  if (!Array.isArray(attachments)) return [];
+  if (!Array.isArray(attachments)) return { imageUrls: [], pullNotes: [] };
 
   const imageUrls: string[] = [];
+  const pullNotes: string[] = [];
   for (const rawAttachment of attachments) {
     if (!rawAttachment || typeof rawAttachment !== "object") continue;
 
     const attachment = rawAttachment as Record<string, unknown>;
     if (!attachmentLooksLikeImage(attachment)) continue;
+
+    const pull = authorIsBot ? gachaAltText(attachment) : undefined;
+    if (pull) {
+      pullNotes.push(`[image: ${pull}]`);
+      continue;
+    }
 
     const candidate =
       typeof attachment["url"] === "string"
@@ -73,7 +94,7 @@ function extractImageUrls(message: Record<string, unknown>): string[] {
     if (trimmed && isHttpUrl(trimmed)) imageUrls.push(trimmed);
   }
 
-  return [...new Set(imageUrls)];
+  return { imageUrls: [...new Set(imageUrls)], pullNotes };
 }
 
 function displayAuthorName(author: Record<string, unknown>): string {
@@ -92,28 +113,32 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
 const asRecord = (value: unknown) =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
+const isBotAuthor = (message: Record<string, unknown>) =>
+  asRecord(message["author"])["bot"] === true || typeof message["webhook_id"] === "string";
+
 function mapReference(message: Record<string, unknown>): DiscordMessageReference {
   const author = asRecord(message["author"]);
+  const { imageUrls, pullNotes } = readImages(message, isBotAuthor(message));
   return {
     id: text(message["id"]),
     authorId: text(author["id"]),
     authorName: displayAuthorName(author),
-    content: text(message["content"]),
+    // A pull's alt text goes in the text, so a message of only a pull still has content.
+    content: [text(message["content"]), ...pullNotes].filter(Boolean).join(" "),
     timestamp:
       typeof message["timestamp"] === "string" ? message["timestamp"] : text(message["created_at"]),
-    imageUrls: extractImageUrls(message),
+    imageUrls,
   };
 }
 
 export function mapDiscordMessage(message: Record<string, unknown>): RecentDiscordMessage {
-  const author = asRecord(message["author"]);
   const referenced = message["referenced_message"];
   const referencedMessage =
     referenced && typeof referenced === "object" ? mapReference(asRecord(referenced)) : undefined;
 
   return {
     ...mapReference(message),
-    authorBot: author["bot"] === true || typeof message["webhook_id"] === "string",
+    authorBot: isBotAuthor(message),
     ...(Array.isArray(message["reactions"]) &&
     message["reactions"].some(
       (reaction) =>

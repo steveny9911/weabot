@@ -1,6 +1,9 @@
 /** The \gacha command: a picture of an Arknights ten-pull, from arknights-gacha-result-generator. */
 import type { GachaPityQueries } from "../db/gacha_pity.ts";
 
+/** The name every pull image is posted under, which is also how a pull is recognised in chat history. */
+export const GACHA_FILENAME = "gacha.webp";
+
 export type GachaResult =
   | { ok: true; image: Uint8Array<ArrayBuffer>; altText: string }
   | { ok: false; reason: "cooldown"; retryInMs: number }

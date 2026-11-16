@@ -5,7 +5,7 @@ import { formatActionResults } from "../features/discord_actions/results.ts";
 import type { DiscordActionService } from "../features/discord_actions/service.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LandmineService } from "../features/landmine.ts";
-import type { GachaResult, GachaService } from "../features/gacha.ts";
+import { GACHA_FILENAME, type GachaResult, type GachaService } from "../features/gacha.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
 import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
 import {
@@ -197,7 +197,7 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
 
   const sent = await discord.sendImage(channelId, {
     bytes: result.image,
-    filename: "gacha.webp",
+    filename: GACHA_FILENAME,
     contentType: "image/webp",
     altText: result.altText,
     replyToMessageId: id,
