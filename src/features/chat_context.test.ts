@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { collectImageUrls } from "../ai/context_images.ts";
 import {
-  gachaAltText,
   mapDiscordMessage,
   toAiContextMessage,
   type RecentDiscordMessage,
@@ -27,16 +26,6 @@ test("Discord mapping ignores webhook activity and preserves our reaction summar
   );
 });
 
-test("gachaAltText reads the description of a pull image and nothing else", () => {
-  const alt = "5 pulls since last 6★: 3★ 克洛丝 (Kroos)";
-  expect(gachaAltText({ filename: "gacha.webp", description: `  ${alt} ` })).toStrictEqual(alt);
-  expect(gachaAltText({ filename: "gacha.webp" })).toStrictEqual(undefined);
-  expect(gachaAltText({ filename: "gacha.webp", description: "  " })).toStrictEqual(undefined);
-  expect(gachaAltText({ filename: "gacha.webp", description: 5 })).toStrictEqual(undefined);
-  expect(gachaAltText({ filename: "cat.png", description: alt })).toStrictEqual(undefined);
-  expect(gachaAltText({ description: alt })).toStrictEqual(undefined);
-});
-
 const ALT = "5 pulls since last 6★: 3★ 克洛丝 (Kroos), 6★ 能天使 (Exusiai)";
 const pullImage = (description?: string) => ({
   filename: "gacha.webp",
@@ -50,7 +39,8 @@ test("a bot's pull with alt text is described in the text, not sent as an image"
     id: "pull",
     author: { id: "haru", bot: true },
     content: "",
-    attachments: [pullImage(ALT)],
+    // Padding and line breaks in the alt text are flattened.
+    attachments: [pullImage(`  ${ALT.replace(": ", ":\n")} `)],
   });
   expect(mapped.imageUrls).toStrictEqual([]);
   expect(mapped.content).toStrictEqual(`[image: ${ALT}]`);

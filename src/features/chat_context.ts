@@ -51,21 +51,16 @@ function attachmentLooksLikeImage(attachment: Record<string, unknown>): boolean 
   return IMAGE_FILE_EXT_RE.test(new URL(url).pathname);
 }
 
-/**
- * The alt text of a pull image Haru posted, or undefined for any other attachment. A pull from
- * before alt text existed has none, so it reads as an ordinary image. Whether the author is a bot is
- * for the caller to check.
- */
-export function gachaAltText(attachment: Record<string, unknown>): string | undefined {
+/** A pull's alt text on one line, so it cannot pose as a message of its own; undefined if it has none. */
+function gachaAltText(attachment: Record<string, unknown>): string | undefined {
   if (attachment["filename"] !== GACHA_FILENAME) return undefined;
   const description = attachment["description"];
-  return typeof description === "string" && description.trim() ? description.trim() : undefined;
+  return typeof description === "string"
+    ? description.replace(/\s+/g, " ").trim() || undefined
+    : undefined;
 }
 
-/**
- * The image URLs to send to the model, and notes for the pulls that stand in for their image.
- * A bot's pull with alt text is described by it instead, which costs no image slot.
- */
+/** The images to send to the model, and notes standing in for a bot's pulls that have alt text. */
 function readImages(
   message: Record<string, unknown>,
   authorIsBot: boolean,

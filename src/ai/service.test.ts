@@ -130,31 +130,6 @@ test("generateReply includes image URLs as input_image blocks", async () => {
   );
 });
 
-test("generateReply gives the model a bot's pull as alt text and sends no image for it", async () => {
-  const alt = "5 pulls since last 6★: 6★ 能天使 (Exusiai)";
-  const pull = mapDiscordMessage({
-    author: { id: "haru", username: "Haru", bot: true },
-    attachments: [
-      {
-        filename: "gacha.webp",
-        content_type: "image/webp",
-        url: "https://cdn.discordapp.com/attachments/1/2/gacha.webp",
-        description: alt,
-      },
-    ],
-  });
-  const { request } = await generate(
-    { output_text: "Nice pull!", usage: { total_tokens: 10 } },
-    { messages: [toAiContextMessage(pull)] },
-  );
-  const input = request?.body.input as Array<{ content: Array<Record<string, unknown>> }>;
-  const parts = input?.[0]?.content ?? [];
-  const textPart = parts.find((part) => part["type"] === "input_text");
-  expect(String(textPart?.["text"])).toContain(`Haru: [image: ${alt}]`);
-  expect(String(textPart?.["text"])).not.toContain("[attached");
-  expect(parts.filter((part) => part["type"] === "input_image")).toStrictEqual([]);
-});
-
 test("generateReply includes explicit Discord reply references in text and images", async () => {
   const { request } = await generate(
     { output_text: "I remember", usage: { total_tokens: 25 } },
