@@ -196,6 +196,10 @@ landmine:
   # discord.channel_ids.
   channel_ids: []
 
+  # List of channel IDs for the weekly and monthly leaderboards. Cannot be all. Empty means
+  # discord.channel_ids.
+  report_channel_ids: []
+
   # Number from 0 to 1. Chance that a message is a landmine.
   chance: 0.1
 

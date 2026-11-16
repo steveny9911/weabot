@@ -47,6 +47,12 @@ const tweets = createTweetService();
 // Next to the database, so in Docker it lands in the writable ./data volume.
 const gachaCacheDir = join(resolve(dirname(config.databasePath)), "gacha-cache");
 
+const landmineService = createLandmineService({
+  config,
+  mines: createLandmineQueries(db),
+  discord,
+});
+
 const botDeps: BotDependencies = {
   config,
   discord,
@@ -63,7 +69,7 @@ const botDeps: BotDependencies = {
     renderTimeoutMs: config.gacha.timeoutSeconds * 1000,
     queueSize: config.gacha.queueSize,
   }),
-  landmineService: createLandmineService({ config, mines: createLandmineQueries(db), discord }),
+  landmineService,
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
     db,
@@ -75,7 +81,11 @@ const botDeps: BotDependencies = {
 
 startGateway(config, botDeps);
 const jobDeps = { config, discord, storage, rateLimit };
-registerCronJobs(bunCron, { ...jobDeps, ai: aiService }, createMaintenanceJob(db, actionTurns));
+registerCronJobs(
+  bunCron,
+  { ...jobDeps, ai: aiService, landmines: landmineService },
+  createMaintenanceJob(db, actionTurns),
+);
 createServer(jobDeps, config.httpPort);
 
 console.log("🐴 Haru is running!");

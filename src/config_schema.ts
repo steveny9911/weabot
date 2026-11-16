@@ -54,6 +54,7 @@ const KEYS: Keys<ConfigFile> = {
   landmine: {
     enabled: true,
     channel_ids: true,
+    report_channel_ids: true,
     chance: true,
     gifs: true,
     step_penalty: { enabled: true, timeout_seconds: true },

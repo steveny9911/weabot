@@ -77,4 +77,11 @@ CREATE TABLE gacha_pity (
   pity        INTEGER NOT NULL CHECK (pity BETWEEN 0 AND 98)
 ) STRICT;
 `,
+  `
+CREATE TABLE landmine_steps (
+  user_id     TEXT NOT NULL,
+  stepped_at  INTEGER NOT NULL
+) STRICT;
+CREATE INDEX landmine_steps_by_time ON landmine_steps (stepped_at, user_id);
+`,
 ];

@@ -27,11 +27,13 @@ Each can be turned off, or limited to some channels, under `mood_poll`, `wellnes
 
 ### Scheduled Jobs
 
-| Job                  | Schedule              | Description                            |
-| -------------------- | --------------------- | -------------------------------------- |
-| Daily Retro Poll     | 05:00 UTC (9 PM PST)  | Posts the daily mood poll              |
-| Daily Wellness Check | 06:00 UTC (10 PM PST) | Sends alerts for consecutive glue days |
-| Weekly Stats Summary | Sundays 06:00 UTC     | Posts weekly mood trends               |
+| Job                     | Schedule              | Description                             |
+| ----------------------- | --------------------- | --------------------------------------- |
+| Daily Retro Poll        | 05:00 UTC (9 PM PST)  | Posts the daily mood poll               |
+| Daily Wellness Check    | 06:00 UTC (10 PM PST) | Sends alerts for consecutive glue days  |
+| Weekly Stats Summary    | Sundays 06:00 UTC     | Posts weekly mood trends                |
+| Weekly Landmine Report  | Sundays 06:00 UTC     | Posts who stepped on the most landmines |
+| Monthly Landmine Report | 1st, 06:00 UTC        | Posts the same for the last month       |
 
 ---
 
@@ -251,6 +253,13 @@ A timeout is Discord's own, so the user cannot send messages in **any** channel 
 it ends. The bot needs the **Timeout Members** permission and a role above the members it times out.
 Discord never lets a bot time out the server owner or administrators, so with timeouts on they are
 immune: nothing is announced and the landmine is not used up.
+
+Every step is remembered, so Haru posts a leaderboard of who stepped on the most landmines, with the
+total and the landmines left: every Sunday at 06:00 UTC for the last 7 days, and on the 1st of each
+month at 06:00 UTC for the last month. It goes to `report_channel_ids` (a list, not `all`; empty
+means `discord.channel_ids`). Anyone can ask for it with `@Haru \landmines` (the last 7 days) or
+`@Haru \landmines month`. Equal counts share a rank, people with no steps are not listed, and only
+the top 20 are shown.
 
 ### Activity-triggered participation
 

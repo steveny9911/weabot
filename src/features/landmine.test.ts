@@ -97,6 +97,35 @@ test("only landmine channels in a server have landmines", async () => {
   expect(timeouts).toHaveLength(1);
 });
 
+const steppers = (db: ReturnType<typeof openDatabase>) =>
+  db
+    .query<{ user_id: string }, []>("SELECT user_id FROM landmine_steps")
+    .all()
+    .map((row) => row.user_id);
+
+test("a landmine is recorded against the user who stepped on it, even if the announcement fails", async () => {
+  const { db, service } = setup(
+    {},
+    {
+      send: async () => {
+        throw new Error("send failed");
+      },
+    },
+  );
+  await service.step(message());
+  expect(steppers(db)).toStrictEqual(["user-1"]);
+  db.close();
+});
+
+test("a failed timeout and an empty pool record nothing", async () => {
+  const failed = setup({}, { timeoutOk: false });
+  await failed.service.step(message());
+  const empty = setup();
+  empty.db.run("UPDATE landmines SET remaining = 0");
+  await empty.service.step(message());
+  expect([failed, empty].map(({ db }) => steppers(db))).toStrictEqual([[], []]);
+});
+
 test("a failed timeout puts the landmine back and announces nothing", async () => {
   const { service, mines, sent } = setup({}, { timeoutOk: false });
   await service.step(message());
@@ -164,4 +193,18 @@ test("a safe roll and a failed announcement are logged", async () => {
   }
   expect(logs.some((l) => l.includes("Safe: user-1") && l.includes("0.900"))).toBe(true);
   expect(logs.some((l) => l.includes("Could not announce") && l.includes("403"))).toBe(true);
+});
+
+test("the report covers recent steps, left out older ones, and shows the landmines left", () => {
+  const { db, service } = setup();
+  const add = db.query("INSERT INTO landmine_steps (user_id, stepped_at) VALUES (?, ?)");
+  const now = Date.parse("2026-11-08T06:00:00Z");
+  add.run("recent", now - 86_400_000);
+  add.run("old", now - 8 * 86_400_000);
+  const week = service.report("week", now).embeds[0].description;
+  expect(week).toContain("<@recent>");
+  expect(week).not.toContain("<@old>");
+  expect(week).toContain("100,000");
+  expect(service.report("month", now).embeds[0].description).toContain("<@old>");
+  db.close();
 });

@@ -5,18 +5,25 @@ import type { AppConfig } from "../config.ts";
 import { bunCron, type CronRegistrar, registerCronJobs } from "./scheduler.ts";
 import type { DiscordClient } from "../discord/client.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
+import type { LandmineService } from "../features/landmine.ts";
 import type { StorageService } from "../services/storage.ts";
 
 const SCHEDULES = {
   "Daily Retro Poll": "0 5 * * *",
   "Daily Wellness Check": "0 6 * * *",
   "Weekly Stats Summary": "0 6 * * SUN",
+  "Weekly Landmine Report": "0 6 * * SUN",
+  "Monthly Landmine Report": "0 6 1 * *",
   "Poll Result Collection": "30 * * * *",
   "Autonomous Chat": "* * * * *",
   Maintenance: "15 * * * *",
 };
 
-function register(storage: Partial<StorageService> = {}, maintenance?: () => void) {
+function register(
+  storage: Partial<StorageService> = {},
+  maintenance?: () => void,
+  landmines: LandmineService = {} as LandmineService,
+) {
   const jobs = new Map<string, { schedule: string; handler: () => Promise<void> | void }>();
   const cron: CronRegistrar = (name, schedule, handler) => jobs.set(name, { schedule, handler });
   const discord = {
@@ -25,11 +32,15 @@ function register(storage: Partial<StorageService> = {}, maintenance?: () => voi
   registerCronJobs(
     cron,
     {
-      config: { channelIds: ["channel"] } as AppConfig,
+      config: {
+        channelIds: ["channel"],
+        landmine: { enabled: true, reportChannelIds: ["channel"] },
+      } as AppConfig,
       discord,
       storage: storage as StorageService,
       ai: {} as AiService,
       rateLimit: {} as RateLimitService,
+      landmines,
     },
     maintenance,
   );
@@ -64,7 +75,7 @@ test("the production registrar runs jobs in UTC and logs a failing job instead o
   }
 });
 
-test("the six jobs are registered with their UTC schedules", () => {
+test("the eight jobs are registered with their UTC schedules", () => {
   const jobs = register();
   expect(Object.fromEntries([...jobs].map(([name, job]) => [name, job.schedule]))).toStrictEqual(
     SCHEDULES,
@@ -119,4 +130,20 @@ test("the Poll Result Collection job asks storage for expired polls", async () =
     log.mockRestore();
   }
   expect(asked).toBe(1);
+});
+
+test("the landmine report jobs post the weekly and the monthly report", async () => {
+  const periods: string[] = [];
+  const landmines = {
+    report: (period: string) => (periods.push(period), { embeds: [{ title: period }] }),
+  } as unknown as LandmineService;
+  const jobs = register({}, undefined, landmines);
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await jobs.get("Weekly Landmine Report")!.handler();
+    await jobs.get("Monthly Landmine Report")!.handler();
+  } finally {
+    log.mockRestore();
+  }
+  expect(periods).toStrictEqual(["week", "month"]);
 });

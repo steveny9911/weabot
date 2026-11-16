@@ -65,6 +65,7 @@ function defaults(): AppConfig {
     landmine: {
       enabled: false,
       channelIds: channels(),
+      reportChannelIds: channels(),
       chance: 0.1,
       stepPenalty: { enabled: true, timeoutSeconds: 60 },
       gifs: [],
