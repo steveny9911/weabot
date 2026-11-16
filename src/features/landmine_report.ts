@@ -27,7 +27,6 @@ export function buildLandmineReport(
   steppers: Array<{ userId: string; steps: number }>,
   remaining: number,
 ): EmbedMessagePayload {
-  const label = period === "week" ? "week" : "month";
   let rank = 0;
   const lines = steppers.slice(0, MAX_LISTED).map(({ userId, steps }, index) => {
     if (steps !== steppers[index - 1]?.steps) rank = index + 1;
@@ -35,9 +34,9 @@ export function buildLandmineReport(
   });
   const total = steppers.reduce((sum, { steps }) => sum + steps, 0);
   const description = [
-    lines.length ? lines.join("\n") : `Nobody stepped on a landmine this ${label}.`,
+    lines.length ? lines.join("\n") : `Nobody stepped on a landmine this ${period}.`,
     "",
-    ...(total ? [`Stepped on this ${label}: ${total.toLocaleString("en-US")}`] : []),
+    ...(total ? [`Stepped on this ${period}: ${total.toLocaleString("en-US")}`] : []),
     `Landmines remaining: ${remaining.toLocaleString("en-US")}`,
   ].join("\n");
   const title = period === "week" ? "💥 Weekly Landmine Report" : "💥 Monthly Landmine Report";

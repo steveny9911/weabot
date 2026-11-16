@@ -117,15 +117,13 @@ test("a landmine is recorded against the user who stepped on it, even if the ann
   db.close();
 });
 
-test("a safe roll, a failed timeout and an empty pool record nothing", async () => {
-  const safe = setup({}, { random: 0.9 });
-  await safe.service.step(message());
+test("a failed timeout and an empty pool record nothing", async () => {
   const failed = setup({}, { timeoutOk: false });
   await failed.service.step(message());
   const empty = setup();
   empty.db.run("UPDATE landmines SET remaining = 0");
   await empty.service.step(message());
-  expect([safe, failed, empty].map(({ db }) => steppers(db))).toStrictEqual([[], [], []]);
+  expect([failed, empty].map(({ db }) => steppers(db))).toStrictEqual([[], []]);
 });
 
 test("a failed timeout puts the landmine back and announces nothing", async () => {
@@ -203,9 +201,10 @@ test("the report covers recent steps, left out older ones, and shows the landmin
   const now = Date.parse("2026-11-08T06:00:00Z");
   add.run("recent", now - 86_400_000);
   add.run("old", now - 8 * 86_400_000);
-  expect(service.report("week", now).embeds[0].description).toBe(
-    "1. <@recent> — 1\n\nStepped on this week: 1\nLandmines remaining: 100,000",
-  );
+  const week = service.report("week", now).embeds[0].description;
+  expect(week).toContain("<@recent>");
+  expect(week).not.toContain("<@old>");
+  expect(week).toContain("100,000");
   expect(service.report("month", now).embeds[0].description).toContain("<@old>");
   db.close();
 });

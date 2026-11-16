@@ -19,7 +19,11 @@ const SCHEDULES = {
   Maintenance: "15 * * * *",
 };
 
-function register(storage: Partial<StorageService> = {}, maintenance?: () => void) {
+function register(
+  storage: Partial<StorageService> = {},
+  maintenance?: () => void,
+  landmines: LandmineService = {} as LandmineService,
+) {
   const jobs = new Map<string, { schedule: string; handler: () => Promise<void> | void }>();
   const cron: CronRegistrar = (name, schedule, handler) => jobs.set(name, { schedule, handler });
   const discord = {
@@ -28,12 +32,15 @@ function register(storage: Partial<StorageService> = {}, maintenance?: () => voi
   registerCronJobs(
     cron,
     {
-      config: { channelIds: ["channel"] } as AppConfig,
+      config: {
+        channelIds: ["channel"],
+        landmine: { enabled: true, reportChannelIds: ["channel"] },
+      } as AppConfig,
       discord,
       storage: storage as StorageService,
       ai: {} as AiService,
       rateLimit: {} as RateLimitService,
-      landmines: {} as LandmineService,
+      landmines,
     },
     maintenance,
   );
@@ -123,4 +130,20 @@ test("the Poll Result Collection job asks storage for expired polls", async () =
     log.mockRestore();
   }
   expect(asked).toBe(1);
+});
+
+test("the landmine report jobs post the weekly and the monthly report", async () => {
+  const periods: string[] = [];
+  const landmines = {
+    report: (period: string) => (periods.push(period), { embeds: [{ title: period }] }),
+  } as unknown as LandmineService;
+  const jobs = register({}, undefined, landmines);
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await jobs.get("Weekly Landmine Report")!.handler();
+    await jobs.get("Monthly Landmine Report")!.handler();
+  } finally {
+    log.mockRestore();
+  }
+  expect(periods).toStrictEqual(["week", "month"]);
 });

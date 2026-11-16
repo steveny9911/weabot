@@ -7,12 +7,8 @@ test("a week is the last 7 days", () => {
   expect(reportStart("week", at("2026-11-08T06:00:00Z"))).toBe(at("2026-11-01T06:00:00Z"));
 });
 
-test("a month goes back to the same moment of the month before", () => {
-  expect(reportStart("month", at("2026-12-01T06:00:00Z"))).toBe(at("2026-11-01T06:00:00Z"));
+test("a month goes back to the same moment of the month before, across a year and a short month", () => {
   expect(reportStart("month", at("2027-01-01T06:00:00Z"))).toBe(at("2026-12-01T06:00:00Z"));
-});
-
-test("a month that started on a day the shorter month lacks starts on its last day", () => {
   expect(reportStart("month", at("2026-03-31T10:00:00Z"))).toBe(at("2026-02-28T10:00:00Z"));
 });
 

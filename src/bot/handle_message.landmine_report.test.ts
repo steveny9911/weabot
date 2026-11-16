@@ -11,11 +11,10 @@ function setup(config: ConfigOverrides = {}, withService = true) {
   const sent: string[] = [];
   const replyTos: Array<string | undefined> = [];
   const posts: Array<{ channelId: string; payload: MessagePayload }> = [];
-  const periods: ReportPeriod[] = [];
   const unexpected = (name: string) => () => Promise.reject(new Error(`unexpected ${name}`));
   const landmineService = {
     step: () => Promise.resolve(),
-    report: (period: ReportPeriod) => (periods.push(period), { embeds: [{ title: period }] }),
+    report: (period: ReportPeriod) => ({ embeds: [{ title: period }] }),
   } as LandmineService;
   const deps: BotDependencies = {
     config: testConfig({ aiEnabled: false }, config),
@@ -34,7 +33,7 @@ function setup(config: ConfigOverrides = {}, withService = true) {
     },
     ...(withService ? { landmineService } : {}),
   };
-  return { deps, sent, replyTos, posts, periods };
+  return { deps, sent, replyTos, posts };
 }
 
 const mention = (content: string) => ({
@@ -55,18 +54,19 @@ test("\\landmines is the last week, \\landmines month is the last month, other t
 });
 
 test("\\landmines posts the leaderboard in the channel", async () => {
-  const { deps, posts, periods } = setup({ landmine: { enabled: true, channelIds: "all" } });
+  const { deps, posts } = setup({ landmine: { enabled: true, channelIds: "all" } });
   await handleMessage(mention("<@12345> \\landmines month"), deps);
-  expect(periods).toStrictEqual(["month"]);
   expect(posts).toStrictEqual([{ channelId: "chan-1", payload: { embeds: [{ title: "month" }] } }]);
 });
 
 test("\\landmines says the landmines are off where they are not on", async () => {
   const off = setup({ landmine: { enabled: false } });
   await handleMessage(mention("<@12345> \\landmines"), off.deps);
+  const elsewhere = setup({ landmine: { enabled: true, channelIds: ["other"] } });
+  await handleMessage(mention("<@12345> \\landmines"), elsewhere.deps);
   const noService = setup({ landmine: { enabled: true, channelIds: "all" } }, false);
   await handleMessage(mention("<@12345> \\landmines"), noService.deps);
-  for (const { sent, replyTos, posts } of [off, noService]) {
+  for (const { sent, replyTos, posts } of [off, elsewhere, noService]) {
     expect(sent).toStrictEqual(["Ehehe~ the landmines are turned off right now."]);
     expect(replyTos).toStrictEqual(["msg-1"]);
     expect(posts).toHaveLength(0);

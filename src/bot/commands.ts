@@ -1,5 +1,6 @@
 /** Parsing for mentions and the \\usage, \\reset, \\gacha, \\landmines, \\open commands, plus reply text helpers. */
 import type { ReportPeriod } from "../features/landmine_report.ts";
+
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 
 /** The text without user mentions such as `<@123>` and `<@!123>`. */

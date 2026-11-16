@@ -258,7 +258,8 @@ Every step is remembered, so Haru posts a leaderboard of who stepped on the most
 total and the landmines left: every Sunday at 06:00 UTC for the last 7 days, and on the 1st of each
 month at 06:00 UTC for the last month. It goes to `report_channel_ids` (a list, not `all`; empty
 means `discord.channel_ids`). Anyone can ask for it with `@Haru \landmines` (the last 7 days) or
-`@Haru \landmines month`. Equal counts share a rank, and people with no steps are not listed.
+`@Haru \landmines month`. Equal counts share a rank, people with no steps are not listed, and only
+the top 20 are shown.
 
 ### Activity-triggered participation
 

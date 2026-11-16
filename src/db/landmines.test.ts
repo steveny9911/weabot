@@ -45,6 +45,8 @@ test("steps since a time are counted per user, most first, and older steps are l
     ["b", 100],
     ["a", 100],
     ["a", 200],
+    ["d", 150],
+    ["e", 150],
     ["c", 99],
     ["b", 300],
     ["b", 400],
@@ -54,6 +56,8 @@ test("steps since a time are counted per user, most first, and older steps are l
   expect(mines.stepsSince(100)).toStrictEqual([
     { userId: "b", steps: 3 },
     { userId: "a", steps: 2 },
+    { userId: "d", steps: 1 },
+    { userId: "e", steps: 1 },
   ]);
   expect(mines.stepsSince(1_000)).toStrictEqual([]);
 });

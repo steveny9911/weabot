@@ -1,12 +1,12 @@
 /** Cron jobs, all scheduled in UTC whatever the process time zone is. */
 import type { AiService } from "../ai/types.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
+import type { LandmineService } from "../features/landmine.ts";
 import type { JobDeps } from "../jobs/channel_posts.ts";
 import { createAutonomousChatJob } from "../jobs/autonomous_chat.ts";
 import { collectExpiredPolls } from "../jobs/collect_polls.ts";
-import { postMoodPolls } from "../jobs/mood_poll.ts";
 import { postLandmineReport } from "../jobs/landmine_report.ts";
-import type { LandmineService } from "../features/landmine.ts";
+import { postMoodPolls } from "../jobs/mood_poll.ts";
 import { postStats } from "../jobs/stats.ts";
 import { runWellnessCheck } from "../jobs/wellness.ts";
 
