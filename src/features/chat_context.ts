@@ -1,4 +1,5 @@
 import { isHttpUrl } from "../ai/context_images.ts";
+import { GACHA_FILENAME } from "./gacha.ts";
 
 export interface DiscordMessageReference {
   id: string;
@@ -48,6 +49,17 @@ function attachmentLooksLikeImage(attachment: Record<string, unknown>): boolean 
   const url = attachment["url"] ?? attachment["proxy_url"];
   if (typeof url !== "string" || !isHttpUrl(url)) return false;
   return IMAGE_FILE_EXT_RE.test(new URL(url).pathname);
+}
+
+/**
+ * The alt text of a pull image Haru posted, or undefined for any other attachment. A pull from
+ * before alt text existed has none, so it reads as an ordinary image. Whether the author is a bot is
+ * for the caller to check.
+ */
+export function gachaAltText(attachment: Record<string, unknown>): string | undefined {
+  if (attachment["filename"] !== GACHA_FILENAME) return undefined;
+  const description = attachment["description"];
+  return typeof description === "string" && description.trim() ? description.trim() : undefined;
 }
 
 function extractImageUrls(message: Record<string, unknown>): string[] {

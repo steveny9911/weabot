@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  gachaAltText,
   mapDiscordMessage,
   toAiContextMessage,
   type RecentDiscordMessage,
@@ -23,6 +24,16 @@ test("Discord mapping ignores webhook activity and preserves our reaction summar
   expect(mapDiscordMessage({ reactions: [null, { me: false }] }).hasOwnReaction).toStrictEqual(
     undefined,
   );
+});
+
+test("gachaAltText reads the description of a pull image and nothing else", () => {
+  const alt = "5 pulls since last 6★: 3★ 克洛丝 (Kroos)";
+  expect(gachaAltText({ filename: "gacha.webp", description: `  ${alt} ` })).toStrictEqual(alt);
+  expect(gachaAltText({ filename: "gacha.webp" })).toStrictEqual(undefined);
+  expect(gachaAltText({ filename: "gacha.webp", description: "  " })).toStrictEqual(undefined);
+  expect(gachaAltText({ filename: "gacha.webp", description: 5 })).toStrictEqual(undefined);
+  expect(gachaAltText({ filename: "cat.png", description: alt })).toStrictEqual(undefined);
+  expect(gachaAltText({ description: alt })).toStrictEqual(undefined);
 });
 
 function message(id: string, minute: number): RecentDiscordMessage {
