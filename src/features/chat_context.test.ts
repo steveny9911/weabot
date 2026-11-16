@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { collectImageUrls } from "../ai/context_images.ts";
 import {
   gachaAltText,
   mapDiscordMessage,
@@ -34,6 +35,98 @@ test("gachaAltText reads the description of a pull image and nothing else", () =
   expect(gachaAltText({ filename: "gacha.webp", description: 5 })).toStrictEqual(undefined);
   expect(gachaAltText({ filename: "cat.png", description: alt })).toStrictEqual(undefined);
   expect(gachaAltText({ description: alt })).toStrictEqual(undefined);
+});
+
+const ALT = "5 pulls since last 6★: 3★ 克洛丝 (Kroos), 6★ 能天使 (Exusiai)";
+const pullImage = (description?: string) => ({
+  filename: "gacha.webp",
+  content_type: "image/webp",
+  url: "https://cdn.example.com/gacha.webp",
+  ...(description === undefined ? {} : { description }),
+});
+
+test("a bot's pull with alt text is described in the text, not sent as an image", () => {
+  const mapped = mapDiscordMessage({
+    id: "pull",
+    author: { id: "haru", bot: true },
+    content: "",
+    attachments: [pullImage(ALT)],
+  });
+  expect(mapped.imageUrls).toStrictEqual([]);
+  expect(mapped.content).toStrictEqual(`[image: ${ALT}]`);
+});
+
+test("a pull's alt text follows the message's own text and keeps other images", () => {
+  const mapped = mapDiscordMessage({
+    author: { id: "haru", bot: true },
+    content: "here",
+    attachments: [
+      pullImage(ALT),
+      { filename: "cat.png", content_type: "image/png", url: "https://cdn.example.com/cat.png" },
+    ],
+  });
+  expect(mapped.content).toStrictEqual(`here [image: ${ALT}]`);
+  expect(mapped.imageUrls).toStrictEqual(["https://cdn.example.com/cat.png"]);
+});
+
+test("a pull with no alt text, a user's gacha.webp, and a bot's other image are still sent", () => {
+  const bot = { id: "haru", bot: true };
+  const url = ["https://cdn.example.com/gacha.webp"];
+  expect(mapDiscordMessage({ author: bot, attachments: [pullImage()] }).imageUrls).toStrictEqual(
+    url,
+  );
+  expect(
+    mapDiscordMessage({ author: bot, attachments: [pullImage("  ")] }).imageUrls,
+  ).toStrictEqual(url);
+  const user = mapDiscordMessage({ author: { id: "u1" }, attachments: [pullImage(ALT)] });
+  expect(user.imageUrls).toStrictEqual(url);
+  expect(user.content).toStrictEqual("");
+  const other = {
+    filename: "art.png",
+    content_type: "image/png",
+    url: "https://cdn.example.com/art.png",
+    description: ALT,
+  };
+  const art = mapDiscordMessage({ author: bot, attachments: [other] });
+  expect(art.imageUrls).toStrictEqual(["https://cdn.example.com/art.png"]);
+  expect(art.content).toStrictEqual("");
+});
+
+test("a replied-to pull is described by its alt text too", () => {
+  const mapped = mapDiscordMessage({
+    content: "what did I get?",
+    author: { id: "u1" },
+    referenced_message: { author: { id: "haru", bot: true }, attachments: [pullImage(ALT)] },
+  });
+  expect(mapped.referencedMessage?.imageUrls).toStrictEqual([]);
+  expect(mapped.referencedMessage?.content).toStrictEqual(`[image: ${ALT}]`);
+});
+
+test("a message of only a pull stays in the conversation, and the pull takes no image slot", () => {
+  const messages = [
+    mapDiscordMessage({
+      id: "1",
+      timestamp: "2026-08-27T12:00:00.000Z",
+      author: { id: "haru", bot: true },
+      attachments: [pullImage(ALT)],
+    }),
+    mapDiscordMessage({
+      id: "2",
+      timestamp: "2026-08-27T12:01:00.000Z",
+      author: { id: "u1" },
+      attachments: [
+        { filename: "cat.png", content_type: "image/png", url: "https://cdn.example.com/cat.png" },
+      ],
+    }),
+  ];
+  const active = selectActiveConversation(messages, {
+    maxMessages: 20,
+    inactivityGapMs: 3_600_000,
+  });
+  expect(active.map((m) => m.id)).toStrictEqual(["1", "2"]);
+  expect(collectImageUrls(active.map(toAiContextMessage), 1)).toStrictEqual([
+    "https://cdn.example.com/cat.png",
+  ]);
 });
 
 function message(id: string, minute: number): RecentDiscordMessage {
