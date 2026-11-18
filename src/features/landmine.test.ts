@@ -1,5 +1,6 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
+import { captureLogs } from "../../tests/support/logs.ts";
 import { openDatabase } from "../db/database.ts";
 import { createLandmineQueries } from "../db/landmines.ts";
 import type { SendResult } from "../discord/client.ts";
@@ -181,17 +182,16 @@ test("\\ commands are never landmines", async () => {
 });
 
 test("a safe roll and a failed announcement are logged", async () => {
-  const logs: string[] = [];
-  const log = spyOn(console, "log").mockImplementation((m) => void logs.push(String(m)));
-  const error = spyOn(console, "error").mockImplementation((m) => void logs.push(String(m)));
+  const { lines: logs, restore } = captureLogs("debug");
   try {
     await setup({}, { random: 0.9 }).service.step(message());
     await setup({}, { send: async () => ({ ok: false, error: "403" }) }).service.step(message());
   } finally {
-    log.mockRestore();
-    error.mockRestore();
+    restore();
   }
-  expect(logs.some((l) => l.includes("Safe: user-1") && l.includes("0.900"))).toBe(true);
+  expect(logs.some((l) => l.includes("Safe") && l.includes("user-1") && l.includes("0.9"))).toBe(
+    true,
+  );
   expect(logs.some((l) => l.includes("Could not announce") && l.includes("403"))).toBe(true);
 });
 

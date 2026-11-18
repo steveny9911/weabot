@@ -3,6 +3,7 @@ import { isMood, type Mood } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
 import type { DiscordClient, PollVoter } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
+import { log } from "../app/log.ts";
 
 export interface PollCollectionResult {
   collected: { poll: PollRecord; votes: number }[];
@@ -41,13 +42,14 @@ export async function collectExpiredPolls(
       }
       await storage.markPollCollected(poll.messageId);
       result.collected.push({ poll, votes: votes.length });
-      console.log(`[POLL] Collected ${votes.length} vote(s) from poll ${poll.messageId}`);
+      log.info("poll", "Collected votes", { messageId: poll.messageId, votes: votes.length });
     } catch (error) {
       result.failed.push({ poll, error });
-      console.error(
-        `[POLL] Collection failed for poll ${poll.messageId} in channel ${poll.channelId}; will retry:`,
-        error,
-      );
+      log.error("poll", "Collection failed; will retry", {
+        messageId: poll.messageId,
+        channelId: poll.channelId,
+        err: error,
+      });
     }
   }
   return result;

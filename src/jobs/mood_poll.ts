@@ -1,14 +1,15 @@
 /** Posts the daily mood poll to the mood_poll channels and records it for later collection. */
 import { buildMoodPollPayload } from "../features/poll.ts";
 import { MOOD_POLL_HOURS } from "../types/bot.ts";
-import { type ChannelPost, type JobDeps, type LogTag, postToChannels } from "./channel_posts.ts";
+import { type ChannelPost, type JobDeps, type LogScope, postToChannels } from "./channel_posts.ts";
+import { log } from "../app/log.ts";
 
 export async function postMoodPolls(
   { config, discord, storage }: JobDeps,
-  tag: LogTag,
+  scope: LogScope,
 ): Promise<ChannelPost[]> {
   if (!config.moodPoll.enabled) {
-    console.log(`${tag} Mood poll skipped because it is disabled`);
+    log.debug(scope, "Mood poll skipped because it is disabled");
     return [];
   }
   const now = Date.now();
@@ -17,7 +18,7 @@ export async function postMoodPolls(
   return await postToChannels(
     discord,
     config.moodPoll.channelIds,
-    { label: "poll", tag },
+    { label: "poll", scope },
     () => payload,
     ({ channelId, detail: messageId }) =>
       storage.savePendingPoll({

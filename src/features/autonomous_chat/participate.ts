@@ -11,6 +11,7 @@ import {
   reactionChoices,
   type ReactionContext,
 } from "../reactions.ts";
+import { log } from "../../app/log.ts";
 
 export interface ParticipationDeps {
   config: AppConfig;
@@ -58,7 +59,7 @@ export async function participateInChannel(
   };
   const decision = decideAutonomousChatReply(messages, options);
   if (!decision.shouldReply || !decision.latestHumanMessage) {
-    console.log(`[CRON] Autonomous chat skipped in ${channelId}: ${decision.reason}`);
+    log.debug("autonomous", "Skipped", { channelId, reason: decision.reason });
     return { status: decision.reason };
   }
   const budget = await rateLimit.admitRequest("autonomous-chat", {
@@ -99,19 +100,14 @@ export async function participateInChannel(
     if (result.tokensUsed) await rateLimit.recordTokenUsage(result.tokensUsed);
     if (!result.ok) return { status: "AI failed" };
     const p = result.participation;
-    console.log(
-      "[AUTONOMOUS DECISION]",
-      JSON.stringify({
-        channelId,
-        watermark: latest.id,
-        candidates: decision.reactionMessageIds?.slice(0, 100),
-        action: p?.action ?? "silent",
-        reason: p?.reason ?? "ambiguous",
-        ...(p?.action === "react"
-          ? { targetId: p.messageId, intent: p.intent, emoji: p.emoji }
-          : {}),
-      }),
-    );
+    log.info("autonomous", "Decision", {
+      channelId,
+      watermark: latest.id,
+      candidates: decision.reactionMessageIds?.slice(0, 100),
+      action: p?.action ?? "silent",
+      reason: p?.reason ?? "ambiguous",
+      ...(p?.action === "react" ? { targetId: p.messageId, intent: p.intent, emoji: p.emoji } : {}),
+    });
     if (!p || p.action === "silent") return { status: "silent", action: "silent" };
     if (p.action === "react") {
       if (
@@ -187,7 +183,7 @@ export async function participateInChannel(
       return { status: `delivery HTTP ${response.status}`, action: p.action };
     }
     if (p.action === "react") usedEmoji = p.emoji;
-    console.log(`[CRON] Autonomous ${p.action} succeeded in ${channelId}`);
+    log.info("autonomous", "Delivered", { channelId, action: p.action });
     return {
       status: "delivered",
       action: p.action,

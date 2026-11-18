@@ -10,6 +10,7 @@ import {
   type LinkFetch,
   normalizeHost,
 } from "./public_fetch.ts";
+import { log } from "../app/log.ts";
 
 const MAX_REDIRECTS = 3;
 // One deadline for the entire open(), including DNS, every redirect and body decoding.
@@ -193,7 +194,7 @@ export function createLinkOpenService(
       }
 
       if (isBlockedHost(current)) {
-        console.log(`[LINK] blocked: blocked_host (${current.hostname})`);
+        log.warn("link", "Blocked", { reason: "blocked_host", host: current.hostname });
         return { ok: false, error: "blocked_host" };
       }
 
@@ -242,7 +243,7 @@ export function createLinkOpenService(
                 return { ok: false, error: "redirect_blocked" };
               }
               if (isBlockedHost(next)) {
-                console.log(`[LINK] blocked: redirect_blocked (${next.hostname})`);
+                log.warn("link", "Blocked", { reason: "redirect_blocked", host: next.hostname });
                 return { ok: false, error: "redirect_blocked" };
               }
 
@@ -274,11 +275,11 @@ export function createLinkOpenService(
             const title = extractTitle(bodyResult.text);
             const excerpt = extractTextExcerpt(bodyResult.text, MAX_EXCERPT_CHARS);
 
-            console.log(
-              `[LINK] fetched: domain=${normalizeHost(
-                current.hostname,
-              )} bytes=${bodyResult.bytes} redirects=${redirects}`,
-            );
+            log.info("link", "Fetched", {
+              domain: normalizeHost(current.hostname),
+              bytes: bodyResult.bytes,
+              redirects,
+            });
             return {
               ok: true,
               page: {

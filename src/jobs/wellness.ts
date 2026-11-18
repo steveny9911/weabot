@@ -1,29 +1,30 @@
 /** Wellness alerts: the daily check for users with consecutive "glue" days, and a manual test alert. */
 import { buildAlertEmbed } from "../features/stats.ts";
 import { type ChannelPost, type JobDeps, postToChannels } from "./channel_posts.ts";
+import { log } from "../app/log.ts";
 
 /** Sends a supportive alert for each user at or over the configured "glue" streak. */
 export async function runWellnessCheck({ config, discord, storage }: JobDeps): Promise<void> {
   if (!config.wellness.enabled) {
-    console.log("[CRON] Wellness check skipped because it is disabled");
+    log.debug("cron", "Wellness check skipped because it is disabled");
     return;
   }
   for (const channelId of config.wellness.channelIds) {
     const atRisk = await storage.getUsersAtRisk(channelId, config.wellness.glueAlertThreshold);
 
     if (atRisk.length === 0) {
-      console.log(`[CRON] No users at risk in ${channelId}`);
+      log.info("cron", "No users at risk", { channelId });
       continue;
     }
 
-    console.log(`[CRON] Found ${atRisk.length} user(s) at risk in ${channelId}`);
+    log.info("cron", "Users at risk", { channelId, count: atRisk.length });
 
     for (const history of atRisk) {
       const name = history[0].userName;
       await postToChannels(
         discord,
         [channelId],
-        { label: `alert for ${name}`, tag: "[CRON]" },
+        { label: `alert for ${name}`, scope: "cron" },
         () => buildAlertEmbed(name, history.length),
       );
     }
@@ -37,14 +38,14 @@ export async function postTestAlert(
   days: number,
 ): Promise<ChannelPost[]> {
   if (!config.wellness.enabled) {
-    console.log("[SERVER] Test alert skipped because wellness is disabled");
+    log.debug("server", "Test alert skipped because wellness is disabled");
     return [];
   }
   const alertEmbed = buildAlertEmbed(userName, days);
   return await postToChannels(
     discord,
     config.wellness.channelIds,
-    { label: "alert", tag: "[SERVER]" },
+    { label: "alert", scope: "server" },
     () => alertEmbed,
   );
 }

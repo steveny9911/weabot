@@ -11,6 +11,7 @@ import type {
   PollRecord,
   VoteRecord,
 } from "../types/storage.ts";
+import { log } from "../app/log.ts";
 
 export type StorageService = ReturnType<typeof createStorageService>;
 export type ContextStorageService = Pick<StorageService, "setContextReset" | "getContextReset">;
@@ -95,7 +96,7 @@ export function createStorageService(db: Database, now: () => number = Date.now)
 
     async savePendingPoll(poll: PollRecord) {
       votes.savePoll(poll, now());
-      console.log(`[STORAGE] Saved pending poll ${poll.messageId} for ${poll.date}`);
+      log.info("storage", "Saved pending poll", { messageId: poll.messageId, date: poll.date });
     },
 
     async getExpiredPolls() {
@@ -108,7 +109,7 @@ export function createStorageService(db: Database, now: () => number = Date.now)
 
     async markPollCollected(messageId: string) {
       if (votes.markCollected(messageId, now())) {
-        console.log(`[STORAGE] Marked poll ${messageId} as collected`);
+        log.info("storage", "Marked poll collected", { messageId });
       }
     },
 

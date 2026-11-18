@@ -1,5 +1,6 @@
 import fileConfig from "../config.yaml";
 import { validateConfigFile } from "./config_schema.ts";
+import { LOG_LEVELS, type LogLevel } from "./app/log.ts";
 import { AI_PROVIDERS } from "./ai/providers/index.ts";
 import { DEFAULT_DATABASE_PATH } from "./db/database.ts";
 import {
@@ -20,6 +21,7 @@ export interface AppConfig {
   channelIds: string[];
   databasePath: string;
   httpPort: number;
+  logLevel: LogLevel;
   timeZone: string;
 
   /** Master switch for AI: false turns off mention replies, autonomous chat and event tools. */
@@ -129,6 +131,7 @@ export interface ConfigFile {
     time_zone?: string;
     db_path?: string;
     http_port?: number;
+    log_level?: string;
   };
   ai_chat?: ReactiveFeatureFile;
   /** Also holds one section per provider, named for it; each provider's module defines its keys. */
@@ -179,6 +182,17 @@ function positive(name: string, value: number | undefined, fallback: number): nu
     throw new Error(`FATAL: ${name} in config.yaml must be a number above 0`);
   }
   return value;
+}
+
+/** `general.log_level`; a missing one is `info`. */
+function parseLogLevel(value: string | undefined): LogLevel {
+  if (value === undefined) return "info";
+  if (!LOG_LEVELS.includes(value as LogLevel)) {
+    throw new Error(
+      `FATAL: general.log_level in config.yaml must be one of: ${LOG_LEVELS.join(", ")}`,
+    );
+  }
+  return value as LogLevel;
 }
 
 /** Builds the app config from config.yaml (`file`, which tests replace) and the secrets in .env. */
@@ -237,6 +251,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     channelIds,
     databasePath: general?.db_path ?? DEFAULT_DATABASE_PATH,
     httpPort: general?.http_port ?? 8000,
+    logLevel: parseLogLevel(general?.log_level),
     timeZone: general?.time_zone ?? "America/Los_Angeles",
 
     aiEnabled,

@@ -175,9 +175,12 @@ docker compose up -d
 docker compose logs -f haru
 ```
 
-The log should show `🐴 Haru is running!`. The container runs as user `1000` and keeps the SQLite
+The log should show `Haru is running`. The container runs as user `1000` and keeps the SQLite
 database in `./data`. Run only one instance per Discord token, so stop `bun run dev` first.
-Container logs are capped at three 10 MB files. No port is published, because the bot only makes
+Container logs are capped at three 10 MB files. Each line is JSON (`level`, `scope`, `message` and
+extra fields), so Dozzle can filter it and `docker compose logs haru --no-log-prefix | jq` can read
+it; in a terminal, such as `bun run dev`, lines are plain text. `general.log_level` in `config.yaml`
+sets how much is logged (`info` by default). No port is published, because the bot only makes
 outbound connections. To reach the admin API from the host, add `ports: ["127.0.0.1:8000:8000"]` and
 set `ADMIN_HTTP_TOKEN`. `config.yaml` is mounted read-only; copy it before the first `up`, or Docker
 creates a directory in its place (remove it with `sudo rmdir config.yaml`).

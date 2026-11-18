@@ -33,6 +33,7 @@ import {
   isDiscussion,
 } from "./intent.ts";
 import { type ActionResult, errorResult, eventResult, eventUrl } from "./results.ts";
+import { log } from "../../app/log.ts";
 
 export interface DiscordActionContext {
   guildId: string;
@@ -214,8 +215,9 @@ export function createDiscordActionService(
     try {
       records.complete(operation, guard, result, Boolean(result.ok || result.uncertain), now());
     } catch {
-      console.error(
-        "[DISCORD ACTION] Could not persist the result; keeping the claim to prevent replay.",
+      log.error(
+        "discord_action",
+        "Could not persist the result; keeping the claim to prevent replay",
       );
     }
     return result;

@@ -7,6 +7,7 @@ import {
   selectActiveConversation,
   type RecentDiscordMessage,
 } from "../features/chat_context.ts";
+import { log } from "../app/log.ts";
 
 /** The recent conversation ending with `triggerMessage`; just the trigger if Discord fails. */
 export async function loadContext(
@@ -22,7 +23,7 @@ export async function loadContext(
   try {
     recent = await discord.getRecentMessages(channelId, limit);
   } catch (err) {
-    console.error("Error loading context:", err);
+    log.error("bot", "Error loading context", { err });
   }
   const conversation = selectActiveConversation(
     [...recent.filter((m) => m.id !== trigger.id), trigger],
@@ -32,6 +33,6 @@ export async function loadContext(
       resetAfterMs,
     },
   );
-  console.log(`Loaded ${conversation.length} messages of context for channel ${channelId}`);
+  log.debug("bot", "Loaded context", { channelId, messages: conversation.length });
   return conversation.map(toAiContextMessage) as Array<Record<string, unknown>>;
 }

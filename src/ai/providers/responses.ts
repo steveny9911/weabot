@@ -2,6 +2,7 @@
 import type { Fetcher } from "../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../participation.ts";
 import type { AiProvider, ProviderRequest, ProviderStep, ToolCall } from "./types.ts";
+import { log } from "../../app/log.ts";
 
 /** What a provider adds to the shared Responses client. */
 interface ResponsesOptions {
@@ -58,7 +59,7 @@ export function createResponsesProvider(options: ResponsesOptions): AiProvider {
 
           const json: unknown = await res.json();
           const data = isObject(json) ? json : {};
-          console.log("[AI] model:", data.model);
+          log.debug("ai", "Model used", { model: data.model });
           const tokens = readTokenUsage(data);
           if (request.tools && (data.status === "incomplete" || data.status === "failed")) {
             const why = isObject(data.incomplete_details)

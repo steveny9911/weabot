@@ -32,6 +32,7 @@ import {
 import { isActiveIn } from "../feature_config.ts";
 import { loadContext } from "./context.ts";
 import { withTyping } from "./typing.ts";
+import { log } from "../app/log.ts";
 
 export interface BotDependencies {
   config: AppConfig;
@@ -99,9 +100,9 @@ export async function handleMessage(
   const reportPeriod = parseLandmineReportCommand(content);
   if (reportPeriod) return await landmineReport(deps, message, reportPeriod);
 
-  console.log(`Bot mentioned by user ${userId} in channel ${channelId}`);
+  log.info("bot", "Mentioned", { userId, channelId });
   if (!config.aiEnabled || !isActiveIn(config.aiChat, channelId)) {
-    console.log("AI chat is off here, ignoring mention");
+    log.debug("bot", "AI chat is off here; ignoring the mention", { channelId });
     return;
   }
 
@@ -118,7 +119,7 @@ export async function handleMessage(
   const admission = await rateLimitService.admitRequest(userId);
   if (!admission.allowed) {
     const resetTime = formatTime(admission.resetInMs);
-    console.log(`Request refused for ${userId}: ${admission.reason}`);
+    log.info("bot", "Request refused", { userId, reason: admission.reason });
     return void (await reply(
       admission.reason === "user_limit"
         ? `Whoa there, speedy!~ I need a little break. Try again in ${resetTime}~`
@@ -163,7 +164,7 @@ export async function handleMessage(
       if (aiResult.tokensUsed) await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
 
       if (!aiResult.ok) {
-        console.error("AI generation failed:", aiResult.error);
+        log.error("ai", "Generation failed", { error: aiResult.error });
         const fallback = "Hmm, my brain's a bit fuzzy right now. Try again in a moment~";
         return void (await reply(actionReply ?? fallback, Boolean(actionSession)));
       }
@@ -196,8 +197,9 @@ async function landmineReport(
   }
   const response = await discord.postMessage(channelId, landmineService.report(period));
   if (response.ok) await response.body?.cancel();
-  else
-    console.error(`[LANDMINE] Could not post the report in ${channelId}: ${await response.text()}`);
+  else {
+    log.error("landmine", "Could not post the report", { channelId, body: await response.text() });
+  }
 }
 
 /** Replies to the \\gacha message with a ten-pull image. */
@@ -275,7 +277,7 @@ async function resetContext(deps: BotDependencies, message: IncomingMessage): Pr
   await deps.discord.sendMessage(channelId, "Okay!~ I cleared our chat context.", {
     replyTo: id,
   });
-  console.log(`Context reset by user ${authorId} in channel ${channelId}`);
+  log.info("bot", "Context reset", { userId: authorId, channelId });
 }
 
 type WebNotes = { notes?: Record<string, unknown>; linked: boolean } | { failure: string };
@@ -292,10 +294,10 @@ async function readWeb(
   const { config, webSearchService, tweetService } = deps;
 
   if (openCommand) {
-    console.log(`[LINK] open requested: ${openCommand.url}`);
+    log.info("link", "Open requested", { url: openCommand.url });
     const result = await deps.linkOpenService.open(openCommand.url);
     if (!result.ok) {
-      console.error(`[LINK] open failed: ${result.error}`);
+      log.error("link", "Open failed", { error: result.error });
       return {
         failure: "Eep... I couldn't safely open that link. Can you try another one?~",
       };
@@ -317,11 +319,11 @@ async function readWeb(
   if (tweetId && tweetService) {
     const result = await tweetService.read(tweetId);
     if (!result.ok) {
-      console.error(`[TWEET] read failed: ${result.error}`);
+      log.error("tweet", "Read failed", { error: result.error });
       return { failure: "Ehehe~ I couldn't read that tweet." };
     }
     const { tweet } = result;
-    console.log(`[TWEET] read ${tweetId}`);
+    log.info("tweet", "Read", { tweetId });
     const imageUrls = [...tweet.photoUrls, ...(tweet.quoted?.photoUrls ?? [])];
     return {
       notes: { author: "web", content: formatTweetNotes(tweet), imageUrls },
@@ -336,10 +338,10 @@ async function readWeb(
   if (!webSearchService || !query) return { linked: false };
   const result = await webSearchService.search(query);
   if (!result.ok) {
-    console.error("Auto web search failed:", result.error);
+    log.error("search", "Auto search failed", { error: result.error });
     return { linked: false };
   }
-  console.log(`[SEARCH] Auto search used for: ${query}`);
+  log.info("search", "Auto search used", { query });
   return {
     notes: {
       author: "web",

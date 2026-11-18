@@ -2,6 +2,7 @@
 import type { AppConfig } from "../config.ts";
 import type { DiscordClient, MessagePayload } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
+import { log } from "../app/log.ts";
 
 export interface JobDeps {
   config: AppConfig;
@@ -10,7 +11,7 @@ export interface JobDeps {
 }
 
 /** Log prefix of the caller: scheduled jobs log as [CRON], admin routes as [SERVER]. */
-export type LogTag = "[CRON]" | "[SERVER]";
+export type LogScope = "cron" | "server";
 
 /** One channel's result. `detail` is the new message ID on success, Discord's error body otherwise. */
 export interface ChannelPost {
@@ -20,13 +21,13 @@ export interface ChannelPost {
 }
 
 /**
- * Posts to each channel in turn, logging every result as `tag` and naming the post `label`.
+ * Posts to each channel in turn, logging every result under `scope` and naming the post `label`.
  * `onPosted` runs right after each successful post, so a later channel failing cannot lose it.
  */
 export async function postToChannels(
   discord: DiscordClient,
   channelIds: string[],
-  { label, tag }: { label: string; tag: LogTag },
+  { label, scope }: { label: string; scope: LogScope },
   payloadFor: (channelId: string) => MessagePayload | Promise<MessagePayload>,
   onPosted?: (post: ChannelPost) => void | Promise<void>,
 ): Promise<ChannelPost[]> {
@@ -35,13 +36,13 @@ export async function postToChannels(
     const response = await discord.postMessage(channelId, await payloadFor(channelId));
     if (response.ok) {
       const { id } = (await response.json()) as { id: string };
-      console.log(`${tag} Posted ${label} in ${channelId}: message ${id}`);
+      log.info(scope, `Posted ${label}`, { channelId, messageId: id });
       const post = { channelId, ok: true, detail: id };
       posts.push(post);
       await onPosted?.(post);
     } else {
       const body = await response.text();
-      console.error(`${tag} Failed to post ${label} in ${channelId}: ${response.status} ${body}`);
+      log.error(scope, `Failed to post ${label}`, { channelId, status: response.status, body });
       posts.push({ channelId, ok: false, detail: body });
     }
   }

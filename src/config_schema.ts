@@ -16,7 +16,7 @@ type Keys<T> = {
  */
 const KEYS: Keys<ConfigFile> = {
   discord: { channel_ids: true },
-  general: { time_zone: true, db_path: true, http_port: true },
+  general: { time_zone: true, db_path: true, http_port: true, log_level: true },
   ai: {
     enabled: true,
     provider: true,

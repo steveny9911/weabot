@@ -6,6 +6,7 @@ import type { DiscordClient } from "../discord/client.ts";
 import type { createLandmineQueries } from "../db/landmines.ts";
 import { buildLandmineReport, reportStart, type ReportPeriod } from "./landmine_report.ts";
 import type { EmbedMessagePayload } from "./stats.ts";
+import { log } from "../app/log.ts";
 
 export interface LandmineService {
   /** Rolls one message; on a landmine announces it, and times the author out if enabled. Never throws. */
@@ -45,14 +46,14 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
       if (isCommand(message["content"] as string | undefined)) return;
       const roll = random();
       if (roll >= config.landmine.chance) {
-        console.log(`[LANDMINE] Safe: ${userId} in ${channelId} (rolled ${roll.toFixed(3)})`);
+        log.debug("landmine", "Safe", { userId, channelId, roll: Number(roll.toFixed(3)) });
         return;
       }
 
       try {
         const remaining = mines.claim();
         if (remaining === null) {
-          console.log(`[LANDMINE] ${userId} rolled a landmine in ${channelId}, but none are left`);
+          log.info("landmine", "Rolled a landmine, but none are left", { userId, channelId });
           return;
         }
 
@@ -67,7 +68,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
           );
           if (!result.ok) {
             mines.refund();
-            console.error(`[LANDMINE] Could not time out ${userId}: ${result.error}`);
+            log.error("landmine", "Could not time out", { userId, error: result.error });
             return;
           }
           timedOut = ` and has been timed out for ${formatTime(seconds * 1000)}`;
@@ -76,16 +77,16 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         mines.recordStep(userId);
 
         const gif = config.landmine.gifs[Math.floor(random() * config.landmine.gifs.length)];
-        console.log(`[LANDMINE] ${userId} stepped on one in ${channelId}; ${remaining} left`);
+        log.info("landmine", "Stepped on a landmine", { userId, channelId, remaining });
         const sent = await discord.sendMessage(
           channelId,
           `💥<@${userId}>💥 stepped on a landmine${timedOut}! ` +
             `(${remaining.toLocaleString("en-US")} landmines remaining)` +
             (gif ? `\n${gif}` : ""),
         );
-        if (!sent.ok) console.error(`[LANDMINE] Could not announce in ${channelId}: ${sent.error}`);
+        if (!sent.ok) log.error("landmine", "Could not announce", { channelId, error: sent.error });
       } catch (error) {
-        console.error("[LANDMINE] Failed:", error);
+        log.error("landmine", "Failed", { err: error });
       }
     },
   };

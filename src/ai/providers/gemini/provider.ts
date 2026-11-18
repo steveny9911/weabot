@@ -4,6 +4,7 @@ import { ApiError, type Content, FinishReason, GoogleGenAI, ThinkingLevel } from
 import type { Fetcher } from "../../../types/fetch.ts";
 import { AUTONOMOUS_PARTICIPATION_FORMAT } from "../../participation.ts";
 import type { AiProvider, ProviderStep } from "../types.ts";
+import { log } from "../../../app/log.ts";
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const MAX_IMAGE_BYTES = 5_000_000;
@@ -129,7 +130,7 @@ export function createGeminiProvider(
               // A decision cut short or filtered is no decision, even if its JSON parses.
               const finished =
                 !participation || response.candidates?.[0]?.finishReason === FinishReason.STOP;
-              console.log("[AI] model:", model);
+              log.debug("ai", "Model used", { model });
               return {
                 ok: true,
                 text: finished ? text || null : null,
@@ -146,9 +147,10 @@ export function createGeminiProvider(
               if (STOP_STATUSES.includes(status) && !thinkingRejected) {
                 return { ok: false, error: lastError, tokens: 0 };
               }
-              console.warn(
-                `[AI] ${model} failed (${status || "no response"}); trying the next model`,
-              );
+              log.warn("ai", "Model failed; trying the next model", {
+                model,
+                status: status || "no response",
+              });
             }
           }
           return { ok: false, error: lastError, tokens: 0 };
