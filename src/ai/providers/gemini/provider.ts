@@ -130,7 +130,7 @@ export function createGeminiProvider(
               // A decision cut short or filtered is no decision, even if its JSON parses.
               const finished =
                 !participation || response.candidates?.[0]?.finishReason === FinishReason.STOP;
-              log.debug("ai", "Model used", { model });
+              log.debug("AI", "Model used", { model });
               return {
                 ok: true,
                 text: finished ? text || null : null,
@@ -147,7 +147,7 @@ export function createGeminiProvider(
               if (STOP_STATUSES.includes(status) && !thinkingRejected) {
                 return { ok: false, error: lastError, tokens: 0 };
               }
-              log.warn("ai", "Model failed; trying the next model", {
+              log.warn("AI", "Model failed; trying the next model", {
                 model,
                 status: status || "no response",
               });

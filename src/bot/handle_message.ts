@@ -164,7 +164,7 @@ export async function handleMessage(
       if (aiResult.tokensUsed) await rateLimitService.recordTokenUsage(aiResult.tokensUsed);
 
       if (!aiResult.ok) {
-        log.error("ai", "Generation failed", { error: aiResult.error });
+        log.error("AI", "Generation failed", { error: aiResult.error });
         const fallback = "Hmm, my brain's a bit fuzzy right now. Try again in a moment~";
         return void (await reply(actionReply ?? fallback, Boolean(actionSession)));
       }

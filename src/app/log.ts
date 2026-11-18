@@ -18,7 +18,7 @@ export type LogScope =
   | "discord"
   | "discord_actions"
   | "bot"
-  | "ai"
+  | "AI"
   | "autonomous"
   | "poll"
   | "landmine"

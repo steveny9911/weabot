@@ -59,7 +59,7 @@ export function createResponsesProvider(options: ResponsesOptions): AiProvider {
 
           const json: unknown = await res.json();
           const data = isObject(json) ? json : {};
-          log.debug("ai", "Model used", { model: data.model });
+          log.debug("AI", "Model used", { model: data.model });
           const tokens = readTokenUsage(data);
           if (request.tools && (data.status === "incomplete" || data.status === "failed")) {
             const why = isObject(data.incomplete_details)
