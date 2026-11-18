@@ -5,8 +5,6 @@
  * Messages are short past-tense events ("Posted poll") or "Failed to <verb>". Details go in
  * fields, not in the message; an error goes in an `error` field, as an Error or a string.
  */
-import { inspect } from "node:util";
-
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
 export type LogLevel = keyof typeof LEVELS;
 export const LOG_LEVELS = Object.keys(LEVELS) as LogLevel[];
@@ -57,7 +55,7 @@ function json(level: LogLevel, scope: LogScope, message: string, fields: Fields)
     return JSON.stringify({ ...fields, ...fixed }, replacer);
   } catch {
     // A cyclic field: log the line anyway, because a log call must never throw.
-    return JSON.stringify({ fields: inspect(fields, { depth: 2 }), ...fixed });
+    return JSON.stringify({ fields: Bun.inspect(fields, { depth: 2, compact: true }), ...fixed });
   }
 }
 
@@ -66,7 +64,7 @@ function emit(level: LogLevel, scope: LogScope, message: string, fields: Fields 
   const write = level === "error" || level === "warn" ? console.error : console.log;
   if (process.stdout.isTTY) {
     const extra =
-      Object.keys(fields).length > 0 ? ` ${inspect(fields, { breakLength: Infinity })}` : "";
+      Object.keys(fields).length > 0 ? ` ${Bun.inspect(fields, { compact: true })}` : "";
     const time = new Date().toTimeString().slice(0, 8);
     write(`${time} ${level.toUpperCase().padEnd(5)} [${scope}] ${message}${extra}`);
   } else {
