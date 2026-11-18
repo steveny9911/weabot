@@ -17,11 +17,11 @@ export function createAutonomousChatJob(
   return async () => {
     if (!config.autonomousChat.enabled) return;
     if (!config.aiEnabled || !config.aiApiKey) {
-      log.debug("cron", "Autonomous chat skipped because AI is disabled or unconfigured");
+      log.debug("autonomous", "Autonomous chat skipped because AI is disabled or unconfigured");
       return;
     }
     if (autonomousChatRunning) {
-      log.warn("cron", "Autonomous chat skipped because the previous run is still active");
+      log.warn("autonomous", "Autonomous chat skipped because the previous run is still active");
       return;
     }
 
@@ -29,7 +29,7 @@ export function createAutonomousChatJob(
     try {
       const botUserId = await discord.getBotUserId();
       if (!botUserId) {
-        log.error("cron", "Autonomous chat skipped because the bot user id is unavailable");
+        log.error("autonomous", "Autonomous chat skipped because the bot user id is unavailable");
         return;
       }
 
@@ -46,14 +46,14 @@ export function createAutonomousChatJob(
           });
           log.debug("autonomous", "Outcome", { channelId, ...outcome });
         } catch (error) {
-          log.warn("cron", "Autonomous chat skipped after a channel error", {
+          log.warn("autonomous", "Autonomous chat skipped after a channel error", {
             channelId,
-            err: error,
+            error,
           });
         }
       }
     } catch (error) {
-      log.error("cron", "Error in autonomous chat", { err: error });
+      log.error("autonomous", "Error in autonomous chat", { error });
     } finally {
       autonomousChatRunning = false;
     }

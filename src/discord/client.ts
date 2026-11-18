@@ -102,11 +102,13 @@ export function createDiscordClient(token: string): DiscordClient {
         await response.body?.cancel();
         return { ok: true };
       }
-      error = `Discord ${label} error ${response.status}: ${await response.text()}`;
+      const body = await response.text();
+      error = `Discord ${label} error ${response.status}: ${body}`;
+      log.error("discord", `Discord ${label} failed`, { status: response.status, body });
     } catch (thrown) {
       error = String(thrown);
+      log.error("discord", `Discord ${label} failed`, { error: thrown });
     }
-    log.error("discord", error);
     return { ok: false, error };
   }
 
@@ -127,7 +129,7 @@ export function createDiscordClient(token: string): DiscordClient {
         botUserId = ((await response.json()) as { id: string }).id;
         return botUserId;
       } catch (error) {
-        log.error("discord", "Error fetching the bot user id", { err: error });
+        log.error("discord", "Error fetching the bot user id", { error });
         return undefined;
       }
     },

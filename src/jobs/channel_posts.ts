@@ -2,7 +2,7 @@
 import type { AppConfig } from "../config.ts";
 import type { DiscordClient, MessagePayload } from "../discord/client.ts";
 import type { StorageService } from "../services/storage.ts";
-import { log } from "../app/log.ts";
+import { log, type LogScope } from "../app/log.ts";
 
 export interface JobDeps {
   config: AppConfig;
@@ -11,7 +11,6 @@ export interface JobDeps {
 }
 
 /** Log prefix of the caller: scheduled jobs log as [CRON], admin routes as [SERVER]. */
-export type LogScope = "cron" | "server";
 
 /** One channel's result. `detail` is the new message ID on success, Discord's error body otherwise. */
 export interface ChannelPost {

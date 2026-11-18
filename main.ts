@@ -26,6 +26,14 @@ import { log, setLogLevel } from "./src/app/log.ts";
 import type { ChannelScope } from "./src/feature_config.ts";
 import type { BotDependencies } from "./src/bot/handle_message.ts";
 
+// A crash is logged like everything else, then the process exits so Docker restarts it.
+for (const event of ["uncaughtException", "unhandledRejection"] as const) {
+  process.on(event, (error) => {
+    log.error("main", event, { error });
+    process.exit(1);
+  });
+}
+
 const config = loadConfig();
 setLogLevel(config.logLevel);
 

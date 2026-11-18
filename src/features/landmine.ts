@@ -86,7 +86,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         );
         if (!sent.ok) log.error("landmine", "Could not announce", { channelId, error: sent.error });
       } catch (error) {
-        log.error("landmine", "Failed", { err: error });
+        log.error("landmine", "Failed to handle the step", { error });
       }
     },
   };

@@ -25,7 +25,7 @@ export const bunCron: CronRegistrar = (name, schedule, handler) => {
       try {
         await handler();
       } catch (error) {
-        log.error("cron", `${name} failed`, { err: error });
+        log.error("cron", `${name} failed`, { error });
       }
     },
     { tz: "UTC" },
@@ -74,9 +74,9 @@ export function registerCronJobs(
     await postLandmineReport(deps, landmines, "month");
   });
   register("Poll Result Collection", "30 * * * *", async () => {
-    log.info("cron", "Checking for expired polls to collect");
+    log.info("poll", "Checking for expired polls to collect");
     const result = await collectExpiredPolls(discord, storage);
-    log.info("cron", "Poll collection", {
+    log.info("poll", "Poll collection", {
       collected: result.collected.length,
       pendingRetry: result.failed.length,
     });

@@ -85,7 +85,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
       const altText = `${result.finalPity} pulls since last 6★: ${names}`.slice(0, 1024);
       return { ok: true, image: new Uint8Array(image), altText };
     } catch (error) {
-      log.error("gacha", "Failed", { err: error });
+      log.error("gacha", "Failed to render the pull", { error });
       // A failed draw costs the user nothing, unless a newer pull has set a cooldown since.
       if (readyAt.get(userId) === cooldownEnd) readyAt.delete(userId);
       return { ok: false, reason: "failed" };

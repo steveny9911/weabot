@@ -287,14 +287,14 @@ export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
     try {
       return await run(url);
     } catch (error) {
-      log.error("server", `Error ${label}`, { err: error });
+      log.error("server", `Error ${label}`, { error });
       return new Response(`❌ Error: ${error}`, { status: 500 });
     }
   };
 }
 
 export function serverError(error: Error): Response {
-  log.error("server", "Request failed", { err: error });
+  log.error("server", "Request failed", { error });
   return new Response("Internal Server Error", { status: 500 });
 }
 

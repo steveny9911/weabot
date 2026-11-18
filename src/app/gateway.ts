@@ -29,7 +29,7 @@ export function startGateway(
       ws.send(JSON.stringify({ op: 1, d: seq }));
       awaitingHeartbeatAck = true;
     } catch (e) {
-      log.error("gateway", "Heartbeat error", { err: e });
+      log.error("gateway", "Heartbeat error", { error: e });
     }
   }
 
@@ -152,7 +152,7 @@ export function startGateway(
           ws?.close();
         }
       } catch (err) {
-        log.error("gateway", "Message handling failed", { err });
+        log.error("gateway", "Message handling failed", { error: err });
       }
     };
 
@@ -162,7 +162,8 @@ export function startGateway(
       setTimeout(connect, 5000);
     };
 
-    ws.onerror = (ev: Event) => log.error("gateway", "Socket error", { type: ev.type });
+    ws.onerror = (ev: Event) =>
+      log.error("gateway", "Socket error", { error: (ev as ErrorEvent).message });
   }
 
   connect();

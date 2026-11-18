@@ -23,7 +23,7 @@ export async function loadContext(
   try {
     recent = await discord.getRecentMessages(channelId, limit);
   } catch (err) {
-    log.error("bot", "Error loading context", { err });
+    log.error("bot", "Error loading context", { error: err });
   }
   const conversation = selectActiveConversation(
     [...recent.filter((m) => m.id !== trigger.id), trigger],

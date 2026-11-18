@@ -48,7 +48,7 @@ export async function collectExpiredPolls(
       log.error("poll", "Collection failed; will retry", {
         messageId: poll.messageId,
         channelId: poll.channelId,
-        err: error,
+        error,
       });
     }
   }

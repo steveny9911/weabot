@@ -1,5 +1,6 @@
 import { afterEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { assert } from "../../tests/support/assert.ts";
+import { captureLogs } from "../../tests/support/logs.ts";
 import type { AiService } from "../ai/types.ts";
 import type { AppConfig } from "../config.ts";
 import { bunCron, type CronRegistrar, registerCronJobs } from "./scheduler.ts";
@@ -80,6 +81,18 @@ test("the eight jobs are registered with their UTC schedules", () => {
   expect(Object.fromEntries([...jobs].map(([name, job]) => [name, job.schedule]))).toStrictEqual(
     SCHEDULES,
   );
+});
+
+test("the registered jobs are logged with their schedules", () => {
+  const logs = captureLogs();
+  try {
+    register();
+  } finally {
+    logs.restore();
+  }
+  expect(logs.lines).toStrictEqual([
+    `info cron: Registered jobs ${JSON.stringify({ schedules: SCHEDULES, timeZone: "UTC" })}`,
+  ]);
 });
 
 test("the job schedules give the same run times in any process time zone", () => {

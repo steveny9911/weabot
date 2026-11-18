@@ -1,8 +1,8 @@
 /** Posts the daily mood poll to the mood_poll channels and records it for later collection. */
 import { buildMoodPollPayload } from "../features/poll.ts";
 import { MOOD_POLL_HOURS } from "../types/bot.ts";
-import { type ChannelPost, type JobDeps, type LogScope, postToChannels } from "./channel_posts.ts";
-import { log } from "../app/log.ts";
+import { type ChannelPost, type JobDeps, postToChannels } from "./channel_posts.ts";
+import { log, type LogScope } from "../app/log.ts";
 
 export async function postMoodPolls(
   { config, discord, storage }: JobDeps,

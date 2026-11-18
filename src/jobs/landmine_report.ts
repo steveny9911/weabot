@@ -11,7 +11,7 @@ export async function postLandmineReport(
 ): Promise<ChannelPost[]> {
   const label = `${period}ly landmine report`;
   if (!config.landmine.enabled) {
-    log.debug("cron", `Skipped the ${label} because landmines are disabled`);
+    log.debug("landmine", `Skipped the ${label} because landmines are disabled`);
     return [];
   }
   const report = landmines.report(period);

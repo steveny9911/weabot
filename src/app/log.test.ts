@@ -37,9 +37,9 @@ test("a line is JSON with the scope, level, message and fields", () => {
 test("warnings and errors go to stderr, the rest to stdout", () => {
   setLogLevel("debug");
   const lines = captured(() => {
-    log.debug("a", "d");
-    log.warn("a", "w");
-    log.error("a", "e");
+    log.debug("cron", "d");
+    log.warn("cron", "w");
+    log.error("cron", "e");
   });
   expect(lines.map(([stream, line]) => `${stream}:${line.level}`)).toStrictEqual([
     "out:debug",
@@ -49,20 +49,43 @@ test("warnings and errors go to stderr, the rest to stdout", () => {
 });
 
 test("lines below the level are dropped, and the default is info", () => {
-  expect(captured(() => log.debug("a", "quiet"))).toStrictEqual([]);
+  expect(captured(() => log.debug("cron", "quiet"))).toStrictEqual([]);
   setLogLevel("warn");
-  expect(captured(() => log.info("a", "quiet"))).toStrictEqual([]);
-  expect(captured(() => log.warn("a", "loud"))).toHaveLength(1);
+  expect(captured(() => log.info("cron", "quiet"))).toStrictEqual([]);
+  expect(captured(() => log.warn("cron", "loud"))).toHaveLength(1);
 });
 
 test("an Error field keeps its name, message and stack", () => {
-  const [[, line]] = captured(() => log.error("cron", "failed", { err: new TypeError("boom") }));
-  expect(line.err).toMatchObject({ name: "TypeError", message: "boom" });
-  expect(line.err.stack).toContain("boom");
+  const [[, line]] = captured(() => log.error("cron", "failed", { error: new TypeError("boom") }));
+  expect(line.error).toMatchObject({ name: "TypeError", message: "boom" });
+  expect(line.error.stack).toContain("boom");
+});
+
+test("an Error keeps its cause, code and status, even nested in a field", () => {
+  const failure = Object.assign(new Error("outer", { cause: new Error("inner") }), {
+    code: "ECONNRESET",
+    status: 503,
+  });
+  const [[, line]] = captured(() => log.error("cron", "failed", { error: { wrapped: failure } }));
+  expect(line.error.wrapped).toMatchObject({ message: "outer", code: "ECONNRESET", status: 503 });
+  expect(line.error.wrapped.cause.message).toBe("inner");
+});
+
+test("a BigInt is logged as a string", () => {
+  const [[, line]] = captured(() => log.info("cron", "big", { n: 10n }));
+  expect(line.n).toBe("10");
+});
+
+test("a cyclic field does not make the log call throw", () => {
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+  const [[, line]] = captured(() => log.error("cron", "cyclic", { cyclic }));
+  expect(line).toMatchObject({ level: "error", scope: "cron", message: "cyclic" });
+  expect(line.fields).toContain("cyclic");
 });
 
 test("a field cannot overwrite the level or the message", () => {
-  const [[, line]] = captured(() => log.info("a", "real", { level: "fake", message: "fake" }));
+  const [[, line]] = captured(() => log.info("cron", "real", { level: "fake", message: "fake" }));
   expect(line).toMatchObject({ level: "info", message: "real" });
 });
 

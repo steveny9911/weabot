@@ -1,7 +1,7 @@
 /** Posts a mood stats embed covering the last `days` UTC calendar days to the weekly_stats channels. */
 import { buildStatsEmbed } from "../features/stats.ts";
-import { type ChannelPost, type JobDeps, type LogScope, postToChannels } from "./channel_posts.ts";
-import { log } from "../app/log.ts";
+import { type ChannelPost, type JobDeps, postToChannels } from "./channel_posts.ts";
+import { log, type LogScope } from "../app/log.ts";
 
 export interface StatsPostOptions {
   days: number;

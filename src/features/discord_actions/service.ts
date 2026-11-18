@@ -216,7 +216,7 @@ export function createDiscordActionService(
       records.complete(operation, guard, result, Boolean(result.ok || result.uncertain), now());
     } catch {
       log.error(
-        "discord_action",
+        "discord_actions",
         "Could not persist the result; keeping the claim to prevent replay",
       );
     }
