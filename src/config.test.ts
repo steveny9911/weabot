@@ -59,6 +59,7 @@ test("an empty config.yaml gives the defaults", () => {
   expect(config.channelIds).toStrictEqual(["chan-1"]);
   expect(config.databasePath).toStrictEqual("./data/haru.sqlite3");
   expect(config.httpPort).toStrictEqual(8000);
+  expect(config.logLevel).toStrictEqual("info");
   expect(config.timeZone).toStrictEqual("America/Los_Angeles");
   expect(config.moodPoll).toStrictEqual({ enabled: true, channelIds: ["chan-1"] });
   expect(config.wellness).toStrictEqual({
@@ -126,7 +127,7 @@ test("settings come from config.yaml", () => {
     Bun.YAML.parse(`
 discord:
   channel_ids: ["chan-5", "chan-5", "chan-6"]
-general: { db_path: /tmp/x.sqlite3, http_port: 9000, time_zone: America/Vancouver }
+general: { db_path: /tmp/x.sqlite3, http_port: 9000, log_level: debug, time_zone: America/Vancouver }
 ai:
   provider: gemini
   gemini: { models: [model-a, model-b, model-a], system_prompt_file: persona.md, thinking: true }
@@ -164,6 +165,7 @@ landmine:
   });
   expect(config.databasePath).toStrictEqual("/tmp/x.sqlite3");
   expect(config.httpPort).toStrictEqual(9000);
+  expect(config.logLevel).toStrictEqual("debug");
   expect(config.timeZone).toStrictEqual("America/Vancouver");
   expect(config.aiProvider).toStrictEqual("gemini");
   expect(config.aiProviderSettings).toStrictEqual({
@@ -208,6 +210,14 @@ landmine:
     stepPenalty: { enabled: false, timeoutSeconds: 30 },
     gifs: ["https://a.example/1.gif"],
   });
+});
+
+test("general.log_level must be a known level", () => {
+  throws(
+    () => load({ general: { log_level: "loud" } }),
+    Error,
+    "general.log_level in config.yaml must be one of: debug, info, warn, error",
+  );
 });
 
 test("null values in config.yaml use the defaults", () => {

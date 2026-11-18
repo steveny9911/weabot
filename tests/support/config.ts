@@ -29,6 +29,7 @@ function defaults(): AppConfig {
     channelIds: channels(),
     databasePath: ":memory:",
     httpPort: 8000,
+    logLevel: "info",
     timeZone: "UTC",
     aiEnabled: true,
     aiChat: feature(),

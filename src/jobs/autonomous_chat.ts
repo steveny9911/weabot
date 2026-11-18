@@ -3,6 +3,7 @@ import type { AiService } from "../ai/types.ts";
 import { participateInChannel } from "../features/autonomous_chat/participate.ts";
 import type { RateLimitService } from "../services/rate_limit.ts";
 import type { JobDeps } from "./channel_posts.ts";
+import { log } from "../app/log.ts";
 
 /** Returns the job. It skips a run while the previous one is still active. `clock` is for tests. */
 export function createAutonomousChatJob(
@@ -16,11 +17,11 @@ export function createAutonomousChatJob(
   return async () => {
     if (!config.autonomousChat.enabled) return;
     if (!config.aiEnabled || !config.aiApiKey) {
-      console.log("[CRON] Autonomous chat skipped because AI is disabled or unconfigured");
+      log.debug("autonomous", "Autonomous chat skipped because AI is disabled or unconfigured");
       return;
     }
     if (autonomousChatRunning) {
-      console.log("[CRON] Autonomous chat skipped because previous run is still active");
+      log.warn("autonomous", "Autonomous chat skipped because the previous run is still active");
       return;
     }
 
@@ -28,7 +29,7 @@ export function createAutonomousChatJob(
     try {
       const botUserId = await discord.getBotUserId();
       if (!botUserId) {
-        console.error("[CRON] Autonomous chat skipped because bot user id is unavailable");
+        log.error("autonomous", "Autonomous chat skipped because the bot user id is unavailable");
         return;
       }
 
@@ -43,13 +44,16 @@ export function createAutonomousChatJob(
             botId: botUserId,
             ...clock,
           });
-          console.log("[AUTONOMOUS OUTCOME]", JSON.stringify({ channelId, ...outcome }));
-        } catch {
-          console.warn(`[CRON] Autonomous chat skipped in ${channelId} after a channel error`);
+          log.debug("autonomous", "Outcome", { channelId, ...outcome });
+        } catch (error) {
+          log.warn("autonomous", "Autonomous chat skipped after a channel error", {
+            channelId,
+            error,
+          });
         }
       }
     } catch (error) {
-      console.error("[CRON] Error in autonomous chat:", error);
+      log.error("autonomous", "Error in autonomous chat", { error });
     } finally {
       autonomousChatRunning = false;
     }

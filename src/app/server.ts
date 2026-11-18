@@ -7,6 +7,7 @@ import { postTestAlert } from "../jobs/wellness.ts";
 import { buildStatsEmbed } from "../features/stats.ts";
 import { isMood, MOODS } from "../types/bot.ts";
 import type { PollRecord } from "../types/storage.ts";
+import { log } from "./log.ts";
 
 const WRITES = new Set([
   "/trigger",
@@ -79,20 +80,20 @@ export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
     "/trigger_poll": [
       "posting poll",
       async () => {
-        console.log("[SERVER] Triggering poll...");
-        return postReport(await postMoodPolls(deps, "[SERVER]"), "Poll posted", true);
+        log.info("server", "Triggering poll");
+        return postReport(await postMoodPolls(deps, "server"), "Poll posted", true);
       },
     ],
     "/trigger_stats": [
       "posting stats",
       async (url) => {
         const days = parseInt(url.searchParams.get("days") ?? "7", 10);
-        console.log(`[SERVER] Triggering stats (last ${days} days)...`);
+        log.info("server", "Triggering stats", { days });
         const posts = await postStats(deps, {
           days,
           title: `📊 Mood Stats (Last ${days} Days)`,
           label: "stats",
-          tag: "[SERVER]",
+          scope: "server",
         });
         return postReport(posts, "✅ Stats embed posted");
       },
@@ -102,14 +103,14 @@ export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
       async (url) => {
         const userName = url.searchParams.get("name") ?? "TestUser";
         const days = parseInt(url.searchParams.get("days") ?? "7", 10);
-        console.log(`[SERVER] Triggering alert for ${userName} (${days} days)...`);
+        log.info("server", "Triggering alert", { userName, days });
         return postReport(await postTestAlert(deps, userName, days), "✅ Alert embed posted");
       },
     ],
     "/trigger_collect": [
       "collecting polls",
       async () => {
-        console.log("[SERVER] Triggering poll result collection...");
+        log.info("server", "Triggering poll result collection");
         const { collected, failed } = await collectExpiredPolls(discord, storage);
         if (collected.length === 0 && failed.length === 0) {
           return new Response("ℹ️ No expired polls to collect");
@@ -149,9 +150,7 @@ export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
           return new Response(`Invalid mood. Must be one of: ${MOODS.join(", ")}`, { status: 400 });
         }
         await storage.recordVote(channelId, userId, userName, mood, date);
-        console.log(
-          `[SERVER] Recorded vote in ${channelId}: ${userName} (${userId}) = ${mood} on ${date}`,
-        );
+        log.info("server", "Recorded vote", { channelId, userName, userId, mood, date });
         return new Response(`✅ Vote recorded in ${channelId}: ${userName} = ${mood} on ${date}`);
       },
     ],
@@ -288,14 +287,14 @@ export function createRequestHandler({ rateLimit, ...deps }: ServerDeps) {
     try {
       return await run(url);
     } catch (error) {
-      console.error(`[SERVER] Error ${label}:`, error);
+      log.error("server", `Error ${label}`, { error });
       return new Response(`❌ Error: ${error}`, { status: 500 });
     }
   };
 }
 
 export function serverError(error: Error): Response {
-  console.error("[SERVER] Request failed:", error);
+  log.error("server", "Request failed", { error });
   return new Response("Internal Server Error", { status: 500 });
 }
 

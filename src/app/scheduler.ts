@@ -9,6 +9,7 @@ import { postLandmineReport } from "../jobs/landmine_report.ts";
 import { postMoodPolls } from "../jobs/mood_poll.ts";
 import { postStats } from "../jobs/stats.ts";
 import { runWellnessCheck } from "../jobs/wellness.ts";
+import { log } from "./log.ts";
 
 export type CronRegistrar = (
   name: string,
@@ -24,7 +25,7 @@ export const bunCron: CronRegistrar = (name, schedule, handler) => {
       try {
         await handler();
       } catch (error) {
-        console.error(`[CRON] ${name} failed:`, error);
+        log.error("cron", `${name} failed`, { error });
       }
     },
     { tz: "UTC" },
@@ -42,48 +43,46 @@ export function registerCronJobs(
   maintenance: () => void = () => {},
 ): void {
   const { discord, storage } = deps;
+  const schedules: Record<string, string> = {};
+  const register: CronRegistrar = (name, schedule, handler) => {
+    schedules[name] = schedule;
+    cron(name, schedule, handler);
+  };
 
   // 05:00 UTC is 21:00 PST / 22:00 PDT.
-  cron("Daily Retro Poll", "0 5 * * *", async () => {
-    console.log("[CRON] Starting scheduled poll job...");
-    await postMoodPolls(deps, "[CRON]");
+  register("Daily Retro Poll", "0 5 * * *", async () => {
+    log.info("cron", "Starting scheduled poll job");
+    await postMoodPolls(deps, "cron");
   });
-  cron("Daily Wellness Check", "0 6 * * *", async () => {
-    console.log("[CRON] Starting wellness check...");
+  register("Daily Wellness Check", "0 6 * * *", async () => {
+    log.info("cron", "Starting wellness check");
     await runWellnessCheck(deps);
   });
-  cron("Weekly Stats Summary", "0 6 * * SUN", async () => {
-    console.log("[CRON] Starting weekly stats summary...");
+  register("Weekly Stats Summary", "0 6 * * SUN", async () => {
+    log.info("cron", "Starting weekly stats summary");
     await postStats(deps, {
       days: 7,
       title: "📊 Weekly Mood Summary",
       label: "weekly stats",
-      tag: "[CRON]",
+      scope: "cron",
     });
   });
-  cron("Weekly Landmine Report", "0 6 * * SUN", async () => {
+  register("Weekly Landmine Report", "0 6 * * SUN", async () => {
     await postLandmineReport(deps, landmines, "week");
   });
-  cron("Monthly Landmine Report", "0 6 1 * *", async () => {
+  register("Monthly Landmine Report", "0 6 1 * *", async () => {
     await postLandmineReport(deps, landmines, "month");
   });
-  cron("Poll Result Collection", "30 * * * *", async () => {
-    console.log("[CRON] Checking for expired polls to collect...");
+  register("Poll Result Collection", "30 * * * *", async () => {
+    log.info("poll", "Checking for expired polls to collect");
     const result = await collectExpiredPolls(discord, storage);
-    console.log(
-      `[CRON] Poll collection: ${result.collected.length} collected, ${result.failed.length} pending retry`,
-    );
+    log.info("poll", "Poll collection", {
+      collected: result.collected.length,
+      pendingRetry: result.failed.length,
+    });
   });
-  cron("Autonomous Chat", "* * * * *", createAutonomousChatJob(deps, ai, rateLimit));
-  cron("Maintenance", "15 * * * *", maintenance);
+  register("Autonomous Chat", "* * * * *", createAutonomousChatJob(deps, ai, rateLimit));
+  register("Maintenance", "15 * * * *", maintenance);
 
-  console.log("[CRON] Registered jobs:");
-  console.log("  - Daily Retro Poll (05:00 UTC)");
-  console.log("  - Daily Wellness Check (06:00 UTC)");
-  console.log("  - Weekly Stats Summary (Sundays 06:00 UTC)");
-  console.log("  - Weekly Landmine Report (Sundays 06:00 UTC)");
-  console.log("  - Monthly Landmine Report (1st of the month 06:00 UTC)");
-  console.log("  - Poll Result Collection (every hour at :30)");
-  console.log("  - Autonomous Chat (every minute, disabled unless configured)");
-  console.log("  - Maintenance (every hour at :15)");
+  log.info("cron", "Registered jobs", { schedules, timeZone: "UTC" });
 }

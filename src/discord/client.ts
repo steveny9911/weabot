@@ -5,6 +5,7 @@ import type { ReactionContext } from "../features/reactions.ts";
 import { readReactionContext } from "./reaction_context.ts";
 import { fetchWithRetry } from "../net/retry.ts";
 import { botJsonHeaders, DISCORD_API_BASE as API_BASE } from "./api.ts";
+import { log } from "../app/log.ts";
 
 const REACTION_TIMEOUT_MS = 15_000;
 const TYPING_TIMEOUT_MS = 5_000;
@@ -101,11 +102,13 @@ export function createDiscordClient(token: string): DiscordClient {
         await response.body?.cancel();
         return { ok: true };
       }
-      error = `Discord ${label} error ${response.status}: ${await response.text()}`;
+      const body = await response.text();
+      error = `Discord ${label} error ${response.status}: ${body}`;
+      log.error("discord", `Discord ${label} failed`, { status: response.status, body });
     } catch (thrown) {
       error = String(thrown);
+      log.error("discord", `Discord ${label} failed`, { error: thrown });
     }
-    console.error(`[DISCORD] ${error}`);
     return { ok: false, error };
   }
 
@@ -113,20 +116,20 @@ export function createDiscordClient(token: string): DiscordClient {
     async getBotUserId() {
       if (botUserId) return botUserId;
       if (!token) {
-        console.error("Cannot fetch bot user id: DISCORD_TOKEN missing");
+        log.error("discord", "Cannot fetch the bot user id: DISCORD_TOKEN missing");
         return undefined;
       }
       try {
         const response = await fetchWithRetry(`${API_BASE}/users/@me`, { headers });
         if (!response.ok) {
           await response.body?.cancel();
-          console.error("Failed to fetch bot user info:", response.status);
+          log.error("discord", "Failed to fetch the bot user", { status: response.status });
           return undefined;
         }
         botUserId = ((await response.json()) as { id: string }).id;
         return botUserId;
       } catch (error) {
-        console.error("Error fetching bot user id:", error);
+        log.error("discord", "Error fetching the bot user id", { error });
         return undefined;
       }
     },
@@ -221,13 +224,13 @@ export function createDiscordClient(token: string): DiscordClient {
       );
 
       if (!response.ok) {
-        console.error(`[DISCORD] Failed to get recent messages: ${response.status}`);
+        log.error("discord", "Failed to get recent messages", { status: response.status });
         return [];
       }
 
       const data = await response.json();
       if (!Array.isArray(data)) {
-        console.error("[DISCORD] Recent messages response was not an array");
+        log.error("discord", "Recent messages response was not an array");
         return [];
       }
 

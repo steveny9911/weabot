@@ -29,6 +29,9 @@ general:
   # Port number for the HTTP server (health check and admin endpoints). Docker publishes no port
   # by default.
   http_port: 8000
+  # How much Haru logs: debug, info, warn or error. Under Docker each line is JSON. debug adds
+  # routine lines, such as every autonomous-chat check that decided to stay quiet.
+  log_level: info
 
 # AI chat is off without the chosen provider's key in `.env`.
 ai:

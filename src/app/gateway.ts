@@ -2,6 +2,7 @@
 
 import { type BotDependencies, handleMessage } from "../bot/handle_message.ts";
 import type { AppConfig } from "../config.ts";
+import { log } from "./log.ts";
 
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
 
@@ -11,7 +12,7 @@ export function startGateway(
   onMessage: typeof handleMessage = handleMessage,
 ): void {
   if (!config.discordToken) {
-    console.warn("DISCORD_TOKEN not set — gateway will not start");
+    log.warn("gateway", "DISCORD_TOKEN not set; the gateway will not start");
     return;
   }
 
@@ -28,14 +29,14 @@ export function startGateway(
       ws.send(JSON.stringify({ op: 1, d: seq }));
       awaitingHeartbeatAck = true;
     } catch (e) {
-      console.error("Heartbeat error", e);
+      log.error("gateway", "Heartbeat error", { error: e });
     }
   }
 
   /** A scheduled beat: reconnects instead if Discord never acknowledged the last one. */
   function heartbeatTick(): void {
     if (awaitingHeartbeatAck && ws?.readyState === WebSocket.OPEN) {
-      console.warn("Missed heartbeat ACK, reconnecting gateway");
+      log.warn("gateway", "Missed heartbeat ACK, reconnecting");
       ws.close();
       return;
     }
@@ -79,10 +80,10 @@ export function startGateway(
   }
 
   function connect(): void {
-    console.log("Connecting to Discord Gateway...");
+    log.info("gateway", "Connecting to Discord");
     ws = new WebSocket(GATEWAY_URL);
 
-    ws.onopen = () => console.log("Gateway connected");
+    ws.onopen = () => log.info("gateway", "Connected");
 
     ws.onmessage = async (ev: MessageEvent) => {
       try {
@@ -128,15 +129,16 @@ export function startGateway(
         else if (op === 0 && t === "READY" && d) {
           const user = d["user"] as Record<string, unknown> | undefined;
           const guilds = d["guilds"] as Array<Record<string, unknown>> | undefined;
-          console.log(
-            `[GATEWAY] Bot ready as: ${user?.username}#${user?.discriminator} (${user?.id})`,
-          );
-          console.log(`[GATEWAY] Connected to ${guilds?.length ?? 0} guild(s)`);
+          log.info("gateway", "Bot ready", {
+            bot: `${user?.username}#${user?.discriminator}`,
+            botId: user?.id,
+            guilds: guilds?.length ?? 0,
+          });
           sendOnlinePresence();
         } else if (op === 0 && t === "GUILD_CREATE" && d) {
           const guildName = d["name"] as string | undefined;
           const guildId = d["id"] as string | undefined;
-          console.log(`[GATEWAY] Guild available: "${guildName}" (${guildId})`);
+          log.info("gateway", "Guild available", { guildId, guildName });
         } else if (op === 0 && t === "MESSAGE_CREATE" && d) {
           await onMessage(d as Record<string, unknown>, deps);
         } else if (op === 1) {
@@ -146,21 +148,22 @@ export function startGateway(
           awaitingHeartbeatAck = false;
         } // Op 9: Invalid session
         else if (op === 9) {
-          console.warn("Invalid session, reconnecting");
+          log.warn("gateway", "Invalid session, reconnecting");
           ws?.close();
         }
       } catch (err) {
-        console.error("Gateway message error", err);
+        log.error("gateway", "Message handling failed", { error: err });
       }
     };
 
     ws.onclose = (ev: CloseEvent) => {
-      console.warn("Gateway socket closed", ev.code, ev.reason);
+      log.warn("gateway", "Socket closed", { code: ev.code, reason: ev.reason });
       stopHeartbeat();
       setTimeout(connect, 5000);
     };
 
-    ws.onerror = (ev: Event) => console.error("Gateway socket error", ev);
+    ws.onerror = (ev: Event) =>
+      log.error("gateway", "Socket error", { error: (ev as ErrorEvent).message });
   }
 
   connect();

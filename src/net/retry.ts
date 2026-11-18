@@ -1,3 +1,5 @@
+import { log } from "../app/log.ts";
+
 const RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
 const MAX_DELAY_MS = 30_000;
 /** Methods that are safe to repeat: a retry after a lost response cannot apply them twice. */
@@ -36,13 +38,19 @@ export async function fetchWithRetry(
         delay = Math.min(retryAfter * 1000, MAX_DELAY_MS);
       }
       await response.body?.cancel();
-      console.warn(
-        `[RETRY] Request failed with ${response.status}, ${tries}, retrying in ${delay}ms`,
-      );
+      log.warn("retry", "Request failed; retrying", {
+        status: response.status,
+        attempt: tries,
+        delayMs: delay,
+      });
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       if (last || !idempotent || init.signal?.aborted) throw failure;
-      console.warn(`[RETRY] Request error: ${failure.message}, ${tries}, retrying in ${delay}ms`);
+      log.warn("retry", "Request error; retrying", {
+        error: failure.message,
+        attempt: tries,
+        delayMs: delay,
+      });
     }
     await new Promise((resolve) => setTimeout(resolve, delay));
     backoff = Math.min(backoff * 2, MAX_DELAY_MS);

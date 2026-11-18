@@ -15,6 +15,7 @@ import type {
   AiResult,
   AiService,
 } from "./types.ts";
+import { log } from "../app/log.ts";
 
 const MAX_TOOL_RESPONSES = 6;
 const MAX_TOOL_CALLS = 8;
@@ -146,8 +147,7 @@ export function createAiService(
           if (toolTimeExpired()) return failure("AI tool time limit reached");
           if (participationOptions) {
             const participation = parseParticipation(step.text, allowedMessageIds, choices);
-            console.log("[AI] tokens used:", tokensUsed);
-            console.log("[AI] participation:", participation.action);
+            log.debug("AI", "Participation decided", { action: participation.action, tokensUsed });
             return {
               ok: true,
               text: participation.action === "reply" ? participation.text : "",
@@ -208,9 +208,8 @@ export function createAiService(
           const raw = step.text.trim();
           // Action outcomes and links must retain their exact meaning and punctuation.
           const finalText = options ? raw : uwuify(sanitizeReply(raw), config.aiEnableUwu);
-          console.log("[AI] tokens used:", tokensUsed);
-          console.log("[AI] raw reply:", raw);
-          console.log("[AI] final reply:", finalText);
+          log.info("AI", "Reply generated", { tokensUsed, requests: session.calls });
+          log.debug("AI", "Reply text", { raw, final: finalText });
           return { ok: true, text: finalText, tokensUsed: tokensUsed, requestsUsed: session.calls };
         }
         return failure("AI tool response limit reached");

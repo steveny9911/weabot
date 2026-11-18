@@ -22,15 +22,22 @@ import { createAiService } from "./src/ai/service.ts";
 import { createServer } from "./src/app/server.ts";
 import { bunCron, registerCronJobs } from "./src/app/scheduler.ts";
 import { startGateway } from "./src/app/gateway.ts";
-import type { ChannelScope, FeatureConfig } from "./src/feature_config.ts";
+import { log, setLogLevel } from "./src/app/log.ts";
+import type { ChannelScope } from "./src/feature_config.ts";
 import type { BotDependencies } from "./src/bot/handle_message.ts";
 
-const config = loadConfig();
+// A crash is logged like everything else, then the process exits so Docker restarts it.
+for (const event of ["uncaughtException", "unhandledRejection"] as const) {
+  process.on(event, (error) => {
+    log.error("main", event, { error });
+    process.exit(1);
+  });
+}
 
-const channelsLabel = (channelIds: ChannelScope) =>
-  channelIds === "all" ? "all" : channelIds.join(", ");
-const onOff = (feature: FeatureConfig) =>
-  `${feature.enabled ? "on" : "off"}, channels: ${channelsLabel(feature.channelIds)}`;
+const config = loadConfig();
+setLogLevel(config.logLevel);
+
+const channelsLabel = (channelIds: ChannelScope) => (channelIds === "all" ? "all" : channelIds);
 
 const db = openDatabase(config.databasePath);
 const storage = createStorageService(db);
@@ -88,43 +95,48 @@ registerCronJobs(
 );
 createServer(jobDeps, config.httpPort);
 
-console.log("🐴 Haru is running!");
-console.log(`   Channels: ${config.channelIds.join(", ")}`);
-console.log(`   Database: ${config.databasePath}`);
-console.log(`   Timezone: ${config.timeZone}`);
-console.log("");
-console.log("🤖 AI Configuration:");
-console.log(`   Enabled: ${config.aiEnabled}`);
-console.log(`   Provider: ${config.aiProvider ?? "none"}`);
-console.log(`   Rate Limit: ${config.aiRateLimitPerUser} requests/user/minute`);
-console.log(`   Daily Token Budget: ${config.aiDailyTokenBudget.toLocaleString()} tokens`);
-const maxInputLabel = config.aiMaxInputChars > 0 ? String(config.aiMaxInputChars) : "unlimited";
-console.log(`   Max Input Chars: ${maxInputLabel}`);
-console.log(`   UwU Mode: ${config.aiEnableUwu}`);
-console.log(`   Context Limit: ${config.aiContextMaxMessages} messages`);
-console.log(`   Context Inactivity Gap: ${config.aiContextInactivityMinutes} minutes`);
-if (config.aiProvider && !config.aiApiKey) {
-  console.log(`   ⚠️  ${config.aiApiKeyEnv} not set - AI chat disabled`);
-}
-
-console.log("");
-console.log("🧩 Features:");
 const features = {
-  "Mention replies": config.aiChat,
-  "Web search": config.webSearch,
-  "Link open": config.linkOpen,
-  "Tweet reading": config.tweetRead,
-  Gacha: config.gacha,
-  "Event/invite actions": config.discordActions,
-  "Autonomous chat": config.autonomousChat,
-  Landmines: config.landmine,
-  "Mood poll": config.moodPoll,
-  "Weekly stats": config.weeklyStats,
-  "Wellness alerts": config.wellness,
+  mentionReplies: config.aiChat,
+  webSearch: config.webSearch,
+  linkOpen: config.linkOpen,
+  tweetRead: config.tweetRead,
+  gacha: config.gacha,
+  discordActions: config.discordActions,
+  autonomousChat: config.autonomousChat,
+  landmines: config.landmine,
+  moodPoll: config.moodPoll,
+  weeklyStats: config.weeklyStats,
+  wellness: config.wellness,
 };
-for (const [name, feature] of Object.entries(features)) {
-  console.log(`   ${name}: ${onOff(feature)}`);
+log.info("main", "Haru is running", {
+  channels: config.channelIds,
+  database: config.databasePath,
+  timeZone: config.timeZone,
+  logLevel: config.logLevel,
+});
+log.info("AI", "AI configuration", {
+  enabled: config.aiEnabled,
+  provider: config.aiProvider ?? "none",
+  rateLimitPerUser: config.aiRateLimitPerUser,
+  dailyTokenBudget: config.aiDailyTokenBudget.toLocaleString(),
+  maxInputChars: config.aiMaxInputChars > 0 ? config.aiMaxInputChars.toLocaleString() : "unlimited",
+  uwu: config.aiEnableUwu,
+  contextMaxMessages: config.aiContextMaxMessages,
+  contextInactivityMinutes: config.aiContextInactivityMinutes,
+});
+log.info(
+  "main",
+  "Features",
+  Object.fromEntries(
+    Object.entries(features).map(([name, feature]) => [
+      name,
+      feature.enabled ? channelsLabel(feature.channelIds) : "off",
+    ]),
+  ),
+);
+if (config.aiProvider && !config.aiApiKey) {
+  log.warn("main", `${config.aiApiKeyEnv} not set; AI chat is disabled`);
 }
 if (config.webSearch.enabled && !config.webSearch.apiKey) {
-  console.log("   ⚠️  BRAVE_SEARCH_API_KEY not set - web search will fail");
+  log.warn("main", "BRAVE_SEARCH_API_KEY not set; web search will fail");
 }

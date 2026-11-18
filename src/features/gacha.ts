@@ -1,5 +1,6 @@
 /** The \gacha command: a picture of an Arknights ten-pull, from arknights-gacha-result-generator. */
 import type { GachaPityQueries } from "../db/gacha_pity.ts";
+import { log } from "../app/log.ts";
 
 /** The name every pull image is posted under, which is also how a pull is recognised in chat history. */
 export const GACHA_FILENAME = "gacha.webp";
@@ -84,7 +85,7 @@ export function createGachaService(deps: GachaDependencies): GachaService {
       const altText = `${result.finalPity} pulls since last 6★: ${names}`.slice(0, 1024);
       return { ok: true, image: new Uint8Array(image), altText };
     } catch (error) {
-      console.error("[GACHA] Failed:", error);
+      log.error("gacha", "Failed to render the pull", { error });
       // A failed draw costs the user nothing, unless a newer pull has set a cooldown since.
       if (readyAt.get(userId) === cooldownEnd) readyAt.delete(userId);
       return { ok: false, reason: "failed" };
