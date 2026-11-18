@@ -113,23 +113,27 @@ log.info("main", "Haru is running", {
   database: config.databasePath,
   timeZone: config.timeZone,
   logLevel: config.logLevel,
-  ai: {
-    enabled: config.aiEnabled,
-    provider: config.aiProvider ?? "none",
-    rateLimitPerUser: config.aiRateLimitPerUser,
-    dailyTokenBudget: config.aiDailyTokenBudget,
-    maxInputChars: config.aiMaxInputChars > 0 ? config.aiMaxInputChars : "unlimited",
-    uwu: config.aiEnableUwu,
-    contextMaxMessages: config.aiContextMaxMessages,
-    contextInactivityMinutes: config.aiContextInactivityMinutes,
-  },
-  features: Object.fromEntries(
+});
+log.info("AI", "AI configuration", {
+  enabled: config.aiEnabled,
+  provider: config.aiProvider ?? "none",
+  rateLimitPerUser: config.aiRateLimitPerUser,
+  dailyTokenBudget: config.aiDailyTokenBudget,
+  maxInputChars: config.aiMaxInputChars > 0 ? config.aiMaxInputChars : "unlimited",
+  uwu: config.aiEnableUwu,
+  contextMaxMessages: config.aiContextMaxMessages,
+  contextInactivityMinutes: config.aiContextInactivityMinutes,
+});
+log.info(
+  "main",
+  "Features",
+  Object.fromEntries(
     Object.entries(features).map(([name, feature]) => [
       name,
       feature.enabled ? channelsLabel(feature.channelIds) : "off",
     ]),
   ),
-});
+);
 if (config.aiProvider && !config.aiApiKey) {
   log.warn("main", `${config.aiApiKeyEnv} not set; AI chat is disabled`);
 }
