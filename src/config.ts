@@ -69,6 +69,13 @@ export interface AppConfig {
     /** Pulls that may wait or draw at once; more are refused as busy. */
     queueSize: number;
   };
+  /** The \rng command. */
+  rng: FeatureConfig & {
+    /** How many digits a number has. */
+    digits: number;
+    /** Seconds between the digits of a reveal; 0 shows the whole number at once. */
+    digitDelaySeconds: number;
+  };
   /** The event and invite tools. */
   discordActions: FeatureConfig & {
     /** Servers allowed to use the tools; empty allows all. */
@@ -152,6 +159,7 @@ export interface ConfigFile {
     timeout_seconds?: number;
     queue_size?: number;
   };
+  rng?: ReactiveFeatureFile & { digits?: number; digit_delay_seconds?: number };
   discord_actions?: ReactiveFeatureFile & { guild_ids?: string[] };
   mood_poll?: FeatureFile;
   wellness?: FeatureFile & { glue_alert_threshold?: number };
@@ -184,6 +192,24 @@ function positive(name: string, value: number | undefined, fallback: number): nu
   return value;
 }
 
+/** `rng.digits`: a whole number from 1 to 12; a missing one is 6. */
+function parseRngDigits(value: number | undefined): number {
+  if (value === undefined) return 6;
+  if (!Number.isInteger(value) || value < 1 || value > 12) {
+    throw new Error("FATAL: rng.digits in config.yaml must be a whole number from 1 to 12");
+  }
+  return value;
+}
+
+/** `rng.digit_delay_seconds`: from 0 to 10, so a reveal cannot hang; a missing one is 1. */
+function parseDigitDelay(value: number | undefined): number {
+  if (value === undefined) return 1;
+  if (typeof value !== "number" || !(value >= 0 && value <= 10)) {
+    throw new Error("FATAL: rng.digit_delay_seconds in config.yaml must be a number from 0 to 10");
+  }
+  return value;
+}
+
 /** `general.log_level`; a missing one is `info`. */
 function parseLogLevel(value: string | undefined): LogLevel {
   if (value === undefined) return "info";
@@ -206,6 +232,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
     tweet_read: tweet,
     discord_actions: actions,
     gacha,
+    rng,
   } = file;
   const { mood_poll: poll, wellness: care, weekly_stats: weekly } = file;
 
@@ -282,6 +309,11 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
       cooldownSeconds: positive("gacha.cooldown_seconds", gacha?.cooldown_seconds, 10),
       timeoutSeconds: positive("gacha.timeout_seconds", gacha?.timeout_seconds, 30),
       queueSize: positive("gacha.queue_size", gacha?.queue_size, 8),
+    },
+    rng: {
+      ...reactiveFeature("rng", rng),
+      digits: parseRngDigits(rng?.digits),
+      digitDelaySeconds: parseDigitDelay(rng?.digit_delay_seconds),
     },
     discordActions: {
       ...reactiveFeature("discord_actions", actions),

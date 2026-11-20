@@ -23,6 +23,7 @@ export type LogScope =
   | "poll"
   | "landmine"
   | "gacha"
+  | "rng"
   | "link"
   | "tweet"
   | "search"

@@ -468,7 +468,7 @@ test("sendImage uploads one attachment as a reply, without a JSON content type",
       altText: "ten operators",
       replyToMessageId: "msg-1",
     });
-    expect(result).toStrictEqual({ ok: true });
+    expect(result).toStrictEqual({ ok: true, id: "sent" });
     expect(requests).toStrictEqual(1);
   } finally {
     fetchMock.restore();
@@ -515,6 +515,40 @@ test("sendTyping posts to the typing endpoint and never throws", async () => {
     fail = true;
     await client.sendTyping("chan");
     expect(urls).toStrictEqual(Array(2).fill("https://discord.com/api/v10/channels/chan/typing"));
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("sendMessage reports the created message's id, and editMessage PATCHes the new text", async () => {
+  const requests: Array<{ url: string; method?: string; body?: unknown }> = [];
+  const fetchMock = mockFetch((url, init) => {
+    requests.push({ url, method: init?.method, body: init?.body });
+    return init?.method === "PATCH"
+      ? new Response("{}", { status: 200 })
+      : new Response(JSON.stringify({ id: "msg-9" }), { status: 200 });
+  });
+
+  try {
+    const discord = createDiscordClient("token");
+    expect(await discord.sendMessage("chan", "🎲1.....")).toStrictEqual({ ok: true, id: "msg-9" });
+    expect(await discord.editMessage("chan", "msg-9", "🎲13....")).toStrictEqual({ ok: true });
+    expect(requests[1]).toStrictEqual({
+      url: "https://discord.com/api/v10/channels/chan/messages/msg-9",
+      method: "PATCH",
+      body: JSON.stringify({ content: "🎲13...." }),
+    });
+  } finally {
+    fetchMock.restore();
+  }
+});
+
+test("a successful write without a readable body is still ok, just without an id", async () => {
+  const fetchMock = mockFetch(() => new Response(null, { status: 204 }));
+  try {
+    expect(await createDiscordClient("token").sendMessage("chan", "hi")).toStrictEqual({
+      ok: true,
+    });
   } finally {
     fetchMock.restore();
   }

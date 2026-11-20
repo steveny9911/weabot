@@ -224,6 +224,7 @@ Mention Haru to chat, or use a command:
 - `@Haru \reset` (persistently clear context for this channel or thread)
 - `@Haru \open https://example.com [optional question]` (open and summarize one link safely)
 - `@Haru \gacha` (replies with an image of an Arknights ten-pull)
+- `@Haru \rng` (your random number for the day, revealed a digit at a time)
 - `@Haru https://x.com/user/status/123 what is this?` (reads the tweet's text, up to 4 photos per
   tweet and a quoted tweet via FxTwitter/VxTwitter; videos are skipped)
 
@@ -241,6 +242,16 @@ pull in a row without one, as in the game. A failed or timed-out pull does not c
 `gacha.cooldown_seconds` (default 10) is the wait between one user's pulls, and
 `gacha.timeout_seconds` (default 30) is how long a render may take. Renders run one at a time;
 `gacha.queue_size` (default 8) is how many pulls may wait or draw at once, and more are refused.
+
+### RNG
+
+`\rng` gives each user one random number a day. It has `rng.digits` digits (default 6) and never
+starts with 0. The first `\rng` of the day shows it a digit at a time, like `🎲1.....`, `🎲13....`,
+by editing one reply every `rng.digit_delay_seconds` (default 1, up to 10; 0 shows it all at once).
+A reveal that Discord slows to double its time is cut short, and asking again shows the number.
+Asking again the same day replies with the same number. A user who asks again while their reveal is
+still playing, in any channel, gets no reply, so nothing is spoiled. The day resets at midnight in
+`general.time_zone` (Pacific by default). It uses no AI.
 
 ### Landmines
 

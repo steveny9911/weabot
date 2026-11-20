@@ -36,6 +36,7 @@ const KEYS: Keys<ConfigFile> = {
     timeout_seconds: true,
     queue_size: true,
   },
+  rng: { enabled: true, channel_ids: true, digits: true, digit_delay_seconds: true },
   discord_actions: { enabled: true, channel_ids: true, guild_ids: true },
   mood_poll: { enabled: true, channel_ids: true },
   wellness: { enabled: true, channel_ids: true, glue_alert_threshold: true },

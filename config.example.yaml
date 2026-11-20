@@ -135,6 +135,18 @@ gacha:
   # the back waits about this many renders (around 2 seconds each); more are told to try again.
   queue_size: 8
 
+# The \rng command: one random number per user per day, shown a digit at a time. It does not use AI.
+# A new day starts at midnight in general.time_zone.
+rng:
+  enabled: true
+  channel_ids: all
+  # How many digits a number has (1 to 12). It never starts with 0.
+  digits: 6
+  # Seconds between the digits of the reveal (0 to 10); 0 shows the whole number at once. Discord
+  # allows about 5 message edits per 5 seconds in a channel, so going below 1 may slow reveals down.
+  # A reveal that Discord slows to double its time is cut short; asking again shows the whole number.
+  digit_delay_seconds: 1
+
 # Event and invite tools.
 discord_actions:
   enabled: true

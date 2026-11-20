@@ -49,6 +49,7 @@ function defaults(): AppConfig {
     linkOpen: feature(),
     tweetRead: feature(),
     gacha: { ...feature(), cooldownSeconds: 10, timeoutSeconds: 30, queueSize: 8 },
+    rng: { ...feature(), digits: 6, digitDelaySeconds: 1 },
     discordActions: { enabled: false, channelIds: "all", guildIds: [] },
     moodPoll: { enabled: true, channelIds: channels() },
     wellness: { enabled: true, channelIds: channels(), glueAlertThreshold: 7 },

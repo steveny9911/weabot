@@ -7,6 +7,7 @@ import type { RateLimitService } from "../services/rate_limit.ts";
 import type { LandmineService } from "../features/landmine.ts";
 import type { ReportPeriod } from "../features/landmine_report.ts";
 import { GACHA_FILENAME, type GachaResult, type GachaService } from "../features/gacha.ts";
+import { formatNumber, revealFrames, type RngService } from "../features/rng.ts";
 import type { LinkOpenService } from "../net/link_open.ts";
 import { extractTweetId, formatTweetNotes, type TweetService } from "../net/tweet.ts";
 import {
@@ -21,6 +22,7 @@ import {
   isGachaCommand,
   isOpenCommand,
   isResetCommand,
+  isRngCommand,
   isUsageCommand,
   messageMentionsBot,
   formatTime,
@@ -46,6 +48,9 @@ export interface BotDependencies {
   discordActionService?: DiscordActionService;
   landmineService?: LandmineService;
   gachaService?: GachaService;
+  rngService?: RngService;
+  /** Waits between the digits of an \rng reveal; tests replace it. */
+  sleep?: (ms: number) => Promise<unknown>;
 }
 
 /** The fields of a Discord message the bot reads; a missing one is "". */
@@ -73,7 +78,7 @@ function parseMessage(raw: Record<string, unknown>): IncomingMessage {
   };
 }
 
-/** Answers mentions: \\usage, \\reset, \\gacha, \\landmines, \\open, and otherwise an AI reply within the rate limits. */
+/** Answers mentions: \\usage, \\reset, \\gacha, \\rng, \\landmines, \\open, and otherwise an AI reply within the rate limits. */
 export async function handleMessage(
   raw: Record<string, unknown>,
   deps: BotDependencies,
@@ -97,6 +102,7 @@ export async function handleMessage(
   if (isUsageCommand(content)) return void (await reply(await usageReport(deps, channelId)));
   if (isResetCommand(content)) return await resetContext(deps, message);
   if (isGachaCommand(content)) return await gacha(deps, message);
+  if (isRngCommand(content)) return await rng(deps, message);
   const reportPeriod = parseLandmineReportCommand(content);
   if (reportPeriod) return await landmineReport(deps, message, reportPeriod);
 
@@ -229,6 +235,49 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
   });
   if (!sent.ok) {
     await say("Eep... I couldn't send the picture. Try again in a moment~");
+  }
+}
+
+/** Replies to \\rng with the user's number for the day; a new one is revealed a digit at a time. */
+async function rng(deps: BotDependencies, message: IncomingMessage): Promise<void> {
+  const { discord, rngService, config, sleep = Bun.sleep } = deps;
+  const { channelId, authorId, id } = message;
+  const say = (text: string) => discord.sendMessage(channelId, text, { replyTo: id });
+  if (!rngService || !isActiveIn(config.rng, channelId)) {
+    return void (await say("Ehehe~ the rng is turned off right now."));
+  }
+
+  // Asking again while a reveal plays is not answered, so it cannot spoil the number.
+  const draw = rngService.draw(authorId);
+  if (!draw) return;
+  try {
+    const { number, fresh } = draw;
+    const delayMs = config.rng.digitDelaySeconds * 1000;
+    if (!fresh || delayMs === 0) return void (await say(formatNumber(number)));
+
+    const [first = "", ...rest] = revealFrames(number);
+    const sent = await say(first);
+    if (!sent.ok) return;
+    // Without the message id the reveal cannot continue, so the user gets the whole number instead.
+    if (!sent.id) return void (await say(formatNumber(number)));
+    // Slow Discord calls may stretch the reveal, but not beyond double its time, so a user is
+    // never held up for long.
+    const deadline = AbortSignal.timeout(2 * rest.length * delayMs);
+    for (const frame of rest) {
+      if (deadline.aborted) {
+        log.warn("rng", "Gave up on a slow reveal", { channelId });
+        return;
+      }
+      await sleep(delayMs);
+      const edit = await discord.editMessage(channelId, sent.id, frame);
+      if (!edit.ok) {
+        // The number is saved, so asking again shows it whole.
+        log.warn("rng", "Stopped the reveal early", { channelId, error: edit.error });
+        return;
+      }
+    }
+  } finally {
+    rngService.finish(authorId);
   }
 }
 
