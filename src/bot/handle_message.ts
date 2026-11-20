@@ -242,40 +242,49 @@ async function gacha(deps: BotDependencies, message: IncomingMessage): Promise<v
 async function rng(deps: BotDependencies, message: IncomingMessage): Promise<void> {
   const { discord, rngService, config, sleep = Bun.sleep } = deps;
   const { channelId, authorId, id } = message;
+  const who = { userId: authorId, channelId };
   const say = (text: string) => discord.sendMessage(channelId, text, { replyTo: id });
   if (!rngService || !isActiveIn(config.rng, channelId)) {
+    log.debug("rng", "The rng is off here", who);
     return void (await say("Ehehe~ the rng is turned off right now."));
   }
 
   // Asking again while a reveal plays is not answered, so it cannot spoil the number.
   const draw = rngService.draw(authorId);
-  if (!draw) return;
+  if (!draw) return log.debug("rng", "Ignored a request during a reveal", who);
   try {
     const { number, fresh } = draw;
+    if (fresh) log.info("rng", "Drew a number", { ...who, number });
+    else log.debug("rng", "Repeated the number", { ...who, number });
     const delayMs = config.rng.digitDelaySeconds * 1000;
     if (!fresh || delayMs === 0) return void (await say(formatNumber(number)));
 
+    const started = Date.now();
     const [first = "", ...rest] = revealFrames(number);
     const sent = await say(first);
     if (!sent.ok) return;
     // Without the message id the reveal cannot continue, so the user gets the whole number instead.
-    if (!sent.id) return void (await say(formatNumber(number)));
+    if (!sent.id) {
+      log.warn("rng", "Discord sent no message id; showing the whole number", who);
+      return void (await say(formatNumber(number)));
+    }
     // Slow Discord calls may stretch the reveal, but not beyond double its time, so a user is
     // never held up for long.
     const deadline = AbortSignal.timeout(2 * rest.length * delayMs);
     for (const frame of rest) {
       if (deadline.aborted) {
-        log.warn("rng", "Gave up on a slow reveal", { channelId });
+        log.warn("rng", "Gave up on a slow reveal", { ...who, number });
         return;
       }
       await sleep(delayMs);
       const edit = await discord.editMessage(channelId, sent.id, frame);
       if (!edit.ok) {
         // The number is saved, so asking again shows it whole.
-        log.warn("rng", "Stopped the reveal early", { channelId, error: edit.error });
+        log.warn("rng", "Stopped the reveal early", { ...who, number, error: edit.error });
         return;
       }
     }
+    log.info("rng", "Revealed the number", { ...who, number, ms: Date.now() - started });
   } finally {
     rngService.finish(authorId);
   }

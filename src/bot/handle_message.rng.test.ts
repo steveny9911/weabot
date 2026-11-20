@@ -4,6 +4,7 @@ import { isRngCommand } from "./commands.ts";
 import type { RngService } from "../features/rng.ts";
 import { testConfig, type ConfigOverrides } from "../../tests/support/config.ts";
 import { fakeDiscord } from "../../tests/support/discord.ts";
+import { captureLogs } from "../../tests/support/logs.ts";
 
 function setup(
   options: {
@@ -159,4 +160,32 @@ test("\\rng says so when it is off here or has no service, and draws nothing", a
     expect(state.draws).toStrictEqual([]);
     expect(state.edits).toStrictEqual([]);
   }
+});
+
+test("what \\rng did is logged, with the user, channel and number", async () => {
+  const { lines, restore } = captureLogs("debug");
+  try {
+    for (const options of [
+      {}, // a reveal
+      { fresh: false },
+      { limited: true },
+      { config: { rng: { enabled: false } } },
+      { editOk: false },
+    ]) {
+      await handleMessage(mention("<@12345> \\rng"), setup(options).deps);
+    }
+  } finally {
+    restore();
+  }
+  const who = '"userId":"user-1","channelId":"chan-1"';
+  const drew = `info rng: Drew a number {${who},"number":"135792"}`;
+  expect(lines.map((line) => line.replace(/,"ms":\d+/, ""))).toStrictEqual([
+    drew,
+    `info rng: Revealed the number {${who},"number":"135792"}`,
+    `debug rng: Repeated the number {${who},"number":"135792"}`,
+    `debug rng: Ignored a request during a reveal {${who}}`,
+    `debug rng: The rng is off here {${who}}`,
+    drew,
+    `warn rng: Stopped the reveal early {${who},"number":"135792","error":"500"}`,
+  ]);
 });
