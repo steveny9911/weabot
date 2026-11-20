@@ -96,6 +96,12 @@ test("an empty config.yaml gives the defaults", () => {
     timeoutSeconds: 30,
     queueSize: 8,
   });
+  expect(config.rng).toStrictEqual({
+    enabled: true,
+    channelIds: ["chan-1"],
+    digits: 6,
+    digitDelaySeconds: 1,
+  });
   expect(config.discordActions).toStrictEqual({
     enabled: true,
     channelIds: ["chan-1"],
@@ -139,6 +145,7 @@ web_search: { enabled: true, max_results: 5, channel_ids: all }
 tweet_read: { enabled: false }
 link_open: { channel_ids: ["chan-9"] }
 gacha: { enabled: false, channel_ids: ["chan-7"], cooldown_seconds: 5, timeout_seconds: 45, queue_size: 12 }
+rng: { channel_ids: ["chan-8"], digits: 4, digit_delay_seconds: 0 }
 discord_actions: { enabled: false, guild_ids: ["guild-1"] }
 mood_poll: { enabled: false, channel_ids: ["chan-2"] }
 wellness: { channel_ids: ["chan-3"], glue_alert_threshold: 3 }
@@ -188,6 +195,12 @@ landmine:
     cooldownSeconds: 5,
     timeoutSeconds: 45,
     queueSize: 12,
+  });
+  expect(config.rng).toStrictEqual({
+    enabled: true,
+    channelIds: ["chan-8"],
+    digits: 4,
+    digitDelaySeconds: 0,
   });
   expect(config.moodPoll).toStrictEqual({ enabled: false, channelIds: ["chan-2"] });
   expect(config.wellness).toStrictEqual({
@@ -356,6 +369,18 @@ test("startup stops on a setting it cannot use, and says which", () => {
     "gacha.timeout_seconds in config.yaml must be a number above 0",
   );
   fails("gacha: { queue_size: 0 }", "gacha.queue_size in config.yaml must be a number above 0");
+  for (const digits of ["0", "13", "2.5"]) {
+    fails(
+      `rng: { digits: ${digits} }`,
+      "rng.digits in config.yaml must be a whole number from 1 to 12",
+    );
+  }
+  for (const delay of ["-1", "11", ".inf"]) {
+    fails(
+      `rng: { digit_delay_seconds: ${delay} }`,
+      "rng.digit_delay_seconds in config.yaml must be a number from 0 to 10",
+    );
+  }
   fails("landmine: { chanse: 0.5 }", "Unknown setting landmine.chanse");
   fails("landmines: {}", "Unknown setting landmines");
   fails("landmine: true", "landmine in config.yaml must be a section");

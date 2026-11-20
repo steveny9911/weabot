@@ -17,6 +17,8 @@ import { createLandmineQueries } from "./src/db/landmines.ts";
 import { createLandmineService } from "./src/features/landmine.ts";
 import { createGachaPityQueries } from "./src/db/gacha_pity.ts";
 import { createGachaService } from "./src/features/gacha.ts";
+import { createRngQueries } from "./src/db/rng.ts";
+import { createRngService } from "./src/features/rng.ts";
 import { createLinkOpenService } from "./src/net/link_open.ts";
 import { createAiService } from "./src/ai/service.ts";
 import { createServer } from "./src/app/server.ts";
@@ -76,6 +78,11 @@ const botDeps: BotDependencies = {
     renderTimeoutMs: config.gacha.timeoutSeconds * 1000,
     queueSize: config.gacha.queueSize,
   }),
+  rngService: createRngService({
+    queries: createRngQueries(db),
+    digits: config.rng.digits,
+    timeZone: config.timeZone,
+  }),
   landmineService,
   discordActionService: createDiscordActionService(
     createDiscordEventsClient(config.discordToken),
@@ -101,6 +108,7 @@ const features = {
   linkOpen: config.linkOpen,
   tweetRead: config.tweetRead,
   gacha: config.gacha,
+  rng: config.rng,
   discordActions: config.discordActions,
   autonomousChat: config.autonomousChat,
   landmines: config.landmine,

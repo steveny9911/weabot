@@ -84,4 +84,11 @@ CREATE TABLE landmine_steps (
 ) STRICT;
 CREATE INDEX landmine_steps_by_time ON landmine_steps (stepped_at, user_id);
 `,
+  `
+CREATE TABLE rng_daily (
+  user_id   TEXT PRIMARY KEY,
+  rng_date  TEXT NOT NULL,
+  number    TEXT NOT NULL
+) STRICT;
+`,
 ];

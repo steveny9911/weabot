@@ -1,4 +1,4 @@
-/** Parsing for mentions and the \\usage, \\reset, \\gacha, \\landmines, \\open commands, plus reply text helpers. */
+/** Parsing for mentions and the \\usage, \\reset, \\gacha, \\rng, \\landmines, \\open commands, plus reply text helpers. */
 import type { ReportPeriod } from "../features/landmine_report.ts";
 
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
@@ -51,6 +51,11 @@ export function isResetCommand(content: string): boolean {
 /** `@Haru \\gacha`; any text after it is ignored. */
 export function isGachaCommand(content: string): boolean {
   return /^\\gacha\b/i.test(stripMentions(content));
+}
+
+/** `@Haru \\rng`; any text after it is ignored. */
+export function isRngCommand(content: string): boolean {
+  return /^\\rng\b/i.test(stripMentions(content));
 }
 
 /** `@Haru \\landmines` (the last week) or `@Haru \\landmines month`; null for anything else. */

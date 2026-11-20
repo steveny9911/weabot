@@ -30,7 +30,8 @@ export interface PollAnswerVoters {
   voters: PollVoter[];
 }
 
-export type SendResult = { ok: true } | { ok: false; error: string };
+/** `id` is the message a send created, when Discord said. */
+export type SendResult = { ok: true; id?: string } | { ok: false; error: string };
 
 /** Haru's Discord REST calls. Reads retry; writes retry only a 429; reactions are sent once. */
 export interface DiscordClient {
@@ -45,6 +46,9 @@ export interface DiscordClient {
     content: string,
     options?: { replyTo?: string; suppressMentions?: boolean },
   ): Promise<SendResult>;
+
+  /** Replaces the text of a message Haru sent. */
+  editMessage(channelId: string, messageId: string, content: string): Promise<SendResult>;
 
   /** Shows "Haru is typing…" for about 10 s, or until Haru posts. Best effort: never throws. */
   sendTyping(channelId: string): Promise<void>;
@@ -93,14 +97,14 @@ export function createDiscordClient(token: string): DiscordClient {
       body: JSON.stringify(payload),
     });
 
-  /** A write whose response body is not needed. Logs and returns the error; never throws. */
+  /** A write; the created message's id is returned if Discord sends it. Logs and returns the error; never throws. */
   async function write(label: string, send: () => Promise<Response>): Promise<SendResult> {
     let error: string;
     try {
       const response = await send();
       if (response.ok) {
-        await response.body?.cancel();
-        return { ok: true };
+        const message = (await response.json().catch(() => null)) as { id?: unknown } | null;
+        return typeof message?.id === "string" ? { ok: true, id: message.id } : { ok: true };
       }
       const body = await response.text();
       error = `Discord ${label} error ${response.status}: ${body}`;
@@ -148,6 +152,14 @@ export function createDiscordClient(token: string): DiscordClient {
             }),
           )
         : Promise.resolve({ ok: false, error: "missing channelId" }),
+
+    editMessage: (channelId, messageId, content) =>
+      write("edit", () =>
+        fetchWithRetry(
+          `${API_BASE}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+          { method: "PATCH", headers, body: JSON.stringify({ content }) },
+        ),
+      ),
 
     async sendTyping(channelId) {
       try {

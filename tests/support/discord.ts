@@ -18,6 +18,12 @@ export function fakeDiscord(
     posts?: Array<{ channelId: string; payload: MessagePayload }>;
     /** False makes every send fail. */
     sendOk?: boolean;
+    /** The id every text send reports; none if unset, as when Discord does not say. */
+    messageId?: string;
+    /** Every edit the bot makes is pushed here. */
+    edits?: Array<{ messageId: string; content: string }>;
+    /** False makes every edit fail. */
+    editOk?: boolean;
   } = {},
 ): DiscordClient {
   const unexpected = (name: string) => () => Promise.reject(new Error(`unexpected ${name}`));
@@ -27,7 +33,15 @@ export function fakeDiscord(
     sendMessage(_channelId, content, sendOptions) {
       options.sent?.push(content);
       options.replyTos?.push(sendOptions?.replyTo);
-      return Promise.resolve(options.sendOk === false ? { ok: false, error: "500" } : { ok: true });
+      return Promise.resolve(
+        options.sendOk === false
+          ? { ok: false, error: "500" }
+          : { ok: true, ...(options.messageId ? { id: options.messageId } : {}) },
+      );
+    },
+    editMessage(_channelId, messageId, content) {
+      options.edits?.push({ messageId, content });
+      return Promise.resolve(options.editOk === false ? { ok: false, error: "500" } : { ok: true });
     },
     sendTyping() {
       if (options.typing) options.typing.count += 1;
