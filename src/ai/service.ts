@@ -127,7 +127,9 @@ export function createAiService(
         requestsUsed: session.calls,
         tokensUsed,
       });
-      const toolDeadline = now() + toolLoopTimeoutMs;
+      const startedAt = now();
+      const seconds = () => Number(((now() - startedAt) / 1000).toFixed(1));
+      const toolDeadline = startedAt + toolLoopTimeoutMs;
       const toolTimeExpired = () => Boolean(actionOptions && now() >= toolDeadline);
 
       try {
@@ -147,7 +149,11 @@ export function createAiService(
           if (toolTimeExpired()) return failure("AI tool time limit reached");
           if (participationOptions) {
             const participation = parseParticipation(step.text, allowedMessageIds, choices);
-            log.debug("AI", "Participation decided", { action: participation.action, tokensUsed });
+            log.debug("AI", "Participation decided", {
+              action: participation.action,
+              tokensUsed,
+              seconds: seconds(),
+            });
             return {
               ok: true,
               text: participation.action === "reply" ? participation.text : "",
@@ -208,7 +214,11 @@ export function createAiService(
           const raw = step.text.trim();
           // Action outcomes and links must retain their exact meaning and punctuation.
           const finalText = options ? raw : uwuify(sanitizeReply(raw), config.aiEnableUwu);
-          log.info("AI", "Reply generated", { tokensUsed, requests: session.calls });
+          log.info("AI", "Reply generated", {
+            tokensUsed,
+            requests: session.calls,
+            seconds: seconds(),
+          });
           log.debug("AI", "Reply text", { raw, final: finalText });
           return { ok: true, text: finalText, tokensUsed: tokensUsed, requestsUsed: session.calls };
         }
