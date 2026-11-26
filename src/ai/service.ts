@@ -19,8 +19,8 @@ import { log } from "../app/log.ts";
 
 const MAX_TOOL_RESPONSES = 6;
 const MAX_TOOL_CALLS = 8;
-const RESPONSE_TIMEOUT_MS = 60_000;
-const TOOL_LOOP_TIMEOUT_MS = 120_000;
+const RESPONSE_TIMEOUT_MS = 20_000;
+const TOOL_LOOP_TIMEOUT_MS = 45_000;
 
 /** A message's text, cut to `maxInputChars` (0 for no limit), with a note of its images. */
 function describe(message: Record<string, unknown>, maxInputChars: number): string {
