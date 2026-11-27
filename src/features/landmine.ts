@@ -45,15 +45,22 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
       if (!isActiveIn(config.landmine, channelId)) return;
       if (isCommand(message["content"] as string | undefined)) return;
       const roll = random();
+      // Rounded once, so every line of this roll shows the same numbers.
+      const rolled = {
+        userId,
+        channelId,
+        roll: Number(roll.toFixed(4)),
+        chance: config.landmine.chance,
+      };
       if (roll >= config.landmine.chance) {
-        log.debug("landmine", "Safe", { userId, channelId, roll: Number(roll.toFixed(3)) });
+        log.debug("landmine", "Safe", rolled);
         return;
       }
 
       try {
         const remaining = mines.claim();
         if (remaining === null) {
-          log.info("landmine", "Rolled a landmine, but none are left", { userId, channelId });
+          log.info("landmine", "Rolled a landmine, but none are left", rolled);
           return;
         }
 
@@ -68,7 +75,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
           );
           if (!result.ok) {
             mines.refund();
-            log.error("landmine", "Could not time out", { userId, error: result.error });
+            log.error("landmine", "Could not time out", { ...rolled, error: result.error });
             return;
           }
           timedOut = ` and has been timed out for ${formatTime(seconds * 1000)}`;
@@ -77,7 +84,7 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         mines.recordStep(userId);
 
         const gif = config.landmine.gifs[Math.floor(random() * config.landmine.gifs.length)];
-        log.info("landmine", "Stepped on a landmine", { userId, channelId, remaining });
+        log.info("landmine", "Stepped on a landmine", { ...rolled, remaining });
         const sent = await discord.sendMessage(
           channelId,
           `💥<@${userId}>💥 stepped on a landmine${timedOut}! ` +
