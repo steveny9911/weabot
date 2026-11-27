@@ -218,6 +218,10 @@ landmine:
   # Number from 0 to 1. Chance that a message is a landmine.
   chance: 0.1
 
+  # true or false. When true, messages from bots, Haru included, can be landmines too. Haru's own
+  # landmine announcements never count, and Haru is announced but never timed out.
+  include_bots: false
+
   # List of GIF links. Each announcement ends with one picked at random. Default: none.
   # gifs:
   #   - https://tenor.com/b0tMp.gif

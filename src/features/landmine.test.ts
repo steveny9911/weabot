@@ -19,6 +19,7 @@ function setup(
     mines,
     random: () => options.random ?? 0,
     discord: {
+      getBotUserId: async () => "haru",
       timeoutMember: async (...args) => {
         timeouts.push(args);
         return options.timeoutOk === false ? { ok: false, error: "403" } : { ok: true };
@@ -210,6 +211,35 @@ test("every roll logs the roll and the chance, and a hit also logs what is left"
     'info landmine: Stepped on a landmine {"userId":"user-1","channelId":"test-channel",' +
       '"roll":0.1235,"chance":0.5,"remaining":99999}',
   );
+});
+
+test("bot messages are not landmines unless include_bots is on", async () => {
+  const off = setup();
+  await off.service.step(message({ author: { id: "bot-1", bot: true } }));
+  expect(off.sent).toHaveLength(0);
+  const on = setup({ includeBots: true });
+  await on.service.step(message({ author: { id: "bot-1", bot: true } }));
+  expect(on.timeouts).toStrictEqual([["guild-1", "bot-1", 60, "Stepped on a landmine"]]);
+  expect(on.sent).toHaveLength(1);
+});
+
+test("Haru can step on a landmine, is not timed out, and its announcement never rolls", async () => {
+  const off = setup();
+  await off.service.step(message({ author: { id: "haru", bot: true } }));
+  expect(off.sent).toHaveLength(0);
+
+  const on = setup({ includeBots: true });
+  await on.service.step(message({ author: { id: "haru", bot: true } }));
+  expect(on.timeouts).toHaveLength(0);
+  expect(on.sent).toStrictEqual([
+    "test-channel: 💥<@haru>💥 stepped on a landmine! (99,999 landmines remaining)",
+  ]);
+  const announcement = on.sent[0]!.slice("test-channel: ".length);
+  await on.service.step(message({ author: { id: "haru", bot: true }, content: announcement }));
+  expect(on.sent).toHaveLength(1);
+  // Another bot quoting that text is still a normal message.
+  await on.service.step(message({ author: { id: "bot-1", bot: true }, content: announcement }));
+  expect(on.sent).toHaveLength(2);
 });
 
 test("the report covers recent steps, left out older ones, and shows the landmines left", () => {

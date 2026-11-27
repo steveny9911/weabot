@@ -18,8 +18,13 @@ export interface LandmineService {
 export interface LandmineDependencies {
   config: AppConfig;
   mines: ReturnType<typeof createLandmineQueries>;
-  discord: Pick<DiscordClient, "sendMessage" | "timeoutMember">;
+  discord: Pick<DiscordClient, "sendMessage" | "timeoutMember" | "getBotUserId">;
   random?: () => number;
+}
+
+/** Whether a message is a landmine announcement: `💥<@id>💥 stepped on a landmine...`. */
+function isAnnouncement(content: string | undefined): boolean {
+  return /^💥<@[^>]+>💥 stepped on a landmine/.test(content ?? "");
 }
 
 export function createLandmineService(deps: LandmineDependencies): LandmineService {
@@ -43,7 +48,14 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
       if (typeof guildId !== "string" || typeof channelId !== "string") return;
       if (typeof userId !== "string") return;
       if (!isActiveIn(config.landmine, channelId)) return;
-      if (isCommand(message["content"] as string | undefined)) return;
+      const content = message["content"] as string | undefined;
+      if (isCommand(content)) return;
+      // Haru's own messages and other bots' only count when landmine.include_bots is on.
+      const isBot = (message["author"] as { bot?: unknown }).bot === true;
+      const isSelf = isBot && userId === (await discord.getBotUserId());
+      if (isBot && !config.landmine.includeBots) return;
+      // An announcement is Haru's own message; rolling it could chain into more announcements.
+      if (isSelf && isAnnouncement(content)) return;
       const roll = random();
       // Rounded once, so every line of this roll shows the same numbers.
       const rolled = {
@@ -65,7 +77,8 @@ export function createLandmineService(deps: LandmineDependencies): LandmineServi
         }
 
         let timedOut = "";
-        if (config.landmine.stepPenalty.enabled) {
+        // Haru cannot time itself out, so it is announced without a penalty.
+        if (config.landmine.stepPenalty.enabled && !isSelf) {
           const seconds = config.landmine.stepPenalty.timeoutSeconds;
           const result = await discord.timeoutMember(
             guildId,

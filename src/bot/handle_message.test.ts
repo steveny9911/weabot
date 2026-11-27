@@ -591,7 +591,7 @@ test("landmines are rolled for every message, mention or not", async () => {
   expect(stepped).toStrictEqual([plain]);
 });
 
-test("landmines are not rolled for bot messages", async () => {
+test("bot messages are handed to the landmine service, which decides, but never answered", async () => {
   const config = createMockConfig();
   const { deps } = createDeps(config);
   let stepped = 0;
@@ -608,7 +608,7 @@ test("landmines are not rolled for bot messages", async () => {
     author: { id: "bot-1", bot: true },
   };
   await handleMessage(fromBot, deps);
-  expect(stepped).toBe(0);
+  expect(stepped).toBe(1);
 });
 
 test("link open, tweet reading and web search follow their own channels", async () => {
