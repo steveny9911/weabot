@@ -69,6 +69,7 @@ function defaults(): AppConfig {
       channelIds: channels(),
       reportChannelIds: channels(),
       chance: 0.1,
+      includeBots: false,
       stepPenalty: { enabled: true, timeoutSeconds: 60 },
       gifs: [],
     },

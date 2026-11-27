@@ -268,6 +268,10 @@ it ends. The bot needs the **Timeout Members** permission and a role above the m
 Discord never lets a bot time out the server owner or administrators, so with timeouts on they are
 immune: nothing is announced and the landmine is not used up.
 
+Messages from bots are not landmines by default. With `include_bots: true`, other bots and Haru's
+own messages can step on one too. Other bots are timed out like anyone else, Haru is announced but
+never timed out, and Haru's own landmine announcements never roll.
+
 Every step is remembered, so Haru posts a leaderboard of who stepped on the most landmines, with the
 total and the landmines left: every Sunday at 06:00 UTC for the last 7 days, and on the 1st of each
 month at 06:00 UTC for the last month. It goes to `report_channel_ids` (a list, not `all`; empty

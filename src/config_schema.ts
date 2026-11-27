@@ -57,6 +57,7 @@ const KEYS: Keys<ConfigFile> = {
     channel_ids: true,
     report_channel_ids: true,
     chance: true,
+    include_bots: true,
     gifs: true,
     step_penalty: { enabled: true, timeout_seconds: true },
   },

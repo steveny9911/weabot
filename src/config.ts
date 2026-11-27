@@ -112,6 +112,8 @@ export interface AppConfig {
     chance: number;
     /** What happens to whoever steps on a landmine: a Discord timeout, if enabled. */
     stepPenalty: { enabled: boolean; timeoutSeconds: number };
+    /** Whether messages from bots, Haru included, can be landmines too. */
+    includeBots: boolean;
     /** GIF links; the announcement ends with one picked at random. Empty means no GIF. */
     gifs: string[];
   };
@@ -175,6 +177,7 @@ export interface ConfigFile {
   landmine?: ReactiveFeatureFile & {
     report_channel_ids?: string[];
     chance?: number;
+    include_bots?: boolean;
     gifs?: string[];
     step_penalty?: { enabled?: boolean; timeout_seconds?: number };
   };
@@ -348,6 +351,7 @@ export function loadConfig(file: ConfigFile = fileConfig): AppConfig {
         // Discord allows timeouts of up to 28 days.
         timeoutSeconds: Math.min(mine?.step_penalty?.timeout_seconds ?? 60, 28 * 86_400),
       },
+      includeBots: mine?.include_bots ?? false,
       gifs: mine?.gifs ?? [],
     },
   };

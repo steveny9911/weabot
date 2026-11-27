@@ -123,6 +123,7 @@ test("an empty config.yaml gives the defaults", () => {
     channelIds: ["chan-1"],
     reportChannelIds: ["chan-1"],
     chance: 0.1,
+    includeBots: false,
     stepPenalty: { enabled: true, timeoutSeconds: 60 },
     gifs: [],
   });
@@ -160,6 +161,7 @@ landmine:
   channel_ids: ["chan-8"]
   report_channel_ids: ["chan-9"]
   chance: 0.25
+  include_bots: true
   gifs: [https://a.example/1.gif]
   step_penalty: { enabled: false, timeout_seconds: 30 }
 `) as ConfigFile,
@@ -220,6 +222,7 @@ landmine:
     channelIds: ["chan-8"],
     reportChannelIds: ["chan-9"],
     chance: 0.25,
+    includeBots: true,
     stepPenalty: { enabled: false, timeoutSeconds: 30 },
     gifs: ["https://a.example/1.gif"],
   });

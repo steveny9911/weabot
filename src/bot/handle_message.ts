@@ -87,11 +87,12 @@ export async function handleMessage(
   const botId = await discord.getBotUserId();
   const message = parseMessage(raw);
   const { channelId, authorId: userId, content } = message;
+  // Landmines roll for every message the service accepts: people, and bots if landmine.include_bots
+  // is on. Not awaited, so a slow Discord call cannot delay replies.
+  void deps.landmineService?.step(raw);
+
   // Never answer a bot, including Haru itself, to avoid loops.
   if (!botId || !channelId || !userId || message.authorIsBot || userId === botId) return;
-
-  // Landmines roll for every human message. Not awaited, so a slow Discord call cannot delay replies.
-  void deps.landmineService?.step(raw);
   if (!messageMentionsBot(raw, botId)) return;
 
   // Every answer is a Discord reply to the message that asked for it.
