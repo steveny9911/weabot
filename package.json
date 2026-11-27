@@ -14,7 +14,7 @@
     "check": "bun check",
     "fmt": "bun fmt",
     "fmt:check": "bun fmt --check",
-    "lint": "bunx bun@1.4.4-canary.20261104.1 lint --max-warnings 0",
+    "lint": "bunx bun@1.4.5-canary.20261127.1 lint --max-warnings 0",
     "sandbox:discord": "bun --env-file=.env scripts/sandbox/discord.ts",
     "sandbox:events": "bun --env-file=.env scripts/sandbox/events.ts",
     "sandbox:reactions": "bun --env-file=.env scripts/sandbox/reactions.ts",

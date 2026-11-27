@@ -32,7 +32,7 @@ jobs:
       - name: Show versions
         run: |
           bun --version
-          bunx bun@1.4.4-canary.20261104.1 --revision
+          bunx bun@1.4.5-canary.20261127.1 --revision
 
       - name: Verify formatting
         run: bun run fmt:check
