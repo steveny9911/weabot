@@ -61,6 +61,14 @@ const landmineService = createLandmineService({
   mines: createLandmineQueries(db),
   discord,
 });
+if (config.landmine.enabled) {
+  log.info("landmine", "Landmines ready", {
+    chance: config.landmine.chance,
+    percent: Number((config.landmine.chance * 100).toFixed(2)),
+    stepPenalty: config.landmine.stepPenalty,
+    remaining: createLandmineQueries(db).remaining(),
+  });
+}
 
 const botDeps: BotDependencies = {
   config,

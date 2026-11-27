@@ -195,6 +195,23 @@ test("a safe roll and a failed announcement are logged", async () => {
   expect(logs.some((l) => l.includes("Could not announce") && l.includes("403"))).toBe(true);
 });
 
+test("every roll logs the roll and the chance, and a hit also logs what is left", async () => {
+  const { lines: logs, restore } = captureLogs("debug");
+  try {
+    await setup({}, { random: 0.9 }).service.step(message());
+    await setup({}, { random: 0.123456 }).service.step(message());
+  } finally {
+    restore();
+  }
+  expect(logs).toContain(
+    'debug landmine: Safe {"userId":"user-1","channelId":"test-channel","roll":0.9,"chance":0.5}',
+  );
+  expect(logs).toContain(
+    'info landmine: Stepped on a landmine {"userId":"user-1","channelId":"test-channel",' +
+      '"roll":0.1235,"chance":0.5,"remaining":99999}',
+  );
+});
+
 test("the report covers recent steps, left out older ones, and shows the landmines left", () => {
   const { db, service } = setup();
   const add = db.query("INSERT INTO landmine_steps (user_id, stepped_at) VALUES (?, ?)");
